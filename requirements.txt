@@ -3,5 +3,3 @@ streamlit==1.38.0
 pandas==2.3.3
 numpy==1.26.4
 Pillow==10.4.0
-setuptools==70.0.0
-distutils==0.7.3

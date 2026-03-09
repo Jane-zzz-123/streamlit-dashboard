@@ -1,8 +1,7 @@
 -i https://pypi.tuna.tsinghua.edu.cn/simple
-streamlit==1.38.0  
-pandas==2.3.2
-numpy==2.3.2
-plotly==6.3.0
-streamlit-authenticator==0.4.2
-openpyxl==3.1.5
-streamlit-extras==0.4.0
+streamlit==1.38.0
+pandas==2.0.3
+numpy==1.24.3
+Pillow==10.0.1 --only-binary=:all:
+setuptools==65.5.0
+wheel==0.40.0

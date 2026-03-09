@@ -1,5 +1,3 @@
 zlib1g-dev
 libjpeg-dev
-build-essential
 libpng-dev
-libfreetype6-dev

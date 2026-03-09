@@ -104,7 +104,7 @@ def load_data():
     # 核心列筛选
     core_columns = [
         "FBA号", "创件-完成上架",
-        "到货年月", "签收-发货时间", "上架完成-发货时间", "开船-签收",
+        "到货年月", "签收-发货时间", "上架完成-发货时间",
         "预计物流时效-实际物流时效差值(绝对值)",
         "预计物流时效-实际物流时效差值", "提前/延期",
         abnormal_col
@@ -432,3 +432,95 @@ summary_text = f"""
 
 # 渲染总结（用markdown美化）
 st.markdown(summary_text)
+# ---------------------- ② 当月准时率与时效偏差 ----------------------
+st.markdown("### 准时率与时效偏差分布")
+col1, col2 = st.columns(2)
+
+# 左：饼图（提前/准时 vs 延期）
+with col1:
+    if "提前/延期" in df_current.columns and len(df_current) > 0:
+        # 兼容数据值：合并"提前/准时"、"提前"、"准时"为同一类别
+        df_current["提前/延期_分类"] = df_current["提前/延期"].apply(
+            lambda x: "提前/准时" if x in ["提前/准时", "提前", "准时"] else "延期" if x == "延期" else "其他"
+        )
+        pie_data = df_current["提前/延期_分类"].value_counts()
+
+        # 确保颜色映射严格生效（显式指定颜色列表）
+        categories = pie_data.index.tolist()
+        colors = []
+        for cat in categories:
+            if cat == "提前/准时":
+                colors.append("green")
+            elif cat == "延期":
+                colors.append("red")
+            else:
+                colors.append("gray")  # 处理意外类别
+
+        fig_pie = px.pie(
+            values=pie_data.values,
+            names=pie_data.index,
+            title=f"{selected_month} 海运准时率分布",
+            color=pie_data.index,  # 显式指定颜色依据
+            color_discrete_sequence=colors  # 使用顺序颜色列表确保对应关系
+        )
+        fig_pie.update_layout(height=400)
+        st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+        st.write("⚠️ 暂无准时率数据")
+
+# 右：文本直方图（提前/准时 和 延期）
+with col2:
+    if diff_col in df_current.columns and len(df_current) > 0:
+        # 提取并处理数据
+        diff_data = df_current[diff_col].dropna()
+        diff_data = diff_data.round().astype(int)  # 转换为整数天数
+
+        # 分离提前/准时（>=0）和延期（<0）数据
+        early_data = diff_data[diff_data >= 0]  # 包含0天（准时）
+        delay_data = diff_data[diff_data < 0]  # 延期数据
+
+        # 统计各天数出现次数
+        early_counts = early_data.value_counts().sort_index(ascending=False)  # 从大到小排序
+        delay_counts = delay_data.value_counts().sort_index()  # 从小到大排序（-7, -6...）
+
+        # 计算最大计数（用于归一化显示长度）
+        max_count = max(
+            early_counts.max() if not early_counts.empty else 0,
+            delay_counts.max() if not delay_counts.empty else 0
+        )
+        max_display_length = 20  # 最大显示字符数
+
+        # 生成文本直方图（使用HTML设置颜色，与饼图保持一致）
+        st.markdown("#### 提前/准时区间分布")
+        if not early_counts.empty:
+            for day, count in early_counts.items():
+                # 计算显示长度（按比例缩放）
+                display_length = int((count / max_count) * max_display_length) if max_count > 0 else 0
+                bar = "█" * display_length
+                day_label = f"+{day}天" if day > 0 else "0天"  # 0天特殊处理
+                # 绿色显示（与饼图提前/准时颜色一致）
+                st.markdown(
+                    f"<div style='font-family: monospace;'><span style='display: inline-block; width: 60px;'>{day_label}</span>"
+                    f"<span style='color: green;'>{bar}</span> <span> ({count})</span></div>",
+                    unsafe_allow_html=True
+                )
+        else:
+            st.text("暂无提前/准时数据")
+
+        st.markdown("#### 延迟区间分布")
+        if not delay_counts.empty:
+            for day, count in delay_counts.items():
+                display_length = int((count / max_count) * max_display_length) if max_count > 0 else 0
+                bar = "█" * display_length
+                # 红色显示（与饼图延期颜色一致）
+                st.markdown(
+                    f"<div style='font-family: monospace;'><span style='display: inline-block; width: 60px;'>{day}天</span>"
+                    f"<span style='color: red;'>{bar}</span> <span> ({count})</span></div>",
+                    unsafe_allow_html=True
+                )
+        else:
+            st.text("暂无延迟数据")
+    else:
+        st.write("⚠️ 暂无时效偏差数据")
+
+st.divider()

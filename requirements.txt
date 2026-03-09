@@ -1,5 +1,7 @@
 -i https://pypi.tuna.tsinghua.edu.cn/simple
 streamlit==1.38.0
-pandas==2.0.3
-numpy==1.24.3
-Pillow==10.0.1
+pandas==2.3.3
+numpy==1.26.4
+Pillow==10.4.0
+setuptools==70.0.0
+distutils==0.7.3

@@ -1,5 +1,4 @@
 -i https://pypi.tuna.tsinghua.edu.cn/simple
 streamlit==1.38.0
---no-use-pep517
 setuptools>=65.0.0
 wheel>=0.40.0

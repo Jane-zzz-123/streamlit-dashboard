@@ -28,7 +28,10 @@ dashboard_data = [
     {
         "name": "海运看板",
         "url": "https://logisticsdatashippy-ahvlhdyatc6vzafbqxudts.streamlit.app/",
-        "description": "海运物流数据可视化分析"
+        "description": "海运物流数据可视化分析",
+        "name": "AWD补货看板",
+        "url": "https://logisticsdataawdpy-6olhcyqpmqqfu9qwxqrwtj.streamlit.app/",
+        "description": "AWD补货物流数据可视化分析"
     }
 ]
 

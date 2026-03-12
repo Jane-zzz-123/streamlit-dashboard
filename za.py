@@ -2081,17 +2081,32 @@ def main():
                 )
                 st.plotly_chart(fig_change, use_container_width=True)
             if df is not None and not df.empty and selected_store:
+                # 1. 获取当前周全量数据并过滤年份品
                 current_week_full_data = get_week_data(df, selected_date)
-                current_week_store_data = current_week_full_data[
-                    current_week_full_data["店铺"] == selected_store] if current_week_full_data is not None else None
+                current_week_store_data = None
+                if current_week_full_data is not None and not current_week_full_data.empty:
+                    current_week_store_data = current_week_full_data[
+                        current_week_full_data["店铺"] == selected_store].copy()
+                    # 只保留年份品
+                    current_week_store_data = current_week_store_data[
+                        current_week_store_data["是否年份品"] == True].copy()
+
+                # 2. 获取上周全量数据并过滤年份品（补加变量定义！）
                 previous_week_full_data = get_previous_week_data(df, selected_date)
-                previous_week_store_data = previous_week_full_data[
-                    previous_week_full_data["店铺"] == selected_store] if previous_week_full_data is not None else None
+                previous_week_store_data = None
+                if previous_week_full_data is not None and not previous_week_full_data.empty:
+                    previous_week_store_data = previous_week_full_data[
+                        previous_week_full_data["店铺"] == selected_store].copy()
+                    # 只保留年份品
+                    previous_week_store_data = previous_week_store_data[
+                        previous_week_store_data["是否年份品"] == True].copy()
+
+                # 3. 生成风险汇总表
                 store_summary_df = create_risk_summary_table(current_week_store_data, previous_week_store_data)
                 render_risk_summary_table(store_summary_df)
             # 2. 第二部分：组合图
             st.subheader(f"{selected_store} 库存消耗天数分布（MSKU数+总滞销库存）")
-            today = pd.to_datetime(store_current_data["记录时间"].iloc[0])
+            today = pd.to_datetime(store_current_data_all["记录时间"].iloc[0])
             days_to_target = (TARGET_DATE - today).days
             valid_days = store_current_data["预计总库存需要消耗天数"].clip(lower=0)
             max_days = valid_days.max() if not valid_days.empty else 0
@@ -2205,9 +2220,9 @@ def main():
                 page_size=30,
                 table_id=f"store_{selected_store}"
             )
-            if not store_current_data.empty:
-                existing_cols = [col for col in display_columns if col in store_current_data.columns]
-                # 下载包含所有数据（年份品+非年份品）
+            # 关键：判空用全量数据，避免非年份品数据为空时无法下载
+            if not store_current_data_all.empty:
+                existing_cols = [col for col in display_columns if col in store_current_data_all.columns]
                 download_data = store_current_data_all[existing_cols].copy()
                 date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
                 for col in date_cols:

@@ -1774,7 +1774,10 @@ def main():
         stores = sorted(current_data["店铺"].unique())
         selected_store = st.selectbox("选择店铺进行分析", options=stores)
         if selected_store:
-            store_current_data = current_data[current_data["店铺"] == selected_store].copy()
+            # 原始数据（包含所有，用于产品列表/单个MSKU）
+            store_current_data_all = current_data[current_data["店铺"] == selected_store].copy()
+            # 过滤年份品（用于指标/图表统计）
+            store_current_data = store_current_data_all[store_current_data_all["是否年份品"] == True].copy()
             store_current_metrics = calculate_status_metrics(store_current_data)
             def get_store_last_week_metrics():
                 from datetime import timedelta
@@ -1788,6 +1791,8 @@ def main():
                         (prev_data_filtered['记录时间'] >= last_week_start) &
                         (prev_data_filtered['记录时间'] <= last_week_end)
                         ]
+                    # 过滤年份品（只统计年份品）
+                    last_week_data = last_week_data[last_week_data["是否年份品"] == True].copy()
                     if not last_week_data.empty:
                         metrics = calculate_status_metrics(last_week_data)
                         metrics["总滞销库存"] = last_week_data[
@@ -2191,8 +2196,9 @@ def main():
                 "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
             ]
+            # 用全量数据（包含非年份品）渲染产品列表
             render_product_detail_table(
-                store_current_data,
+                store_current_data_all,  # 关键：换成全量数据
                 prev_data[prev_data["店铺"] == selected_store] if (
                         prev_data is not None and not prev_data.empty) else None,
                 page=st.session_state.current_page,
@@ -2201,7 +2207,8 @@ def main():
             )
             if not store_current_data.empty:
                 existing_cols = [col for col in display_columns if col in store_current_data.columns]
-                download_data = store_current_data[existing_cols].copy()
+                # 下载包含所有数据（年份品+非年份品）
+                download_data = store_current_data_all[existing_cols].copy()
                 date_cols = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
                 for col in date_cols:
                     if col in download_data.columns:

@@ -103,26 +103,32 @@ def load_and_preprocess_data_from_df(df):
         ]
         required_base_cols = [
             "MSKU", "品名", "店铺", "记录时间", "日均",
-            "FBA库存", "FBA在途", "海外仓可用","海外仓在途", "本地可用",
+            "FBA库存", "FBA在途", "海外仓可用", "海外仓在途", "本地可用",
             "待检待上架量", "待交付"
         ]
         missing_cols = [col for col in required_base_cols if col not in df.columns]
         if missing_cols:
             st.error(f"Excel文件缺少必要的基础列：{', '.join(missing_cols)}")
             return None
+
+        # 基础数据清洗
         df["记录时间"] = pd.to_datetime(df["记录时间"]).dt.normalize()
-        numeric_cols = ["日均", "FBA库存", "FBA在途", "海外仓可用","海外仓在途",
+        numeric_cols = ["日均", "FBA库存", "FBA在途", "海外仓可用", "海外仓在途",
                         "本地可用", "待检待上架量", "待交付"]
         for col in numeric_cols:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+        # 系数列（暂时都设为1）
         df["10月16-11月15日系数"] = 1
         df["11月16-30日系数"] = 1
         df["12月1-31日系数"] = 1
         df["10月16-11月15日调整后日均"] = (df["日均"] * 1).round(2)
         df["11月16-30日调整后日均"] = (df["日均"] * 1).round(2)
         df["12月1-31日调整后日均"] = (df["日均"] * 1).round(2)
+
         # 1. FBA+AWD+在途库存
-        df["FBA+AWD+在途库存"] = (df["FBA库存"] + df["FBA在途"] + df["海外仓可用"]+ df["海外仓在途"]).round().astype(int)
+        df["FBA+AWD+在途库存"] = (df["FBA库存"] + df["FBA在途"] + df["海外仓可用"] + df["海外仓在途"]).round().astype(
+            int)
         # 2. 全部总库存
         df["全部总库存"] = (
                 df["FBA+AWD+在途库存"] + df["本地可用"] + df["待检待上架量"] + df["待交付"]
@@ -173,16 +179,16 @@ def load_and_preprocess_data_from_df(df):
                 return current_date + pd.Timedelta(days=days_needed)
             return current_date
 
-        # 4. 预计FBA+AWD+在途用完时间（调用分阶段计算函数）
+        # 4. 预计FBA+AWD+在途用完时间
         df["预计FBA+AWD+在途用完时间"] = df.apply(
             lambda row: calculate_exhaust_date(row, "FBA+AWD+在途库存"), axis=1
         )
-        # 5. 预计总库存用完时间（调用分阶段计算函数）
+        # 5. 预计总库存用完时间
         df["预计总库存用完"] = df.apply(
             lambda row: calculate_exhaust_date(row, "全部总库存"), axis=1
         )
 
-        # 6. 新增：分阶段计算滞销库存的核心函数
+        # 6. 分阶段计算滞销库存的核心函数
         def calculate_overstock(row, stock_col):
             record_date = row["记录时间"]
             stock = row[stock_col]
@@ -225,28 +231,45 @@ def load_and_preprocess_data_from_df(df):
             # 滞销库存 = 总库存 - 目标日期前可售出库存
             return max(0, stock - sold_by_target)
 
-        # 7. 预计用完时间比目标时间多出来的天数（基于分阶段计算的耗尽日期）
+        # 7. 预计用完时间比目标时间多出来的天数
         days_diff = (df["预计总库存用完"] - TARGET_DATE).dt.days
         df["预计用完时间比目标时间多出来的天数"] = np.where(days_diff > 0, days_diff, 0).astype(int)
-        # 8. 状态判断（修改：新增是否年份品参数）
-        def determine_status(days, is_year_product):
-            # 非年份品直接返回标注
+
+        # 8. 新增1：区分年份品/非年份品
+        df["是否年份品"] = df["品名"].astype(str).str.contains("2026", na=False)
+
+        # 状态判断函数（优化：处理nan）
+        def determine_status(row):
+            days = row["预计用完时间比目标时间多出来的天数"]
+            is_year_product = row["是否年份品"]
+
+            # 先判断非年份品，避免nan干扰
             if not is_year_product:
                 return "非年份品（无目标日期风险）"
-            # 原有年份品逻辑保留
+            # 处理年份品的nan/异常值
+            if pd.isna(days) or days < 0:
+                return "健康"
             if days >= 20:
                 return "高滞销风险"
             elif days >= 10:
                 return "中滞销风险"
             elif days > 0:
                 return "低滞销风险"
-            else:  # days == 0
+            else:
                 return "健康"
-        # 9. 环比上周库存滞销情况变化（原有逻辑保留）
+
+        # 新增4：非年份品隔离逻辑（先执行）
+        non_year_mask = df["是否年份品"] == False
+        df.loc[non_year_mask, "预计用完时间比目标时间多出来的天数"] = np.nan
+
+        # 生成状态判断列（关键：先生成，再算环比）
+        df["状态判断"] = df.apply(determine_status, axis=1)
+
+        # 9. 环比上周库存滞销情况变化（移到状态判断之后！）
         df = df.sort_values(["MSKU", "记录时间"])
         df["上周状态"] = df.groupby("MSKU")["状态判断"].shift(1)
         status_severity = {"健康": 0, "低滞销风险": 1, "中滞销风险": 2, "高滞销风险": 3,
-                           "非年份品（无目标日期风险）": 0}  # 新增非年份品的严重度
+                           "非年份品（无目标日期风险）": 0}
 
         def compare_status(current, previous):
             if pd.isna(previous):
@@ -260,61 +283,26 @@ def load_and_preprocess_data_from_df(df):
         df["环比上周库存滞销情况变化"] = df.apply(
             lambda row: compare_status(row["状态判断"], row["上周状态"]), axis=1
         )
-        # 10. FBA+AWD+在途滞销数量（调用分阶段滞销计算函数）
+
+        # 10. FBA+AWD+在途滞销数量
         df["FBA+AWD+在途滞销数量"] = df.apply(
             lambda row: calculate_overstock(row, "FBA+AWD+在途库存"), axis=1
         ).round().astype(int)
-        # 11. 总滞销库存（调用分阶段滞销计算函数）
+        # 11. 总滞销库存
         df["总滞销库存"] = df.apply(
             lambda row: calculate_overstock(row, "全部总库存"), axis=1
         ).round().astype(int)
         # 12. 本地滞销数量
         df["本地滞销数量"] = (df["总滞销库存"] - df["FBA+AWD+在途滞销数量"]).round().astype(int)
         df["本地滞销数量"] = np.maximum(df["本地滞销数量"], 0)
-        # 13. 预计总库存需要消耗天数（基于分阶段耗尽日期计算）
+
+        # 13. 预计总库存需要消耗天数
         df["预计总库存需要消耗天数"] = (
                 (df["预计总库存用完"] - df["记录时间"]).dt.total_seconds() / (24 * 3600)
         ).round().astype(int)
 
-        def calculate_target_sales(row):
-            record_date = row["记录时间"]
-            base_avg = row["日均"] if row["日均"] > 0 else 0.1  # 基础日均（避免为0）
-            target_date = TARGET_DATE
-            total_sales = 0  # 目标日期前可售总量
-            current_date = record_date
-            # 若记录日期≥目标日期，可售总量为0
-            if current_date >= target_date:
-                return 0
-            # 阶段1：记录日期 → 2026-10-15（系数=1.0）
-            phase1_end = datetime(2026, 10, 15)
-            if current_date <= phase1_end:
-                actual_end = min(phase1_end, target_date)  # 不超过目标日期
-                days_in_phase = (actual_end - current_date).days + 1  # 包含首尾
-                sales = base_avg * days_in_phase  # 此阶段无系数
-                total_sales += sales
-                current_date = actual_end + pd.Timedelta(days=1)
-            # 阶段2：处理3个特殊时间段
-            for period in TIME_PERIODS:
-                if current_date >= target_date:
-                    break  # 已过目标日期，停止计算
-                period_start = max(current_date, period["start"])
-                period_end = min(period["end"], target_date)
-                if period_start > period_end:
-                    continue  # 无重叠时间，跳过
-                # 计算此时间段的可售量（基础日均 × 系数 × 天数）
-                days_in_period = (period_end - period_start).days + 1
-                adjusted_avg = base_avg * period["coefficient"]  # 应用系数
-                sales = adjusted_avg * days_in_period
-                total_sales += sales
-                current_date = period_end + pd.Timedelta(days=1)
-            return total_sales
-
-        # ========== 新增1：区分年份品/非年份品 ==========
-        df["是否年份品"] = df["品名"].astype(str).str.contains("2026", na=False)
-
-        # ========== 新增2：库存周转状态判断列 ==========
+        # 新增2：库存周转状态判断列
         def judge_inventory_turnover(days):
-            # 处理空值/负数
             if pd.isna(days) or days <= 0:
                 return "数据异常"
             elif days <= 100:
@@ -323,68 +311,80 @@ def load_and_preprocess_data_from_df(df):
                 return "轻度滞销风险"
             elif 150 < days <= 180:
                 return "中度滞销风险"
-            else:  # >180天
+            else:
                 return "严重滞销风险"
 
         df["库存周转状态判断"] = df["预计总库存需要消耗天数"].apply(judge_inventory_turnover)
 
-        # ========== 新增3：100天内达标日均列 ==========
+        # 新增3：100天内达标日均列
         df["总库存周转天数100天内达标日均"] = (df["全部总库存"] / 100).round(2)
-        # 避免负数/空值
         df["总库存周转天数100天内达标日均"] = df["总库存周转天数100天内达标日均"].clip(lower=0).fillna(0)
 
-        # ========== 新增4：非年份品隔离原逻辑 ==========
-        non_year_mask = df["是否年份品"] == False
-        # 非年份品清空原目标日期相关列
-        df.loc[non_year_mask, "预计用完时间比目标时间多出来的天数"] = np.nan
-        # 调用状态判断函数时传入是否年份品参数
-        df["状态判断"] = df.apply(
-            lambda row: determine_status(row["预计用完时间比目标时间多出来的天数"], row["是否年份品"]),
-            axis=1
-        )
-
         # 14. 清库存的目标日均
+        def calculate_target_sales(row):
+            record_date = row["记录时间"]
+            base_avg = row["日均"] if row["日均"] > 0 else 0.1
+            target_date = TARGET_DATE
+            total_sales = 0
+            current_date = record_date
+            if current_date >= target_date:
+                return 0
+            # 阶段1：2026-10-15前
+            phase1_end = datetime(2026, 10, 15)
+            if current_date <= phase1_end:
+                actual_end = min(phase1_end, target_date)
+                days_in_phase = (actual_end - current_date).days + 1
+                sales = base_avg * days_in_phase
+                total_sales += sales
+                current_date = actual_end + pd.Timedelta(days=1)
+            # 阶段2：特殊时间段
+            for period in TIME_PERIODS:
+                if current_date >= target_date:
+                    break
+                period_start = max(current_date, period["start"])
+                period_end = min(period["end"], target_date)
+                if period_start > period_end:
+                    continue
+                days_in_period = (period_end - period_start).days + 1
+                adjusted_avg = base_avg * period["coefficient"]
+                sales = adjusted_avg * days_in_period
+                total_sales += sales
+                current_date = period_end + pd.Timedelta(days=1)
+            return total_sales
+
         days_available = (TARGET_DATE - df["记录时间"]).dt.days
-        days_available = np.maximum(days_available, 1)  # 避免除以0
-        # 计算分阶段可售总量
+        days_available = np.maximum(days_available, 1)
         df["目标日期前分阶段可售总量"] = df.apply(calculate_target_sales, axis=1)
-        # 健康状态：用分阶段加权后的日均（原日均×各阶段系数的加权平均）
-        # 非健康状态：用总库存÷目标日期前总天数（确保能卖完）
         df["清库存的目标日均"] = np.where(
             df["状态判断"] == "健康",
-            # 健康状态：分阶段可售总量 ÷ 总天数（得到加权平均日均）
             (df["目标日期前分阶段可售总量"] / days_available).round(2),
-            # 非健康状态：按总库存和剩余天数计算
             (df["全部总库存"] / days_available).round(2)
         )
 
         # 15. 预计清完FBA+AWD+在途需要的日均
         def calculate_fba_awd_target_avg(row):
-            """计算清空FBA+AWD+在途库存所需的目标日均"""
             record_date = row["记录时间"]
             fba_awd_stock = row["FBA+AWD+在途库存"]
             target_date = TARGET_DATE
-            # 计算目标日期前的总天数（避免除以0）
             days_available = (target_date - record_date).days
             days_available = max(days_available, 1)
-            # 计算FBA+AWD+在途库存的分阶段可售总量
             fba_sales_possible = calculate_target_sales(row)
-            # 判断FBA+AWD+在途库存状态
             if fba_awd_stock <= fba_sales_possible:
-                # 库存可在目标日期前自然售罄，使用分阶段加权日均
                 return round(fba_sales_possible / days_available, 2)
             else:
-                # 库存无法自然售罄，计算需要加速的日均
                 return round(fba_awd_stock / days_available, 2)
 
-        # 应用计算函数
         df["预计清完FBA+AWD+在途需要的日均"] = df.apply(calculate_fba_awd_target_avg, axis=1)
         df = df.drop(columns=["目标日期前分阶段可售总量"], errors="ignore")
-        # 排序
+
+        # 最终排序
         df = df.sort_values("记录时间", ascending=False).reset_index(drop=True)
         return df
+
     except Exception as e:
         st.error(f"数据加载失败：{str(e)}")
+        import traceback
+        st.error(f"详细错误信息：{traceback.format_exc()}")  # 新增：打印详细错误，方便调试
         return None
 def get_week_data(df, target_date):
     """获取指定日期的数据"""

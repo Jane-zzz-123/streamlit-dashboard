@@ -228,7 +228,20 @@ def load_and_preprocess_data_from_df(df):
         # 7. 预计用完时间比目标时间多出来的天数（基于分阶段计算的耗尽日期）
         days_diff = (df["预计总库存用完"] - TARGET_DATE).dt.days
         df["预计用完时间比目标时间多出来的天数"] = np.where(days_diff > 0, days_diff, 0).astype(int)
-
+        # 8. 状态判断（修改：新增是否年份品参数）
+        def determine_status(days, is_year_product):
+            # 非年份品直接返回标注
+            if not is_year_product:
+                return "非年份品（无目标日期风险）"
+            # 原有年份品逻辑保留
+            if days >= 20:
+                return "高滞销风险"
+            elif days >= 10:
+                return "中滞销风险"
+            elif days > 0:
+                return "低滞销风险"
+            else:  # days == 0
+                return "健康"
         # 9. 环比上周库存滞销情况变化（原有逻辑保留）
         df = df.sort_values(["MSKU", "记录时间"])
         df["上周状态"] = df.groupby("MSKU")["状态判断"].shift(1)
@@ -295,20 +308,6 @@ def load_and_preprocess_data_from_df(df):
                 total_sales += sales
                 current_date = period_end + pd.Timedelta(days=1)
             return total_sales
-        # 8. 状态判断（修改：新增是否年份品参数）
-        def determine_status(days, is_year_product):
-            # 非年份品直接返回标注
-            if not is_year_product:
-                return "非年份品（无目标日期风险）"
-            # 原有年份品逻辑保留
-            if days >= 20:
-                return "高滞销风险"
-            elif days >= 10:
-                return "中滞销风险"
-            elif days > 0:
-                return "低滞销风险"
-            else:  # days == 0
-                return "健康"
 
         # ========== 新增1：区分年份品/非年份品 ==========
         df["是否年份品"] = df["品名"].astype(str).str.contains("2026", na=False)

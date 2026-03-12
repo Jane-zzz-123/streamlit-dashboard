@@ -387,13 +387,17 @@ def load_and_preprocess_data_from_df(df):
         import traceback
         st.error(f"详细错误信息：{traceback.format_exc()}")  # 新增：打印详细错误，方便调试
         return None
-def get_week_data(df, target_date):
+def get_week_data_year_product(df, target_date):
     """获取指定日期的数据"""
     target_date = pd.to_datetime(target_date).normalize()
     week_data = df[df["记录时间"] == target_date].copy()
-    # ========== 新增：剔除非年份品（通用数据获取函数） ==========
-    week_data = week_data[week_data["是否年份品"] == True].copy()
     return week_data if not week_data.empty else None
+def get_week_data_year_product(df, target_date):
+    """获取指定日期的年份品数据（给指标/图表用）"""
+    week_data = get_week_data_year_product(df, target_date)  # 先拿全量
+    if week_data is not None and not week_data.empty:
+        week_data = week_data[week_data["是否年份品"] == True].copy()  # 只留年份品
+    return week_data
 
 def get_previous_week_data(df, current_date):
     """获取上一周数据（用于环比计算）"""
@@ -404,7 +408,8 @@ def get_previous_week_data(df, current_date):
     current_idx = all_dates.index(current_date)
     if current_idx > 0:
         prev_date = all_dates[current_idx - 1]
-        return get_week_data(df, prev_date)
+        # ========== 关键修改：用新的年份品函数 ==========
+        return get_week_data_year_product(df, prev_date)
     return None
 
 def calculate_status_metrics(data):
@@ -779,10 +784,10 @@ def render_four_week_comparison_table(df, date_list):
     date_labels = [d.strftime("%Y-%m-%d") for d in display_dates]
     comparison_data = []
     for i, date in enumerate(display_dates):
-        data = get_week_data(df, date)  # 已内置年份品筛选
+        data = get_week_data_year_product(df, date)  # 已内置年份品筛选
         metrics = calculate_status_metrics(data)
         if i > 0:
-            prev_data = get_week_data(df, display_dates[i - 1])  # 已内置年份品筛选
+            prev_data = get_week_data_year_product(df, display_dates[i - 1])  # 已内置年份品筛选
             prev_metrics = calculate_status_metrics(prev_data)
             comparisons = compare_with_previous(metrics, prev_metrics)
         else:
@@ -874,7 +879,7 @@ def render_four_week_status_chart(df, date_list):
     # 准备数据
     trend_data = []
     for date, label in zip(display_dates, date_labels):
-        data = get_week_data(df, date)  # 已内置年份品筛选
+        data = get_week_data_year_product(df, date)  # 已内置年份品筛选
         metrics = calculate_status_metrics(data)
 
         for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
@@ -915,7 +920,7 @@ def render_store_trend_charts(df, date_list):
         return
 
     # ========== 新增1：兜底筛选年份品 + 空值兼容 ==========
-    week_datas = [get_week_data(df, date) for date in date_list]
+    week_datas = [get_week_data_year_product(df, date) for date in date_list]
     week_datas = [d for d in week_datas if d is not None and not d.empty]
     if not week_datas:
         st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
@@ -936,7 +941,7 @@ def render_store_trend_charts(df, date_list):
         # 准备店铺数据
         store_data = []
         for date, label in zip(date_list, date_labels):
-            data = get_week_data(df, date)  # 已内置年份品筛选
+            data = get_week_data_year_product(df, date)  # 已内置年份品筛选
             if data is not None and not data.empty:
                 store_status_data = data[data["店铺"] == store]
                 # ========== 新增3：过滤店铺数据的非年份品状态 ==========
@@ -984,7 +989,7 @@ def render_store_weekly_changes(df, date_list):
         return
 
     # ========== 新增1：兜底筛选年份品 + 空值兼容 ==========
-    week_datas = [get_week_data(df, date) for date in date_list]
+    week_datas = [get_week_data_year_product(df, date) for date in date_list]
     week_datas = [d for d in week_datas if d is not None and not d.empty]
     if not week_datas:
         st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
@@ -1012,7 +1017,7 @@ def render_store_weekly_changes(df, date_list):
 
     for store in stores:
         for i, (date, label) in enumerate(zip(date_list, date_labels)):
-            data = get_week_data(df, date)  # 已内置年份品筛选
+            data = get_week_data_year_product(df, date)  # 已内置年份品筛选
             if data is not None and not data.empty:
                 store_status_data = data[data["店铺"] == store]
                 # ========== 新增3：过滤店铺数据的非年份品状态 ==========
@@ -1023,7 +1028,7 @@ def render_store_weekly_changes(df, date_list):
                 # 获取上周数据
                 prev_metrics = None
                 if i > 0:
-                    prev_data = get_week_data(df, date_list[i - 1])
+                    prev_data = get_week_data_year_product(df, date_list[i - 1])
                     if prev_data is not None and not prev_data.empty:
                         prev_store_data = prev_data[prev_data["店铺"] == store]
                         prev_store_data = prev_store_data[
@@ -1771,7 +1776,7 @@ def main():
 
     # ========== 核心修改：分离全量数据和年份品数据 ==========
     # 1. 获取全量的当前周数据（包含年份品+非年份品）- 用于产品列表/单个MSKU
-    current_data_full = get_week_data(df, selected_date)
+    current_data_full = get_week_data_year_product(df, selected_date)
     # 2. 过滤出年份品数据 - 用于指标/图表统计
     current_data_year = None
     if current_data_full is not None and not current_data_full.empty:
@@ -2133,7 +2138,7 @@ def main():
             # ========== 风险汇总表 ==========
             if df is not None and not df.empty and selected_store:
                 # 获取当前周全量数据并过滤年份品
-                current_week_full_data = get_week_data(df, selected_date)
+                current_week_full_data = get_week_data_year_product(df, selected_date)
                 current_week_store_data = None
                 if current_week_full_data is not None and not current_week_full_data.empty:
                     current_week_store_data = current_week_full_data[

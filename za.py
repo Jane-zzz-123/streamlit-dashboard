@@ -229,55 +229,6 @@ def load_and_preprocess_data_from_df(df):
         days_diff = (df["预计总库存用完"] - TARGET_DATE).dt.days
         df["预计用完时间比目标时间多出来的天数"] = np.where(days_diff > 0, days_diff, 0).astype(int)
 
-        # 8. 状态判断（修改：新增是否年份品参数）
-        def determine_status(days, is_year_product):
-            # 非年份品直接返回标注
-            if not is_year_product:
-                return "非年份品（无目标日期风险）"
-            # 原有年份品逻辑保留
-            if days >= 20:
-                return "高滞销风险"
-            elif days >= 10:
-                return "中滞销风险"
-            elif days > 0:
-                return "低滞销风险"
-            else:  # days == 0
-                return "健康"
-
-        # ========== 新增1：区分年份品/非年份品 ==========
-        df["是否年份品"] = df["品名"].astype(str).str.contains("2026", na=False)
-
-        # ========== 新增2：库存周转状态判断列 ==========
-        def judge_inventory_turnover(days):
-            # 处理空值/负数
-            if pd.isna(days) or days <= 0:
-                return "数据异常"
-            elif days <= 100:
-                return "库存周转健康"
-            elif 100 < days <= 150:
-                return "轻度滞销风险"
-            elif 150 < days <= 180:
-                return "中度滞销风险"
-            else:  # >180天
-                return "严重滞销风险"
-
-        df["库存周转状态判断"] = df["预计总库存需要消耗天数"].apply(judge_inventory_turnover)
-
-        # ========== 新增3：100天内达标日均列 ==========
-        df["总库存周转天数100天内达标日均"] = (df["全部总库存"] / 100).round(2)
-        # 避免负数/空值
-        df["总库存周转天数100天内达标日均"] = df["总库存周转天数100天内达标日均"].clip(lower=0).fillna(0)
-
-        # ========== 新增4：非年份品隔离原逻辑 ==========
-        non_year_mask = df["是否年份品"] == False
-        # 非年份品清空原目标日期相关列
-        df.loc[non_year_mask, "预计用完时间比目标时间多出来的天数"] = np.nan
-        # 调用状态判断函数时传入是否年份品参数
-        df["状态判断"] = df.apply(
-            lambda row: determine_status(row["预计用完时间比目标时间多出来的天数"], row["是否年份品"]),
-            axis=1
-        )
-
         # 9. 环比上周库存滞销情况变化（原有逻辑保留）
         df = df.sort_values(["MSKU", "记录时间"])
         df["上周状态"] = df.groupby("MSKU")["状态判断"].shift(1)
@@ -344,6 +295,54 @@ def load_and_preprocess_data_from_df(df):
                 total_sales += sales
                 current_date = period_end + pd.Timedelta(days=1)
             return total_sales
+        # 8. 状态判断（修改：新增是否年份品参数）
+        def determine_status(days, is_year_product):
+            # 非年份品直接返回标注
+            if not is_year_product:
+                return "非年份品（无目标日期风险）"
+            # 原有年份品逻辑保留
+            if days >= 20:
+                return "高滞销风险"
+            elif days >= 10:
+                return "中滞销风险"
+            elif days > 0:
+                return "低滞销风险"
+            else:  # days == 0
+                return "健康"
+
+        # ========== 新增1：区分年份品/非年份品 ==========
+        df["是否年份品"] = df["品名"].astype(str).str.contains("2026", na=False)
+
+        # ========== 新增2：库存周转状态判断列 ==========
+        def judge_inventory_turnover(days):
+            # 处理空值/负数
+            if pd.isna(days) or days <= 0:
+                return "数据异常"
+            elif days <= 100:
+                return "库存周转健康"
+            elif 100 < days <= 150:
+                return "轻度滞销风险"
+            elif 150 < days <= 180:
+                return "中度滞销风险"
+            else:  # >180天
+                return "严重滞销风险"
+
+        df["库存周转状态判断"] = df["预计总库存需要消耗天数"].apply(judge_inventory_turnover)
+
+        # ========== 新增3：100天内达标日均列 ==========
+        df["总库存周转天数100天内达标日均"] = (df["全部总库存"] / 100).round(2)
+        # 避免负数/空值
+        df["总库存周转天数100天内达标日均"] = df["总库存周转天数100天内达标日均"].clip(lower=0).fillna(0)
+
+        # ========== 新增4：非年份品隔离原逻辑 ==========
+        non_year_mask = df["是否年份品"] == False
+        # 非年份品清空原目标日期相关列
+        df.loc[non_year_mask, "预计用完时间比目标时间多出来的天数"] = np.nan
+        # 调用状态判断函数时传入是否年份品参数
+        df["状态判断"] = df.apply(
+            lambda row: determine_status(row["预计用完时间比目标时间多出来的天数"], row["是否年份品"]),
+            axis=1
+        )
 
         # 14. 清库存的目标日均
         days_available = (TARGET_DATE - df["记录时间"]).dt.days

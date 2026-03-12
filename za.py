@@ -1758,7 +1758,8 @@ def main():
         st.session_state.current_page = 1
     all_dates = sorted(df["记录时间"].unique())
     latest_date = all_dates[-1] if all_dates else None
-    # 第一部分：整体风险分析
+
+    # ===================== 页面核心代码 =====================
     st.header("一、整体风险分析")
     # 记录时间筛选器
     selected_date = st.selectbox(
@@ -1767,52 +1768,87 @@ def main():
         index=len(all_dates) - 1 if all_dates else 0,
         format_func=lambda x: x.strftime("%Y年%m月%d日")
     )
-    # 获取当前周和上周数据
-    current_data = get_week_data(df, selected_date)
-    prev_data = get_previous_week_data(df, selected_date)
+
+    # ========== 核心修改：分离全量数据和年份品数据 ==========
+    # 1. 获取全量的当前周数据（包含年份品+非年份品）- 用于产品列表/单个MSKU
+    current_data_full = get_week_data(df, selected_date)
+    # 2. 过滤出年份品数据 - 用于指标/图表统计
+    current_data_year = None
+    if current_data_full is not None and not current_data_full.empty:
+        current_data_year = current_data_full[current_data_full["是否年份品"] == True].copy()
+
+    # 3. 获取全量的上周数据（包含年份品+非年份品）
+    prev_data_full = get_previous_week_data(df, selected_date)
+    # 4. 过滤出年份品的上周数据 - 用于环比统计
+    prev_data_year = None
+    if prev_data_full is not None and not prev_data_full.empty:
+        prev_data_year = prev_data_full[prev_data_full["是否年份品"] == True].copy()
+
+    # 赋值给原有变量（保持后续代码兼容）
+    current_data = current_data_year  # 指标/图表用
+    prev_data = prev_data_year  # 环比统计用
+
     st.subheader("1 店铺整体分析")
     if current_data is not None and not current_data.empty:
         stores = sorted(current_data["店铺"].unique())
         selected_store = st.selectbox("选择店铺进行分析", options=stores)
         if selected_store:
-            # 原始数据（包含所有，用于产品列表/单个MSKU）
-            store_current_data_all = current_data[current_data["店铺"] == selected_store].copy()
-            # 过滤年份品（用于指标/图表统计）
-            store_current_data = store_current_data_all[store_current_data_all["是否年份品"] == True].copy()
-            store_current_metrics = calculate_status_metrics(store_current_data)
+            # ========== 店铺数据初始化 ==========
+            # 全量店铺数据（包含年份品+非年份品）- 用于产品列表/下载
+            store_current_data_all = current_data_full[current_data_full["店铺"] == selected_store].copy()
+            # 年份品店铺数据 - 用于指标/图表统计
+            store_current_data = None
+            if not store_current_data_all.empty:
+                store_current_data = store_current_data_all[store_current_data_all["是否年份品"] == True].copy()
+            store_current_metrics = calculate_status_metrics(
+                store_current_data) if store_current_data is not None else {}
+
+            # ========== 上周数据处理 ==========
             def get_store_last_week_metrics():
                 from datetime import timedelta
+                if store_current_data is None or store_current_data.empty:
+                    return {
+                        "总MSKU数": 0, "健康": 0, "低滞销风险": 0, "中滞销风险": 0, "高滞销风险": 0,
+                        "总滞销库存": 0
+                    }, None
+
                 current_date = pd.to_datetime(store_current_data["记录时间"].iloc[0])
                 last_week_start = current_date - timedelta(days=14)
                 last_week_end = current_date - timedelta(days=7)
-                if 'prev_data' in locals() and prev_data is not None and not prev_data.empty:
-                    prev_data_filtered = prev_data[prev_data["店铺"] == selected_store].copy()
+
+                if prev_data_full is not None and not prev_data_full.empty:
+                    prev_data_filtered = prev_data_full[prev_data_full["店铺"] == selected_store].copy()
                     prev_data_filtered['记录时间'] = pd.to_datetime(prev_data_filtered['记录时间'])
                     last_week_data = prev_data_filtered[
                         (prev_data_filtered['记录时间'] >= last_week_start) &
                         (prev_data_filtered['记录时间'] <= last_week_end)
                         ]
                     # 过滤年份品（只统计年份品）
-                    last_week_data = last_week_data[last_week_data["是否年份品"] == True].copy()
+                    last_week_data = last_week_data[
+                        last_week_data["是否年份品"] == True].copy() if not last_week_data.empty else pd.DataFrame()
+
                     if not last_week_data.empty:
                         metrics = calculate_status_metrics(last_week_data)
                         metrics["总滞销库存"] = last_week_data[
                             "总滞销库存"].sum() if "总滞销库存" in last_week_data.columns else 0
                         return metrics, last_week_data
+
                 return {
                     "总MSKU数": 0, "健康": 0, "低滞销风险": 0, "中滞销风险": 0, "高滞销风险": 0,
                     "总滞销库存": 0
                 }, None
+
             store_last_week_metrics, last_week_data = get_store_last_week_metrics()
-            # 计算状态变化
+
+            # ========== 计算状态变化 ==========
             status_change = {
                 "健康": {"改善": 0, "不变": 0, "恶化": 0},
                 "低滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
                 "中滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
                 "高滞销风险": {"改善": 0, "不变": 0, "恶化": 0}
             }
-            # 状态严重程度排序（用于判断变化方向：健康 < 低风险 < 中风险 < 高风险）
             status_severity = {"健康": 0, "低滞销风险": 1, "中滞销风险": 2, "高滞销风险": 3}
+
             if last_week_data is not None and not last_week_data.empty and "MSKU" in store_current_data.columns:
                 merged_data = pd.merge(
                     store_current_data[["MSKU", "状态判断"]],
@@ -1829,13 +1865,15 @@ def main():
                     if current_status == prev_status:
                         status_change[current_status]["不变"] += 1
                     elif status_severity[current_status] < status_severity[prev_status]:
-                        status_change[current_status]["改善"] += 1  # 当前状态更轻=变好
+                        status_change[current_status]["改善"] += 1
                     else:
-                        status_change[current_status]["恶化"] += 1  # 当前状态更重=变差
+                        status_change[current_status]["恶化"] += 1
+
+            # ========== 指标计算 ==========
             store_metrics = {}
             for metric in ["总MSKU数", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
-                current = int(store_current_metrics[metric])
-                last_week = int(store_last_week_metrics[metric])
+                current = int(store_current_metrics.get(metric, 0))
+                last_week = int(store_last_week_metrics.get(metric, 0))
                 diff = current - last_week
                 pct = (diff / last_week) * 100 if last_week != 0 else 0.0
                 store_metrics[metric] = {
@@ -1844,6 +1882,8 @@ def main():
                     "diff": diff,
                     "pct": round(pct, 2)
                 }
+
+            # ========== 辅助函数 ==========
             def get_overstock_compare_text(current_overstock, last_week_overstock, status=None):
                 current = round(float(current_overstock), 2)
                 last_week = round(float(last_week_overstock), 2)
@@ -1855,7 +1895,7 @@ def main():
                 pct = (diff / last_week) * 100 if last_week != 0 else 0.0
                 pct_text = f"{abs(pct):.2f}%"
                 return f"<br><span style='color:{color}; font-size:0.8em;'>{status + ' ' if status else ''}总滞销库存: {current:.2f} ({trend}{abs(diff):.2f} {pct_text})</span>"
-            # 生成状态变化文本
+
             def get_status_change_text(status):
                 changes = status_change[status]
                 total = changes["改善"] + changes["不变"] + changes["恶化"]
@@ -1866,23 +1906,26 @@ def main():
                 <span style='color:#666; font-size:0.8em;'>不变: {changes['不变']}</span> | 
                 <span style='color:#DC143C; font-size:0.8em;'>恶化: {changes['恶化']}</span>
                 """
+
             def get_compare_text(metric_data, metric_name):
                 if metric_data["last_week"] == 0:
                     return "<br><span style='color:#666; font-size:0.8em;'>无上周数据</span>"
                 trend = "↑" if metric_data["diff"] > 0 else "↓" if metric_data["diff"] < 0 else "→"
                 color = "#DC143C" if metric_data["diff"] > 0 else "#2E8B57" if metric_data["diff"] < 0 else "#666"
-                pct_text = f"{abs(metric_data['pct']):.2f}%"  # 原1位→2位小数
+                pct_text = f"{abs(metric_data['pct']):.2f}%"
                 if metric_name == "总MSKU数":
                     return f"<br><span style='color:{color}; font-size:0.8em;'>{trend} 上周{metric_data['last_week']}，变化{metric_data['diff']} ({pct_text})</span>"
                 else:
                     status = "上升" if metric_data["diff"] > 0 else "下降" if metric_data["diff"] < 0 else "无变化"
                     return f"<br><span style='color:{color}; font-size:0.8em;'>{trend} 上周{metric_data['last_week']}，{status}{abs(metric_data['diff'])} ({pct_text})</span>"
+
+            # ========== 指标卡片 ==========
             cols = st.columns(5)
             with cols[0]:
                 data = store_metrics["总MSKU数"]
                 compare_text = get_compare_text(data, "总MSKU数")
-                total_overstock = store_current_data[
-                    "总滞销库存"].sum() if "总滞销库存" in store_current_data.columns else 0
+                total_overstock = store_current_data["总滞销库存"].sum() if (
+                            store_current_data is not None and "总滞销库存" in store_current_data.columns) else 0
                 last_week_total_overstock = store_last_week_metrics.get("总滞销库存", 0)
                 overstock_text = get_overstock_compare_text(total_overstock, last_week_total_overstock)
                 render_metric_card(
@@ -1892,12 +1935,13 @@ def main():
                     data["pct"],
                     "#000000"
                 )
+
             with cols[1]:
                 data = store_metrics["健康"]
                 compare_text = get_compare_text(data, "健康")
                 healthy_overstock = store_current_data[store_current_data["状态判断"] == "健康"][
                     "总滞销库存"].sum() if (
-                            "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
                 last_week_healthy_overstock = last_week_data[last_week_data["状态判断"] == "健康"][
                     "总滞销库存"].sum() if (
                             last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
@@ -1911,13 +1955,13 @@ def main():
                     data["pct"],
                     STATUS_COLORS["健康"]
                 )
+
             with cols[2]:
                 data = store_metrics["低滞销风险"]
                 compare_text = get_compare_text(data, "低滞销风险")
-                # 低风险专属滞销库存
                 low_risk_overstock = store_current_data[store_current_data["状态判断"] == "低滞销风险"][
                     "总滞销库存"].sum() if (
-                            "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
                 last_week_low_risk_overstock = last_week_data[last_week_data["状态判断"] == "低滞销风险"][
                     "总滞销库存"].sum() if (
                             last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
@@ -1931,13 +1975,13 @@ def main():
                     data["pct"],
                     STATUS_COLORS["低滞销风险"]
                 )
+
             with cols[3]:
                 data = store_metrics["中滞销风险"]
                 compare_text = get_compare_text(data, "中滞销风险")
-                # 中风险专属滞销库存
                 mid_risk_overstock = store_current_data[store_current_data["状态判断"] == "中滞销风险"][
                     "总滞销库存"].sum() if (
-                            "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
                 last_week_mid_risk_overstock = last_week_data[last_week_data["状态判断"] == "中滞销风险"][
                     "总滞销库存"].sum() if (
                             last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
@@ -1951,13 +1995,13 @@ def main():
                     data["pct"],
                     STATUS_COLORS["中滞销风险"]
                 )
+
             with cols[4]:
                 data = store_metrics["高滞销风险"]
                 compare_text = get_compare_text(data, "高滞销风险")
-                # 高风险专属滞销库存
                 high_risk_overstock = store_current_data[store_current_data["状态判断"] == "高滞销风险"][
                     "总滞销库存"].sum() if (
-                            "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
                 last_week_high_risk_overstock = last_week_data[last_week_data["状态判断"] == "高滞销风险"][
                     "总滞销库存"].sum() if (
                             last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
@@ -1971,12 +2015,14 @@ def main():
                     data["pct"],
                     STATUS_COLORS["高滞销风险"]
                 )
+
+            # ========== 图表部分 ==========
             col1, col2, col3 = st.columns(3)
-            # 1.1 第一列：状态分布柱状图
+            # 1.1 状态分布柱状图
             with col1:
                 status_data = pd.DataFrame({
                     "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    "MSKU数": [store_current_metrics[stat] for stat in
+                    "MSKU数": [store_current_metrics.get(stat, 0) for stat in
                                ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
                 })
                 fig_status = px.bar(
@@ -2002,11 +2048,12 @@ def main():
                     margin=dict(t=50, b=20, l=20, r=20)
                 )
                 st.plotly_chart(fig_status, use_container_width=True)
-            # 1.2 第二列：状态判断饼图
+
+            # 1.2 状态判断饼图
             with col2:
                 pie_data = pd.DataFrame({
                     "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    "MSKU数": [store_current_metrics[stat] for stat in
+                    "MSKU数": [store_current_metrics.get(stat, 0) for stat in
                                ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
                 })
                 total_msku = pie_data["MSKU数"].sum()
@@ -2040,13 +2087,14 @@ def main():
                     margin=dict(t=50, b=20, l=20, r=20)
                 )
                 st.plotly_chart(fig_pie, use_container_width=True)
-            # 1.3 第三列：环比上周库存滞销情况变化柱形图
+
+            # 1.3 环比上周变化柱形图
             with col3:
                 change_data = pd.DataFrame({
                     "状态": ["健康", "低滞销风险", "中滞销风险", "高滞销风险"],
-                    "本周MSKU数": [store_current_metrics[stat] for stat in
+                    "本周MSKU数": [store_current_metrics.get(stat, 0) for stat in
                                    ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]],
-                    "上周MSKU数": [store_last_week_metrics[stat] for stat in
+                    "上周MSKU数": [store_last_week_metrics.get(stat, 0) for stat in
                                    ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]]
                 })
                 change_data_long = pd.melt(
@@ -2081,147 +2129,164 @@ def main():
                     margin=dict(t=50, b=20, l=20, r=20)
                 )
                 st.plotly_chart(fig_change, use_container_width=True)
+
+            # ========== 风险汇总表 ==========
             if df is not None and not df.empty and selected_store:
-                # 1. 获取当前周全量数据并过滤年份品
+                # 获取当前周全量数据并过滤年份品
                 current_week_full_data = get_week_data(df, selected_date)
                 current_week_store_data = None
                 if current_week_full_data is not None and not current_week_full_data.empty:
                     current_week_store_data = current_week_full_data[
                         current_week_full_data["店铺"] == selected_store].copy()
                     # 只保留年份品
-                    current_week_store_data = current_week_store_data[
-                        current_week_store_data["是否年份品"] == True].copy()
+                    current_week_store_data = current_week_store_data[current_week_store_data[
+                                                                          "是否年份品"] == True].copy() if not current_week_store_data.empty else None
 
-                # 2. 获取上周全量数据并过滤年份品（补加变量定义！）
+                # 获取上周全量数据并过滤年份品
                 previous_week_full_data = get_previous_week_data(df, selected_date)
                 previous_week_store_data = None
                 if previous_week_full_data is not None and not previous_week_full_data.empty:
                     previous_week_store_data = previous_week_full_data[
                         previous_week_full_data["店铺"] == selected_store].copy()
                     # 只保留年份品
-                    previous_week_store_data = previous_week_store_data[
-                        previous_week_store_data["是否年份品"] == True].copy()
+                    previous_week_store_data = previous_week_store_data[previous_week_store_data[
+                                                                            "是否年份品"] == True].copy() if not previous_week_store_data.empty else None
 
-                # 3. 生成风险汇总表
+                # 生成风险汇总表
                 store_summary_df = create_risk_summary_table(current_week_store_data, previous_week_store_data)
                 render_risk_summary_table(store_summary_df)
-            # 2. 第二部分：组合图
-            st.subheader(f"{selected_store} 库存消耗天数分布（MSKU数+总滞销库存）")
-            today = pd.to_datetime(store_current_data_all["记录时间"].iloc[0])
-            days_to_target = (TARGET_DATE - today).days
-            valid_days = store_current_data["预计总库存需要消耗天数"].clip(lower=0)
-            max_days = valid_days.max() if not valid_days.empty else 0
-            bin_width = 20
-            num_bins = int((max_days + bin_width - 1) // bin_width)
-            bins = [i * bin_width for i in range(num_bins + 1)]
-            bin_labels = [f"{bins[i]}-{bins[i + 1]}" for i in range(len(bins) - 1)]
-            msku_count = pd.cut(
-                valid_days,
-                bins=bins,
-                labels=bin_labels,
-                include_lowest=True
-            ).value_counts().sort_index()
-            temp_df = store_current_data[["预计总库存需要消耗天数", "总滞销库存"]].copy()
-            temp_df["预计总库存需要消耗天数"] = temp_df["预计总库存需要消耗天数"].clip(lower=0)
-            temp_df["天数区间"] = pd.cut(
-                temp_df["预计总库存需要消耗天数"],
-                bins=bins,
-                labels=bin_labels,
-                include_lowest=True
-            )
-            overstock_sum = temp_df.groupby("天数区间")["总滞销库存"].sum().sort_index()
-            combined_data = pd.DataFrame({
-                "天数区间": bin_labels,
-                "MSKU数量": [msku_count.get(label, 0) for label in bin_labels],
-                "总滞销库存": [overstock_sum.get(label, 0.0) for label in bin_labels]
-            })
-            fig_combined = px.bar(
-                combined_data,
-                x="天数区间",
-                y="总滞销库存",
-                color_discrete_sequence=["#F18F01"],
-                title="库存消耗天数 vs 总滞销库存",
-                height=400,
-                text="总滞销库存"
-            )
-            # 添加折线图
-            fig_combined.add_scatter(
-                x=combined_data["天数区间"],
-                y=combined_data["MSKU数量"],
-                mode="lines+markers",
-                name="MSKU数量",
-                yaxis="y2",
-                line=dict(color="#C73E1D", width=3),
-                marker=dict(color="#C73E1D", size=6),
-                text=combined_data["MSKU数量"],
-                textposition="top center"
-            )
-            fig_combined.update_layout(
-                yaxis=dict(
-                    title=dict(
-                        text="总滞销库存",
-                        font=dict(color="#F18F01")
-                    ),
-                    tickfont=dict(color="#F18F01"),
-                    showgrid=True,
-                    gridcolor="#eee"
-                ),
-                yaxis2=dict(
-                    title=dict(
-                        text="MSKU数量",
-                        font=dict(color="#C73E1D")
-                    ),
-                    tickfont=dict(color="#C73E1D"),
-                    showgrid=False,
-                    overlaying="y",
-                    side="right"
-                ),
-                xaxis=dict(
-                    title="库存消耗天数区间（天）",
-                    tickangle=45,
-                    tickfont=dict(size=10)
-                ),
-                showlegend=True,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                plot_bgcolor="#f8f9fa",
-                margin=dict(t=50, b=80, l=20, r=20)
-            )
-            fig_combined.update_traces(
-                selector=dict(type="bar"),
-                texttemplate="%.2f",
-                textposition="outside",
-                textfont=dict(size=10, weight="bold")
-            )
-            fig_combined.update_traces(
-                selector=dict(type="scatter"),
-                texttemplate="%d",
-                textfont=dict(size=10, weight="bold")
-            )
-            st.plotly_chart(fig_combined, use_container_width=True)
 
-            st.subheader(f"{selected_store} 产品列表")
+            # ========== 库存消耗天数组合图 ==========
+            st.subheader(f"{selected_store} 库存消耗天数分布（MSKU数+总滞销库存）")
+            if not store_current_data_all.empty:
+                today = pd.to_datetime(store_current_data_all["记录时间"].iloc[0])
+                days_to_target = (TARGET_DATE - today).days
+
+                # 只统计年份品的库存消耗天数
+                valid_days = store_current_data["预计总库存需要消耗天数"].clip(lower=0) if (
+                            store_current_data is not None and not store_current_data.empty) else pd.Series()
+                max_days = valid_days.max() if not valid_days.empty else 0
+                bin_width = 20
+                num_bins = int((max_days + bin_width - 1) // bin_width)
+                bins = [i * bin_width for i in range(num_bins + 1)]
+                bin_labels = [f"{bins[i]}-{bins[i + 1]}" for i in range(len(bins) - 1)]
+
+                msku_count = pd.Series()
+                if not valid_days.empty:
+                    msku_count = pd.cut(
+                        valid_days,
+                        bins=bins,
+                        labels=bin_labels,
+                        include_lowest=True
+                    ).value_counts().sort_index()
+
+                temp_df = store_current_data[["预计总库存需要消耗天数", "总滞销库存"]].copy() if (
+                            store_current_data is not None and not store_current_data.empty) else pd.DataFrame()
+                if not temp_df.empty:
+                    temp_df["预计总库存需要消耗天数"] = temp_df["预计总库存需要消耗天数"].clip(lower=0)
+                    temp_df["天数区间"] = pd.cut(
+                        temp_df["预计总库存需要消耗天数"],
+                        bins=bins,
+                        labels=bin_labels,
+                        include_lowest=True
+                    )
+                    overstock_sum = temp_df.groupby("天数区间")["总滞销库存"].sum().sort_index()
+                else:
+                    overstock_sum = pd.Series()
+
+                combined_data = pd.DataFrame({
+                    "天数区间": bin_labels,
+                    "MSKU数量": [msku_count.get(label, 0) for label in bin_labels],
+                    "总滞销库存": [overstock_sum.get(label, 0.0) for label in bin_labels]
+                })
+
+                fig_combined = px.bar(
+                    combined_data,
+                    x="天数区间",
+                    y="总滞销库存",
+                    color_discrete_sequence=["#F18F01"],
+                    title="库存消耗天数 vs 总滞销库存",
+                    height=400,
+                    text="总滞销库存"
+                )
+                # 添加折线图
+                fig_combined.add_scatter(
+                    x=combined_data["天数区间"],
+                    y=combined_data["MSKU数量"],
+                    mode="lines+markers",
+                    name="MSKU数量",
+                    yaxis="y2",
+                    line=dict(color="#C73E1D", width=3),
+                    marker=dict(color="#C73E1D", size=6),
+                    text=combined_data["MSKU数量"],
+                    textposition="top center"
+                )
+                fig_combined.update_layout(
+                    yaxis=dict(
+                        title=dict(
+                            text="总滞销库存",
+                            font=dict(color="#F18F01")
+                        ),
+                        tickfont=dict(color="#F18F01"),
+                        showgrid=True,
+                        gridcolor="#eee"
+                    ),
+                    yaxis2=dict(
+                        title=dict(
+                            text="MSKU数量",
+                            font=dict(color="#C73E1D")
+                        ),
+                        tickfont=dict(color="#C73E1D"),
+                        showgrid=False,
+                        overlaying="y",
+                        side="right"
+                    ),
+                    xaxis=dict(
+                        title="库存消耗天数区间（天）",
+                        tickangle=45,
+                        tickfont=dict(size=10)
+                    ),
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=80, l=20, r=20)
+                )
+                fig_combined.update_traces(
+                    selector=dict(type="bar"),
+                    texttemplate="%.2f",
+                    textposition="outside",
+                    textfont=dict(size=10, weight="bold")
+                )
+                fig_combined.update_traces(
+                    selector=dict(type="scatter"),
+                    texttemplate="%d",
+                    textfont=dict(size=10, weight="bold")
+                )
+                st.plotly_chart(fig_combined, use_container_width=True)
+
+            # ========== 产品列表（全量数据） ==========
+            st.subheader(f"{selected_store} 产品列表（年份品+非年份品）")
             display_columns = [
                 "店铺", "MSKU", "品名", "记录时间",
                 "日均", "7天日均", "14天日均", "28天日均",
-                # "10月16-11月15日系数", "10月16-11月15日调整后日均",
-                # "11月16-30日系数", "11月16-30日调整后日均",
-                # "12月1-31日系数", "12月1-31日调整后日均",
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
-                "预计总库存用完", "库存周转状态判断","总库存周转天数100天内达标日均",
-                "状态判断",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量",
+                "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
+                "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                 "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
+                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化",
+                "是否年份品"  # 新增列，方便查看是否年份品
             ]
-            # 用全量数据（包含非年份品）渲染产品列表
+            # 用全量数据渲染产品列表
             render_product_detail_table(
-                store_current_data_all,  # 关键：换成全量数据
-                prev_data[prev_data["店铺"] == selected_store] if (
-                        prev_data is not None and not prev_data.empty) else None,
+                store_current_data_all,  # 核心：全量数据（年份品+非年份品）
+                prev_data_full[prev_data_full["店铺"] == selected_store] if (
+                            prev_data_full is not None and not prev_data_full.empty) else None,
                 page=st.session_state.current_page,
                 page_size=30,
                 table_id=f"store_{selected_store}"
             )
-            # 关键：判空用全量数据，避免非年份品数据为空时无法下载
+
+            # ========== 下载数据（全量） ==========
             if not store_current_data_all.empty:
                 existing_cols = [col for col in display_columns if col in store_current_data_all.columns]
                 download_data = store_current_data_all[existing_cols].copy()
@@ -2230,28 +2295,35 @@ def main():
                     if col in download_data.columns:
                         download_data[col] = pd.to_datetime(download_data[col]).dt.strftime("%Y-%m-%d")
                 csv = download_data.to_csv(index=False, encoding='utf-8-sig')
-                file_name = f"{selected_store}_产品列表_{today.strftime('%Y%m%d')}.csv"
+                today_str = pd.to_datetime(store_current_data_all["记录时间"].iloc[0]).strftime("%Y%m%d")
+                file_name = f"{selected_store}_产品列表_全量_{today_str}.csv"
                 st.download_button(
-                    label="下载筛选结果 (CSV)",
+                    label="下载全量产品列表（年份品+非年份品）",
                     data=csv,
                     file_name=file_name,
                     mime="text/csv",
-                    key=f"download_{selected_store}"
+                    key=f"download_{selected_store}_all"
                 )
     else:
         st.warning("无店铺数据可分析")
-    # 单个MSKU分析
-    st.subheader("单个MSKU分析")
-    if current_data is not None and not current_data.empty:
-        msku_list = sorted(current_data["MSKU"].unique())
-        # 添加MSKU查询输入框
+
+    # ========== 单个MSKU分析（全量数据） ==========
+    st.subheader("单个MSKU分析（支持年份品+非年份品）")
+    if current_data_full is not None and not current_data_full.empty:
+        # 从全量数据中获取所有MSKU
+        msku_list = sorted(current_data_full["MSKU"].unique())
+
+        # MSKU查询框
         col1, col2 = st.columns([3, 1])
         with col1:
             msku_query = st.text_input(
-                "输入MSKU查询",
-                placeholder="粘贴MSKU代码快速查询...",
+                "输入MSKU查询（支持模糊搜索）",
+                placeholder="例如：ABC123 或 直接输入非年份品MSKU",
                 key="msku_query"
             )
+
+        # 过滤MSKU列表
+        filtered_mskus = []
         if msku_query:
             filtered_mskus = [msku for msku in msku_list if msku_query.strip().lower() in msku.lower()]
             if not filtered_mskus:
@@ -2259,44 +2331,61 @@ def main():
                 filtered_mskus = msku_list
         else:
             filtered_mskus = msku_list
+
         with col2:
-            selected_msku = st.selectbox("或从列表选择", options=filtered_mskus, key="msku_select")
+            selected_msku = st.selectbox("或从列表选择MSKU", options=filtered_mskus, key="msku_select")
+
+        # 显示选中的MSKU详情
         if selected_msku:
-            product_data = current_data[current_data["MSKU"] == selected_msku]
-            product_info = product_data.iloc[0].to_dict()
-            st.subheader("产品基本信息")
-            display_cols = [
-                "MSKU", "品名", "店铺",
-                "日均", "7天日均", "14天日均", "28天日均",
-                # "10月16-11月15日系数", "10月16-11月15日调整后日均",
-                # "11月16-30日系数", "11月16-30日调整后日均",
-                # "12月1-31日系数", "12月1-31日调整后日均",
-                "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
-                "库存周转状态判断", "总库存周转天数100天内达标日均",
-                "状态判断",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
-            ]
-            valid_display_cols = [col for col in display_cols if col in product_data.columns]
-            info_df = product_data[valid_display_cols].copy()
-            date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
-            for col in date_cols:
-                if col in info_df.columns:
-                    info_df[col] = pd.to_datetime(info_df[col]).dt.strftime("%Y-%m-%d")
-            if "状态判断" in info_df.columns:
-                info_df["状态判断"] = info_df["状态判断"].apply(
-                    lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
-                )
-            coefficient_cols = [
-                "10月16-11月15日系数"
-                "11月16-30日系数"
-                "12月1-31日系数"
-            ]
-            for col in coefficient_cols:
-                if col in info_df.columns:
-                    info_df[col] = info_df[col].round(2)
-            st.markdown(info_df.to_html(escape=False, index=False), unsafe_allow_html=True)
-            forecast_fig = render_stock_forecast_chart(product_data, selected_msku)
-            st.plotly_chart(forecast_fig, use_container_width=True)
+            # 从全量数据中获取产品信息
+            product_data = current_data_full[current_data_full["MSKU"] == selected_msku].copy()
+            if not product_data.empty:
+                product_info = product_data.iloc[0].to_dict()
+                st.subheader(f"MSKU详情：{selected_msku}")
+
+                # 显示详情列
+                display_cols = [
+                    "MSKU", "品名", "店铺", "是否年份品",
+                    "日均", "7天日均", "14天日均", "28天日均",
+                    "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
+                    "库存周转状态判断", "总库存周转天数100天内达标日均",
+                    "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
+                    "本地滞销数量", "总滞销库存",
+                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
+                ]
+                valid_display_cols = [col for col in display_cols if col in product_data.columns]
+                info_df = product_data[valid_display_cols].copy()
+
+                # 格式化日期列
+                date_cols = ["预计FBA+AWD+在途用完时间", "预计总库存用完"]
+                for col in date_cols:
+                    if col in info_df.columns:
+                        info_df[col] = pd.to_datetime(info_df[col]).dt.strftime("%Y-%m-%d")
+
+                # 状态颜色渲染（加默认值）
+                if "状态判断" in info_df.columns:
+                    info_df["状态判断"] = info_df["状态判断"].apply(
+                        lambda x: f"<span style='color:{STATUS_COLORS.get(x, '#808080')}; font-weight:bold;'>{x}</span>"
+                    )
+
+                # 系数列处理（修复语法错误）
+                coefficient_cols = [
+                    "10月16-11月15日系数",
+                    "11月16-30日系数",
+                    "12月1-31日系数"
+                ]
+                for col in coefficient_cols:
+                    if col in info_df.columns:
+                        info_df[col] = info_df[col].round(2)
+
+                # 显示表格
+                st.markdown(info_df.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+                # 库存预测图
+                forecast_fig = render_stock_forecast_chart(product_data, selected_msku)
+                st.plotly_chart(forecast_fig, use_container_width=True)
+            else:
+                st.warning(f"未找到MSKU {selected_msku} 的数据")
     else:
         st.warning("无产品数据可分析")
 

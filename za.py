@@ -2758,122 +2758,190 @@ def main():
                 st.plotly_chart(fig_turnover_change, use_container_width=True)
 
             # ===================== 新增：全量商品周转风险汇总表核心函数 =====================
-            # ===================== 新增：全量商品周转风险汇总表核心函数 =====================
+            # ===================== 新增：全量商品周转风险汇总表（匹配目标样式） =====================
             def create_turnover_summary_table(current_week_store_data, previous_week_store_data):
-                """生成全量商品的库存周转风险汇总表（复用已计算的100天滞销数量字段）"""
-                turnover_status_list = [
-                    "库存周转健康", "轻度滞销风险", "中度滞销风险",
-                    "严重滞销风险", "数据异常"
-                ]
+                """生成和目标样式一致的全量商品周转风险汇总表"""
+                # 1. 基础数据初始化
                 summary_data = []
+                # 定义周转状态（对应目标表的风险等级）
+                turnover_status_mapping = {
+                    "库存周转健康": "健康",
+                    "轻度滞销风险": "低滞销风险",
+                    "中度滞销风险": "中滞销风险",
+                    "严重滞销风险": "高滞销风险",
+                    "数据异常": "数据异常"
+                }
+                # 组合风险维度（和目标表一致）
+                combine_dimensions = [
+                    ("低滞销风险+中滞销风险+高滞销风险", ["轻度滞销风险", "中度滞销风险", "严重滞销风险"]),
+                    ("中滞销风险+高滞销风险", ["中度滞销风险", "严重滞销风险"])
+                ]
 
-                # 1. 统计各周转状态的本周/上周数量及环比
-                for status in turnover_status_list:
-                    # 本周数量
-                    current_count = 0
+                # 2. 计算本周/上周全量基础值（用于占比计算）
+                # 本周全量
+                current_total_msku = len(current_week_store_data) if (
+                            current_week_store_data is not None and not current_week_store_data.empty) else 0
+                current_total_stock = current_week_store_data["周转滞销库存"].sum() if (
+                            current_week_store_data is not None and not current_week_store_data.empty) else 0
+                # 上周全量
+                previous_total_msku = len(previous_week_store_data) if (
+                            previous_week_store_data is not None and not previous_week_store_data.empty) else 0
+                previous_total_stock = previous_week_store_data["周转滞销库存"].sum() if (
+                            previous_week_store_data is not None and not previous_week_store_data.empty) else 0
+
+                # 3. 单状态维度统计（健康/低/中/高/数据异常）
+                for status_key, status_name in turnover_status_mapping.items():
+                    # 本周数据
+                    current_msku = 0
+                    current_stock = 0
                     if current_week_store_data is not None and not current_week_store_data.empty:
-                        current_count = len(current_week_store_data[
-                                                current_week_store_data["库存周转状态判断"] == status
-                                                ])
+                        current_filter = current_week_store_data["库存周转状态判断"] == status_key
+                        current_msku = len(current_week_store_data[current_filter])
+                        current_stock = current_week_store_data[current_filter]["周转滞销库存"].sum()
 
-                    # 上周数量
-                    previous_count = 0
+                    # 上周数据
+                    previous_msku = 0
+                    previous_stock = 0
                     if previous_week_store_data is not None and not previous_week_store_data.empty:
-                        previous_count = len(previous_week_store_data[
-                                                 previous_week_store_data["库存周转状态判断"] == status
-                                                 ])
+                        previous_filter = previous_week_store_data["库存周转状态判断"] == status_key
+                        previous_msku = len(previous_week_store_data[previous_filter])
+                        previous_stock = previous_week_store_data[previous_filter]["周转滞销库存"].sum()
 
-                    # 环比计算
-                    diff = current_count - previous_count
-                    pct = (diff / previous_count * 100) if previous_count != 0 else (100 if current_count > 0 else 0)
+                    # 计算占比
+                    msku_ratio = (current_msku / current_total_msku * 100) if current_total_msku != 0 else 0.0
+                    stock_ratio = (current_stock / current_total_stock * 100) if current_total_stock != 0 else 0.0
+
+                    # 计算环比变化（MSKU）
+                    msku_diff = current_msku - previous_msku
+                    msku_diff_pct = (msku_diff / previous_msku * 100) if previous_msku != 0 else 0.0
+                    msku_change = f"{msku_diff} ({msku_diff_pct:.1f}%)" if previous_msku != 0 else f"{msku_diff} (0.0%)"
+
+                    # 计算环比变化（库存）
+                    stock_diff = current_stock - previous_stock
+                    stock_diff_pct = (stock_diff / previous_stock * 100) if previous_stock != 0 else 0.0
+                    stock_change = f"{stock_diff} ({stock_diff_pct:.1f}%)" if previous_stock != 0 else f"{stock_diff} (0.0%)"
 
                     summary_data.append({
-                        "风险类型": status,
-                        "本周数量": current_count,
-                        "上周数量": previous_count,
-                        "环比差值": diff,
-                        "环比变化率(%)": round(pct, 2)
+                        "年份品清仓风险": status_name,
+                        "MSKU数": current_msku,
+                        "MSKU占比": f"{msku_ratio:.1f}%",
+                        "MSKU环比变化": msku_change,
+                        "总滞销库存数": current_stock,
+                        "总滞销库存占比": f"{stock_ratio:.1f}%",
+                        "库存环比变化": stock_change
                     })
 
-                # 2. 复用已计算的「周转天数超过100天的滞销数量」字段（核心调整）
-                current_over_100d = 0
-                if current_week_store_data is not None and not current_week_store_data.empty:
-                    # 直接取已计算好的字段求和/取值（根据你的字段类型调整：若为单值取sum，若为计数取len）
-                    current_over_100d = current_week_store_data["周转天数超过100天的滞销数量"].sum()
+                # 4. 组合风险维度统计（低+中+高、中+高）
+                for combine_name, combine_status in combine_dimensions:
+                    # 本周数据
+                    current_msku = 0
+                    current_stock = 0
+                    if current_week_store_data is not None and not current_week_store_data.empty:
+                        current_filter = current_week_store_data["库存周转状态判断"].isin(combine_status)
+                        current_msku = len(current_week_store_data[current_filter])
+                        current_stock = current_week_store_data[current_filter]["周转滞销库存"].sum()
 
-                previous_over_100d = 0
-                if previous_week_store_data is not None and not previous_week_store_data.empty:
-                    previous_over_100d = previous_week_store_data["周转天数超过100天的滞销数量"].sum()
+                    # 上周数据
+                    previous_msku = 0
+                    previous_stock = 0
+                    if previous_week_store_data is not None and not previous_week_store_data.empty:
+                        previous_filter = previous_week_store_data["库存周转状态判断"].isin(combine_status)
+                        previous_msku = len(previous_week_store_data[previous_filter])
+                        previous_stock = previous_week_store_data[previous_filter]["周转滞销库存"].sum()
 
-                diff_over_100d = current_over_100d - previous_over_100d
-                pct_over_100d = (diff_over_100d / previous_over_100d * 100) if previous_over_100d != 0 else (
-                    100 if current_over_100d > 0 else 0)
+                    # 计算占比
+                    msku_ratio = (current_msku / current_total_msku * 100) if current_total_msku != 0 else 0.0
+                    stock_ratio = (current_stock / current_total_stock * 100) if current_total_stock != 0 else 0.0
 
-                summary_data.append({
-                    "风险类型": "周转天数超100天滞销数量",
-                    "本周数量": current_over_100d,
-                    "上周数量": previous_over_100d,
-                    "环比差值": diff_over_100d,
-                    "环比变化率(%)": round(pct_over_100d, 2)
-                })
+                    # 计算环比变化（MSKU）
+                    msku_diff = current_msku - previous_msku
+                    msku_diff_pct = (msku_diff / previous_msku * 100) if previous_msku != 0 else 0.0
+                    msku_change = f"{msku_diff} ({msku_diff_pct:.1f}%)" if previous_msku != 0 else f"{msku_diff} (0.0%)"
 
-                return pd.DataFrame(summary_data)
+                    # 计算环比变化（库存）
+                    stock_diff = current_stock - previous_stock
+                    stock_diff_pct = (stock_diff / previous_stock * 100) if previous_stock != 0 else 0.0
+                    stock_change = f"{stock_diff} ({stock_diff_pct:.1f}%)" if previous_stock != 0 else f"{stock_diff} (0.0%)"
+
+                    summary_data.append({
+                        "年份品清仓风险": combine_name,
+                        "MSKU数": current_msku,
+                        "MSKU占比": f"{msku_ratio:.1f}%",
+                        "MSKU环比变化": msku_change,
+                        "总滞销库存数": current_stock,
+                        "总滞销库存占比": f"{stock_ratio:.1f}%",
+                        "库存环比变化": stock_change
+                    })
+
+                # 转换为DataFrame
+                summary_df = pd.DataFrame(summary_data)
+                return summary_df
 
             def render_turnover_summary_table(summary_df):
-                """渲染全量商品周转风险汇总表"""
+                """渲染和目标样式一致的周转风险汇总表"""
                 if summary_df is None or summary_df.empty:
                     st.warning("暂无全量商品周转风险数据")
                     return
 
-                # 表格样式（和原有风险表统一）
+                # 复刻目标表格样式（颜色/字体/边框）
                 st.markdown("""
                     <style>
-                    .turnover-summary-table {
+                    .risk-summary-table {
                         font-size: 14px;
                         width: 100%;
                         border-collapse: collapse;
+                        font-family: Arial, sans-serif;
                     }
-                    .turnover-summary-table th {
-                        background-color: #f0f2f6;
-                        padding: 8px;
+                    .risk-summary-table th {
+                        background-color: #f5f5f5;
+                        padding: 10px;
                         text-align: center;
-                        border: 1px solid #e0e0e0;
+                        border: 1px solid #dddddd;
+                        font-weight: normal;
                     }
-                    .turnover-summary-table td {
-                        padding: 8px;
+                    .risk-summary-table td {
+                        padding: 10px;
                         text-align: center;
-                        border: 1px solid #e0e0e0;
+                        border: 1px solid #dddddd;
                     }
-                    .positive { color: #e63946; }  /* 环比增长标红（滞销加重） */
-                    .negative { color: #2a9d8f; }  /* 环比下降标绿（滞销改善） */
+                    /* 风险等级颜色（匹配目标表） */
+                    .low-risk { color: #f7b500; }
+                    .mid-risk { color: #f7941d; }
+                    .high-risk { color: #e63946; }
                     </style>
                 """, unsafe_allow_html=True)
 
-                # 构建HTML表格
-                html_table = "<table class='turnover-summary-table'><thead><tr>"
-                for col in summary_df.columns:
-                    html_table += f"<th>{col}</th>"
+                # 构建带颜色的HTML表格
+                html_table = "<table class='risk-summary-table'><thead><tr>"
+                # 表头（和目标表完全一致）
+                headers = ["年份品清仓风险", "MSKU数", "MSKU占比", "MSKU环比变化", "总滞销库存数", "总滞销库存占比",
+                           "库存环比变化"]
+                for header in headers:
+                    html_table += f"<th>{header}</th>"
                 html_table += "</tr></thead><tbody>"
 
+                # 表体（按风险等级加颜色）
                 for _, row in summary_df.iterrows():
-                    html_table += "<tr>"
-                    for col in summary_df.columns:
+                    risk_name = row["年份品清仓风险"]
+                    # 风险等级颜色匹配
+                    color_class = ""
+                    if "低滞销风险" in risk_name:
+                        color_class = "low-risk"
+                    elif "中滞销风险" in risk_name and "低" not in risk_name:
+                        color_class = "mid-risk"
+                    elif "高滞销风险" in risk_name and "低" not in risk_name and "中" not in risk_name:
+                        color_class = "high-risk"
+
+                    html_table += f"<tr {'class=' + color_class if color_class else ''}>"
+                    for col in headers:
                         value = row[col]
-                        if col in ["环比差值", "环比变化率(%)"]:
-                            if isinstance(value, (int, float)) and value > 0:
-                                html_table += f"<td class='positive'>{value}</td>"
-                            elif isinstance(value, (int, float)) and value < 0:
-                                html_table += f"<td class='negative'>{value}</td>"
-                            else:
-                                html_table += f"<td>{value}</td>"
-                        else:
-                            html_table += f"<td>{value}</td>"
+                        html_table += f"<td>{value}</td>"
                     html_table += "</tr>"
                 html_table += "</tbody></table>"
 
                 st.markdown(html_table, unsafe_allow_html=True)
 
-            st.subheader("全量商品库存周转风险汇总表")
+            st.subheader("库存风险状态汇总表")
 
             # 获取当前周全量商品数据
             current_week_turnover_data = get_week_data(df, selected_date)
@@ -2882,14 +2950,14 @@ def main():
                 current_week_turnover_store = current_week_turnover_data[
                     current_week_turnover_data["店铺"] == selected_store].copy()
 
-            # 获取上周全量商品数据（调用修复后的周转函数）
+            # 获取上周全量商品数据
             previous_week_turnover_data = get_previous_week_turnover_data(df, selected_date)
             previous_week_turnover_store = None
             if previous_week_turnover_data is not None and not previous_week_turnover_data.empty:
                 previous_week_turnover_store = previous_week_turnover_data[
                     previous_week_turnover_data["店铺"] == selected_store].copy()
 
-            # 生成并渲染全量商品周转风险汇总表
+            # 生成并渲染匹配样式的周转风险汇总表
             turnover_summary_df = create_turnover_summary_table(current_week_turnover_store,
                                                                 previous_week_turnover_store)
             render_turnover_summary_table(turnover_summary_df)

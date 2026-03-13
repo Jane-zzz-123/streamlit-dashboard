@@ -239,7 +239,7 @@ def load_and_preprocess_data_from_df(df):
         # 8. 新增1：区分年份品/非年份品
         df["是否年份品"] = df["品名"].astype(str).str.contains("2026", na=False)
 
-        # 状态判断函数（优化：处理nan）
+        # 年份品清仓风险函数（优化：处理nan）
         def determine_status(row):
             days = row["预计用完时间比目标时间多出来的天数"]
             is_year_product = row["是否年份品"]
@@ -263,12 +263,12 @@ def load_and_preprocess_data_from_df(df):
         non_year_mask = df["是否年份品"] == False
         df.loc[non_year_mask, "预计用完时间比目标时间多出来的天数"] = np.nan
 
-        # 生成状态判断列（关键：先生成，再算环比）
-        df["状态判断"] = df.apply(determine_status, axis=1)
+        # 生成年份品清仓风险列（关键：先生成，再算环比）
+        df["年份品清仓风险"] = df.apply(determine_status, axis=1)
 
-        # 9. 环比上周库存滞销情况变化（移到状态判断之后！）
+        # 9. 环比上周库存滞销情况变化（移到年份品清仓风险之后！）
         df = df.sort_values(["MSKU", "记录时间"])
-        df["上周状态"] = df.groupby("MSKU")["状态判断"].shift(1)
+        df["上周状态"] = df.groupby("MSKU")["年份品清仓风险"].shift(1)
         status_severity = {"健康": 0, "低滞销风险": 1, "中滞销风险": 2, "高滞销风险": 3,
                            "非年份品（无目标日期风险）": 0}
 
@@ -282,7 +282,7 @@ def load_and_preprocess_data_from_df(df):
             return "改善" if current_sev < prev_sev else "恶化"
 
         df["环比上周库存滞销情况变化"] = df.apply(
-            lambda row: compare_status(row["状态判断"], row["上周状态"]), axis=1
+            lambda row: compare_status(row["年份品清仓风险"], row["上周状态"]), axis=1
         )
 
         # 10. FBA+AWD+在途滞销数量
@@ -357,7 +357,7 @@ def load_and_preprocess_data_from_df(df):
         days_available = np.maximum(days_available, 1)
         df["目标日期前分阶段可售总量"] = df.apply(calculate_target_sales, axis=1)
         df["清库存的目标日均"] = np.where(
-            df["状态判断"] == "健康",
+            df["年份品清仓风险"] == "健康",
             (df["目标日期前分阶段可售总量"] / days_available).round(2),
             (df["全部总库存"] / days_available).round(2)
         )
@@ -434,7 +434,7 @@ def calculate_status_metrics(data):
     if data is None or data.empty:
         return {"总MSKU数": 0, "健康": 0, "低滞销风险": 0, "中滞销风险": 0, "高滞销风险": 0}
     total = len(data)
-    status_counts = data["状态判断"].value_counts().to_dict()
+    status_counts = data["年份品清仓风险"].value_counts().to_dict()
     metrics = {"总MSKU数": total}
     # ========== 调整：兼容非年份品（但此函数仅接收年份品数据，防兜底） ==========
     for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
@@ -632,11 +632,11 @@ def render_store_status_table(current_data, prev_data):
 
     # ========== 调整：pivot时过滤非年份品状态（防列错乱） ==========
     current_data_filtered = current_data[
-        current_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+        current_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
     current_pivot = pd.pivot_table(
         current_data_filtered,
         index="店铺",
-        columns="状态判断",
+        columns="年份品清仓风险",
         values="MSKU",
         aggfunc="count",
         fill_value=0
@@ -644,11 +644,11 @@ def render_store_status_table(current_data, prev_data):
 
     prev_pivot = None
     if prev_data is not None and not prev_data.empty:
-        prev_data_filtered = prev_data[prev_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+        prev_data_filtered = prev_data[prev_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
         prev_pivot = pd.pivot_table(
             prev_data_filtered,
             index="店铺",
-            columns="状态判断",
+            columns="年份品清仓风险",
             values="MSKU",
             aggfunc="count",
             fill_value=0
@@ -693,7 +693,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
     }
 
     data = data.copy()
-    data["_sort_key"] = data["状态判断"].map(status_order).fillna(4)  # 兜底：未匹配的状态也排最后
+    data["_sort_key"] = data["年份品清仓风险"].map(status_order).fillna(4)  # 兜底：未匹配的状态也排最后
     data = data.sort_values(by=["_sort_key", "总滞销库存"], ascending=[True, False])
     data = data.drop(columns=["_sort_key"])
 
@@ -703,7 +703,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         "日均", "7天日均", "14天日均", "28天日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存",
         "预计FBA+AWD+在途用完时间", "预计总库存用完",
-        "状态判断", "库存周转状态判断",  # 新增：库存周转状态判断
+        "年份品清仓风险", "库存周转状态判断",  # 新增：库存周转状态判断
         "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "总库存周转天数100天内达标日均",  # 新增：100天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
@@ -725,7 +725,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             paginated_data[col] = pd.to_datetime(paginated_data[col]).dt.strftime("%Y-%m-%d")
 
     # ========== 调整3：状态判断列样式兼容非年份品 ==========
-    if "状态判断" in paginated_data.columns:
+    if "年份品清仓风险" in paginated_data.columns:
         def format_status(x):
             # 非年份品用灰色展示
             if x == "非年份品（无目标日期风险）":
@@ -733,7 +733,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
             # 年份品用原有颜色
             return f"<span style='color:{STATUS_COLORS.get(x, '#000000')}; font-weight:bold;'>{x}</span>"
 
-        paginated_data["状态判断"] = paginated_data["状态判断"].apply(format_status)
+        paginated_data["年份品清仓风险"] = paginated_data["年份品清仓风险"].apply(format_status)
 
     # ========== 新增4：库存周转状态判断列加颜色样式 ==========
     if "库存周转状态判断" in paginated_data.columns:
@@ -945,7 +945,7 @@ def render_store_trend_charts(df, date_list):
     all_data = pd.concat(week_datas)
 
     # ========== 新增2：过滤非年份品状态（防店铺列表包含非年份品） ==========
-    all_data = all_data[all_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+    all_data = all_data[all_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
     if all_data.empty:
         st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
         return
@@ -963,7 +963,7 @@ def render_store_trend_charts(df, date_list):
                 store_status_data = data[data["店铺"] == store]
                 # ========== 新增3：过滤店铺数据的非年份品状态 ==========
                 store_status_data = store_status_data[
-                    store_status_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+                    store_status_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
                 metrics = calculate_status_metrics(store_status_data)
                 for status in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
                     store_data.append({
@@ -1014,7 +1014,7 @@ def render_store_weekly_changes(df, date_list):
     all_data = pd.concat(week_datas)
 
     # ========== 新增2：过滤非年份品状态（防店铺列表异常） ==========
-    all_data = all_data[all_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+    all_data = all_data[all_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
     if all_data.empty:
         st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
         return
@@ -1039,7 +1039,7 @@ def render_store_weekly_changes(df, date_list):
                 store_status_data = data[data["店铺"] == store]
                 # ========== 新增3：过滤店铺数据的非年份品状态 ==========
                 store_status_data = store_status_data[
-                    store_status_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+                    store_status_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
                 metrics = calculate_status_metrics(store_status_data)
 
                 # 获取上周数据
@@ -1049,7 +1049,7 @@ def render_store_weekly_changes(df, date_list):
                     if prev_data is not None and not prev_data.empty:
                         prev_store_data = prev_data[prev_data["店铺"] == store]
                         prev_store_data = prev_store_data[
-                            prev_store_data["状态判断"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
+                            prev_store_data["年份品清仓风险"].isin(["健康", "低滞销风险", "中滞销风险", "高滞销风险"])]
                         prev_metrics = calculate_status_metrics(prev_store_data)
 
                 html += f"<tr><td style='border:1px solid #ddd; padding:8px; font-weight:bold;'>{store}</td>"
@@ -1117,7 +1117,7 @@ def render_status_change_table(data, page=1, page_size=30):
         "MSKU", "品名", "店铺", "是否年份品", "记录时间",  # 新增：是否年份品
         "日均", "7天日均", "14天日均", "28天日均",
         "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
-        "状态判断", "库存周转状态判断",  # 新增：库存周转状态判断
+        "年份品清仓风险", "库存周转状态判断",  # 新增：库存周转状态判断
         "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "总库存周转天数100天内达标日均",  # 新增：100天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
@@ -1137,14 +1137,14 @@ def render_status_change_table(data, page=1, page_size=30):
         if col in paginated_data.columns:
             paginated_data[col] = pd.to_datetime(paginated_data[col]).dt.strftime("%Y-%m-%d")
 
-    # ========== 调整2：状态判断列样式兼容非年份品 ==========
-    if "状态判断" in paginated_data.columns:
+    # ========== 调整2：年份品清仓风险列样式兼容非年份品 ==========
+    if "年份品清仓风险" in paginated_data.columns:
         def format_status(x):
             if x == "非年份品（无目标日期风险）":
                 return f"<span style='color:#808080; font-weight:bold;'>{x}</span>"
             return f"<span style='color:{STATUS_COLORS.get(x, '#000000')}; font-weight:bold;'>{x}</span>"
 
-        paginated_data["状态判断"] = paginated_data["状态判断"].apply(format_status)
+        paginated_data["年份品清仓风险"] = paginated_data["年份品清仓风险"].apply(format_status)
 
     # ========== 新增3：库存周转状态判断列加颜色样式 ==========
     if "库存周转状态判断" in paginated_data.columns:
@@ -1228,7 +1228,7 @@ def render_risk_summary_table(summary_df):
     for _, row in summary_df.iterrows():
         html += "<tr>"
         for col, value in row.items():
-            if col == "状态判断":
+            if col == "年份品清仓风险":
                 # ========== 调整1：兼容非年份品状态样式 ==========
                 if value == "非年份品（无目标日期风险）":
                     html += f"<td class='neutral-status' style='font-weight:bold;'>{value}</td>"
@@ -1238,7 +1238,7 @@ def render_risk_summary_table(summary_df):
             elif "环比变化" in col:
                 if '(' in str(value):
                     change_val = float(value.split()[0])
-                    status = row["状态判断"]
+                    status = row["年份品清仓风险"]
                     # 非年份品不区分正负，直接展示
                     if status == "非年份品（无目标日期风险）":
                         html += f"<td>{value}</td>"
@@ -1290,14 +1290,14 @@ def create_risk_summary_table(current_data, previous_data):
     for status in statuses:
         original_statuses = status_mappings[status]
         # 过滤当前数据（兼容空值）
-        current_filtered = current_data[current_data['状态判断'].isin(original_statuses)] if (
+        current_filtered = current_data[current_data['年份品清仓风险'].isin(original_statuses)] if (
                 current_data is not None and not current_data.empty) else pd.DataFrame()
         current_msku = current_filtered['MSKU'].nunique() if not current_filtered.empty else 0
         current_inventory = current_filtered['总滞销库存'].sum() if not current_filtered.empty else 0
 
         # 过滤历史数据（兼容空值）
         if previous_data is not None and not previous_data.empty:
-            prev_filtered = previous_data[previous_data['状态判断'].isin(original_statuses)]
+            prev_filtered = previous_data[previous_data['年份品清仓风险'].isin(original_statuses)]
             prev_msku = prev_filtered['MSKU'].nunique() if not prev_filtered.empty else 0
             prev_inventory = prev_filtered['总滞销库存'].sum() if not prev_filtered.empty else 0
         else:
@@ -1315,7 +1315,7 @@ def create_risk_summary_table(current_data, previous_data):
         inventory_ratio = (current_inventory / total_current_inventory * 100) if total_current_inventory != 0 else 0
 
         summary_data.append({
-            "状态判断": status,
+            "年份品清仓风险": status,
             "MSKU数": current_msku,
             "MSKU占比": f"{msku_ratio:.1f}%",
             "MSKU环比变化": f"{msku_change} ({msku_change_pct:.1f}%)",
@@ -1873,15 +1873,15 @@ def main():
 
             if last_week_data is not None and not last_week_data.empty and "MSKU" in store_current_data.columns:
                 merged_data = pd.merge(
-                    store_current_data[["MSKU", "状态判断"]],
-                    last_week_data[["MSKU", "状态判断"]],
+                    store_current_data[["MSKU", "年份品清仓风险"]],
+                    last_week_data[["MSKU", "年份品清仓风险"]],
                     on="MSKU",
                     suffixes=("_current", "_prev"),
                     how="inner"
                 )
                 for _, row in merged_data.iterrows():
-                    current_status = row["状态判断_current"]
-                    prev_status = row["状态判断_prev"]
+                    current_status = row["年份品清仓风险_current"]
+                    prev_status = row["年份品清仓风险_prev"]
                     if current_status not in status_severity or prev_status not in status_severity:
                         continue
                     if current_status == prev_status:
@@ -1961,12 +1961,12 @@ def main():
             with cols[1]:
                 data = store_metrics["健康"]
                 compare_text = get_compare_text(data, "健康")
-                healthy_overstock = store_current_data[store_current_data["状态判断"] == "健康"][
+                healthy_overstock = store_current_data[store_current_data["年份品清仓风险"] == "健康"][
                     "总滞销库存"].sum() if (
-                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
-                last_week_healthy_overstock = last_week_data[last_week_data["状态判断"] == "健康"][
+                            store_current_data is not None and "年份品清仓风险" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                last_week_healthy_overstock = last_week_data[last_week_data["年份品清仓风险"] == "健康"][
                     "总滞销库存"].sum() if (
-                            last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
+                            last_week_data is not None and "年份品清仓风险" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
                 overstock_text = get_overstock_compare_text(healthy_overstock, last_week_healthy_overstock,
                                                             status="健康")
                 change_text = get_status_change_text("健康")
@@ -1981,12 +1981,12 @@ def main():
             with cols[2]:
                 data = store_metrics["低滞销风险"]
                 compare_text = get_compare_text(data, "低滞销风险")
-                low_risk_overstock = store_current_data[store_current_data["状态判断"] == "低滞销风险"][
+                low_risk_overstock = store_current_data[store_current_data["年份品清仓风险"] == "低滞销风险"][
                     "总滞销库存"].sum() if (
-                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
-                last_week_low_risk_overstock = last_week_data[last_week_data["状态判断"] == "低滞销风险"][
+                            store_current_data is not None and "年份品清仓风险" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                last_week_low_risk_overstock = last_week_data[last_week_data["年份品清仓风险"] == "低滞销风险"][
                     "总滞销库存"].sum() if (
-                            last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
+                            last_week_data is not None and "年份品清仓风险" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
                 overstock_text = get_overstock_compare_text(low_risk_overstock, last_week_low_risk_overstock,
                                                             status="低风险")
                 change_text = get_status_change_text("低滞销风险")
@@ -2001,12 +2001,12 @@ def main():
             with cols[3]:
                 data = store_metrics["中滞销风险"]
                 compare_text = get_compare_text(data, "中滞销风险")
-                mid_risk_overstock = store_current_data[store_current_data["状态判断"] == "中滞销风险"][
+                mid_risk_overstock = store_current_data[store_current_data["年份品清仓风险"] == "中滞销风险"][
                     "总滞销库存"].sum() if (
-                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
-                last_week_mid_risk_overstock = last_week_data[last_week_data["状态判断"] == "中滞销风险"][
+                            store_current_data is not None and "年份品清仓风险" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                last_week_mid_risk_overstock = last_week_data[last_week_data["年份品清仓风险"] == "中滞销风险"][
                     "总滞销库存"].sum() if (
-                            last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
+                            last_week_data is not None and "年份品清仓风险" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
                 overstock_text = get_overstock_compare_text(mid_risk_overstock, last_week_mid_risk_overstock,
                                                             status="中风险")
                 change_text = get_status_change_text("中滞销风险")
@@ -2021,12 +2021,12 @@ def main():
             with cols[4]:
                 data = store_metrics["高滞销风险"]
                 compare_text = get_compare_text(data, "高滞销风险")
-                high_risk_overstock = store_current_data[store_current_data["状态判断"] == "高滞销风险"][
+                high_risk_overstock = store_current_data[store_current_data["年份品清仓风险"] == "高滞销风险"][
                     "总滞销库存"].sum() if (
-                            store_current_data is not None and "状态判断" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
-                last_week_high_risk_overstock = last_week_data[last_week_data["状态判断"] == "高滞销风险"][
+                            store_current_data is not None and "年份品清仓风险" in store_current_data.columns and "总滞销库存" in store_current_data.columns) else 0
+                last_week_high_risk_overstock = last_week_data[last_week_data["年份品清仓风险"] == "高滞销风险"][
                     "总滞销库存"].sum() if (
-                            last_week_data is not None and "状态判断" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
+                            last_week_data is not None and "年份品清仓风险" in last_week_data.columns and "总滞销库存" in last_week_data.columns) else 0
                 overstock_text = get_overstock_compare_text(high_risk_overstock, last_week_high_risk_overstock,
                                                             status="高风险")
                 change_text = get_status_change_text("高滞销风险")
@@ -2293,7 +2293,7 @@ def main():
                 "日均", "7天日均", "14天日均", "28天日均",
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
                 "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
-                "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
+                "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                 "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化",
                 "是否年份品"  # 新增列，方便查看是否年份品
@@ -2371,7 +2371,7 @@ def main():
                     "日均", "7天日均", "14天日均", "28天日均",
                     "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
                     "库存周转状态判断", "总库存周转天数100天内达标日均",
-                    "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
+                    "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                     "本地滞销数量", "总滞销库存",
                     "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
                 ]

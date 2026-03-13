@@ -266,7 +266,7 @@ def load_and_preprocess_data_from_df(df):
         # 生成年份品清仓风险列（关键：先生成，再算环比）
         df["年份品清仓风险"] = df.apply(determine_status, axis=1)
 
-        # 9. 环比上周库存滞销情况变化（移到年份品清仓风险之后！）
+        # 9. 环比上周库年份品滞销风险变化（移到年份品清仓风险之后！）
         df = df.sort_values(["MSKU", "记录时间"])
         df["上周状态"] = df.groupby("MSKU")["年份品清仓风险"].shift(1)
         status_severity = {"健康": 0, "低滞销风险": 1, "中滞销风险": 2, "高滞销风险": 3,
@@ -281,7 +281,7 @@ def load_and_preprocess_data_from_df(df):
             prev_sev = status_severity.get(previous, 0)
             return "改善" if current_sev < prev_sev else "恶化"
 
-        df["环比上周库存滞销情况变化"] = df.apply(
+        df["环比上周库年份品滞销风险变化"] = df.apply(
             lambda row: compare_status(row["年份品清仓风险"], row["上周状态"]), axis=1
         )
 
@@ -707,7 +707,7 @@ def render_product_detail_table(data, prev_data=None, page=1, page_size=30, tabl
         "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",   # 新增：100天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
         "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-        "环比上周库存滞销情况变化"
+        "环比上周库年份品滞销风险变化"
     ]
 
     available_cols = [col for col in display_cols if col in data.columns]
@@ -1107,7 +1107,7 @@ def render_store_weekly_changes(df, date_list):
 
 
 def render_status_change_table(data, page=1, page_size=30):
-    """环比上周库存滞销情况变化表"""
+    """环比上周库年份品滞销风险变化表"""
     if data is None or data.empty:
         st.markdown("<p style='color:#666'>无数据可展示</p>", unsafe_allow_html=True)
         return 0
@@ -1120,7 +1120,7 @@ def render_status_change_table(data, page=1, page_size=30):
         "库存周转状态判断","总库存周转天数100天内达标日均",  "年份品清仓风险",  # 新增：库存周转状态判断
         "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",  # 新增：100天达标日均
         "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-        "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
+        "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
     ]
 
     available_cols = [col for col in display_cols if col in data.columns]
@@ -1153,7 +1153,7 @@ def render_status_change_table(data, page=1, page_size=30):
         )
 
     # 环比变化列样式（原有逻辑保留）
-    if "环比上周库存滞销情况变化" in paginated_data.columns:
+    if "环比上周库年份品滞销风险变化" in paginated_data.columns:
         def color_status_change(x):
             if x == "改善":
                 return f"<span style='color:#2E8B57; font-weight:bold;'>{x}</span>"
@@ -1162,7 +1162,7 @@ def render_status_change_table(data, page=1, page_size=30):
             else:  # 维持不变
                 return f"<span style='color:#000000; font-weight:bold;'>{x}</span>"
 
-        paginated_data["环比上周库存滞销情况变化"] = paginated_data["环比上周库存滞销情况变化"].apply(
+        paginated_data["环比上周库年份品滞销风险变化"] = paginated_data["环比上周库年份品滞销风险变化"].apply(
             color_status_change)
 
     # 渲染表格
@@ -2295,7 +2295,7 @@ def main():
                 "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
                 "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                 "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化",
+                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
                 "是否年份品"  # 新增列，方便查看是否年份品
             ]
             # 用全量数据渲染产品列表
@@ -2373,7 +2373,7 @@ def main():
                     "库存周转状态判断", "总库存周转天数100天内达标日均",
                     "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
                     "本地滞销数量", "总滞销库存",
-                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
+                    "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
                 ]
                 valid_display_cols = [col for col in display_cols if col in product_data.columns]
                 info_df = product_data[valid_display_cols].copy()
@@ -2447,7 +2447,7 @@ def main():
             "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均",
             "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-            "环比上周库存滞销情况变化"
+            "环比上周库年份品滞销风险变化"
         ]
         render_status_change_table(
             analysis_data,
@@ -2467,7 +2467,7 @@ def main():
                 "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
                 "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
-                "环比上周库存滞销情况变化"
+                "环比上周库年份品滞销风险变化"
             ]
             filtered_data = analysis_data.copy()
             actual_columns = filtered_data.columns.tolist()
@@ -2530,7 +2530,7 @@ def main():
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
                 "库存周转状态判断", "总库存周转天数100天内达标日均",
                 "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
-                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
+                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化"
             ]
             valid_display_cols = [col for col in display_cols if col in product_history_data.columns]
             if not valid_display_cols:
@@ -2546,7 +2546,7 @@ def main():
                 table_data["年份品清仓风险"] = table_data["年份品清仓风险"].apply(
                     lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
                 )
-            if "环比上周库存滞销情况变化" in table_data.columns:
+            if "环比上周库年份品滞销风险变化" in table_data.columns:
                 def color_status_change(x):
                     if x == "改善":
                         return f"<span style='color:#2E8B57; font-weight:bold;'>{x}</span>"
@@ -2554,7 +2554,7 @@ def main():
                         return f"<span style='color:#DC143C; font-weight:bold;'>{x}</span>"
                     else:
                         return f"<span style='color:#000000; font-weight:bold;'>{x}</span>"
-                table_data["环比上周库存滞销情况变化"] = table_data["环比上周库存滞销情况变化"].apply(
+                table_data["环比上周库年份品滞销风险变化"] = table_data["环比上周库年份品滞销风险变化"].apply(
                     color_status_change)
             st.subheader("产品历史数据")
             st.markdown(table_data.to_html(escape=False, index=False), unsafe_allow_html=True)

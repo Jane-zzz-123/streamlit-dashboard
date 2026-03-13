@@ -2193,6 +2193,379 @@ def main():
                 store_summary_df = create_risk_summary_table(current_week_store_data, previous_week_store_data)
                 render_risk_summary_table(store_summary_df)
 
+            # ========== 新增：周转状态专用辅助函数 ==========
+            def calculate_turnover_metrics(data):
+                """计算周转状态分布指标（全量商品）"""
+                if data is None or data.empty:
+                    return {"总MSKU数": 0, "库存周转健康": 0, "轻度滞销风险": 0, "中度滞销风险": 0, "严重滞销风险": 0,
+                            "数据异常": 0}
+                total = len(data)
+                status_counts = data["库存周转状态判断"].value_counts().to_dict()
+                metrics = {"总MSKU数": total}
+                for status in ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]:
+                    metrics[status] = status_counts.get(status, 0)
+                # 计算周转滞销库存总量
+                metrics["周转滞销库存总量"] = data[
+                    "周转天数超过100天的滞销数量"].sum() if "周转天数超过100天的滞销数量" in data.columns else 0
+                return metrics
+
+            def get_turnover_compare_text(current_overstock, last_week_overstock, status=None):
+                """周转滞销库存对比文本生成"""
+                current = round(float(current_overstock), 2)
+                last_week = round(float(last_week_overstock), 2)
+                if last_week == 0:
+                    return f"<br><span style='color:#666; font-size:0.8em;'>{status + ' ' if status else ''}周转滞销库存: {current:.2f}</span>"
+                diff = current - last_week
+                trend = "↑" if diff > 0 else "↓" if diff < 0 else "→"
+                color = "#DC143C" if diff > 0 else "#2E8B57" if diff < 0 else "#666"
+                pct = (diff / last_week) * 100 if last_week != 0 else 0.0
+                pct_text = f"{abs(pct):.2f}%"
+                return f"<br><span style='color:{color}; font-size:0.8em;'>{status + ' ' if status else ''}周转滞销库存: {current:.2f} ({trend}{abs(diff):.2f} {pct_text})</span>"
+
+            def get_turnover_status_change_text(status, turnover_status_change):
+                """周转状态变化文本生成"""
+                changes = turnover_status_change[status]
+                total = changes["改善"] + changes["不变"] + changes["恶化"]
+                if total == 0:
+                    return "<br><span style='color:#666; font-size:0.8em;'>状态变化: 无数据</span>"
+                return f"""<br>
+                <span style='color:#2E8B57; font-size:0.8em;'>改善: {changes['改善']}</span> | 
+                <span style='color:#666; font-size:0.8em;'>不变: {changes['不变']}</span> | 
+                <span style='color:#DC143C; font-size:0.8em;'>恶化: {changes['恶化']}</span>
+                """
+
+            def get_turnover_compare_text_metric(metric_data, metric_name):
+                """周转指标环比文本生成"""
+                if metric_data["last_week"] == 0:
+                    return "<br><span style='color:#666; font-size:0.8em;'>无上周数据</span>"
+                trend = "↑" if metric_data["diff"] > 0 else "↓" if metric_data["diff"] < 0 else "→"
+                color = "#DC143C" if metric_data["diff"] > 0 else "#2E8B57" if metric_data["diff"] < 0 else "#666"
+                pct_text = f"{abs(metric_data['pct']):.2f}%"
+                if metric_name == "总MSKU数":
+                    return f"<br><span style='color:{color}; font-size:0.8em;'>{trend} 上周{metric_data['last_week']}，变化{metric_data['diff']} ({pct_text})</span>"
+                else:
+                    status = "上升" if metric_data["diff"] > 0 else "下降" if metric_data["diff"] < 0 else "无变化"
+                    return f"<br><span style='color:{color}; font-size:0.8em;'>{trend} 上周{metric_data['last_week']}，{status}{abs(metric_data['diff'])} ({pct_text})</span>"
+
+            # ========== 新增：2 全量商品库存周转分析 ==========
+            st.subheader("2 全量商品库存周转分析")
+
+            # 1. 全量商品数据准备（包含年份品+非年份品）
+            turnover_current_data = store_current_data_all.copy()  # 全量商品数据
+            turnover_current_metrics = calculate_turnover_metrics(turnover_current_data)
+
+            # 2. 上周周转数据处理
+            def get_store_last_week_turnover_metrics():
+                from datetime import timedelta
+                if turnover_current_data is None or turnover_current_data.empty:
+                    return {
+                        "总MSKU数": 0, "库存周转健康": 0, "轻度滞销风险": 0, "中度滞销风险": 0, "严重滞销风险": 0,
+                        "数据异常": 0,
+                        "周转滞销库存总量": 0
+                    }, None
+
+                current_date = pd.to_datetime(turnover_current_data["记录时间"].iloc[0])
+                last_week_start = current_date - timedelta(days=14)
+                last_week_end = current_date - timedelta(days=7)
+
+                if prev_data_full is not None and not prev_data_full.empty:
+                    prev_data_filtered = prev_data_full[prev_data_full["店铺"] == selected_store].copy()
+                    prev_data_filtered['记录时间'] = pd.to_datetime(prev_data_filtered['记录时间'])
+                    last_week_data = prev_data_filtered[
+                        (prev_data_filtered['记录时间'] >= last_week_start) &
+                        (prev_data_filtered['记录时间'] <= last_week_end)
+                        ]
+                    # 全量商品（不过滤年份品）
+                    if not last_week_data.empty:
+                        metrics = calculate_turnover_metrics(last_week_data)
+                        metrics["周转滞销库存总量"] = last_week_data[
+                            "周转天数超过100天的滞销数量"].sum() if "周转天数超过100天的滞销数量" in last_week_data.columns else 0
+                        return metrics, last_week_data
+
+                return {
+                    "总MSKU数": 0, "库存周转健康": 0, "轻度滞销风险": 0, "中度滞销风险": 0, "严重滞销风险": 0,
+                    "数据异常": 0,
+                    "周转滞销库存总量": 0
+                }, None
+
+            turnover_last_week_metrics, turnover_last_week_data = get_store_last_week_turnover_metrics()
+
+            # 3. 周转状态变化计算
+            turnover_status_change = {
+                "库存周转健康": {"改善": 0, "不变": 0, "恶化": 0},
+                "轻度滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
+                "中度滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
+                "严重滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
+                "数据异常": {"改善": 0, "不变": 0, "恶化": 0}
+            }
+            turnover_status_severity = {"库存周转健康": 0, "轻度滞销风险": 1, "中度滞销风险": 2, "严重滞销风险": 3,
+                                        "数据异常": 4}
+
+            if turnover_last_week_data is not None and not turnover_last_week_data.empty and "MSKU" in turnover_current_data.columns:
+                merged_turnover_data = pd.merge(
+                    turnover_current_data[["MSKU", "库存周转状态判断"]],
+                    turnover_last_week_data[["MSKU", "库存周转状态判断"]],
+                    on="MSKU",
+                    suffixes=("_current", "_prev"),
+                    how="inner"
+                )
+                for _, row in merged_turnover_data.iterrows():
+                    current_status = row["库存周转状态判断_current"]
+                    prev_status = row["库存周转状态判断_prev"]
+                    if current_status not in turnover_status_severity or prev_status not in turnover_status_severity:
+                        continue
+                    if current_status == prev_status:
+                        turnover_status_change[current_status]["不变"] += 1
+                    elif turnover_status_severity[current_status] < turnover_status_severity[prev_status]:
+                        turnover_status_change[current_status]["改善"] += 1
+                    else:
+                        turnover_status_change[current_status]["恶化"] += 1
+
+            # 4. 周转指标计算
+            turnover_metrics = {}
+            for metric in ["总MSKU数", "库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]:
+                current = int(turnover_current_metrics.get(metric, 0))
+                last_week = int(turnover_last_week_metrics.get(metric, 0))
+                diff = current - last_week
+                pct = (diff / last_week) * 100 if last_week != 0 else 0.0
+                turnover_metrics[metric] = {
+                    "current": current,
+                    "last_week": last_week,
+                    "diff": diff,
+                    "pct": round(pct, 2)
+                }
+
+            # 5. 周转指标卡片
+            cols_turnover = st.columns(6)
+            with cols_turnover[0]:
+                data = turnover_metrics["总MSKU数"]
+                compare_text = get_turnover_compare_text_metric(data, "总MSKU数")
+                total_turnover_overstock = turnover_current_data["周转天数超过100天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                last_week_total_turnover_overstock = turnover_last_week_metrics.get("周转滞销库存总量", 0)
+                overstock_text = get_turnover_compare_text(total_turnover_overstock, last_week_total_turnover_overstock)
+                render_metric_card(
+                    f"{selected_store} 全量商品总数{compare_text}{overstock_text}",
+                    data["current"],
+                    data["diff"],
+                    data["pct"],
+                    "#000000"
+                )
+
+            with cols_turnover[1]:
+                data = turnover_metrics["库存周转健康"]
+                compare_text = get_turnover_compare_text_metric(data, "库存周转健康")
+                healthy_turnover_overstock = \
+                turnover_current_data[turnover_current_data["库存周转状态判断"] == "库存周转健康"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                last_week_healthy_turnover_overstock = \
+                turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "库存周转健康"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                overstock_text = get_turnover_compare_text(healthy_turnover_overstock,
+                                                           last_week_healthy_turnover_overstock,
+                                                           status="周转健康")
+                change_text = get_turnover_status_change_text("库存周转健康", turnover_status_change)
+                render_metric_card(
+                    f"{selected_store} 周转健康{compare_text}{overstock_text}{change_text}",
+                    data["current"],
+                    data["diff"],
+                    data["pct"],
+                    TURNOVER_STATUS_COLORS["库存周转健康"]
+                )
+
+            with cols_turnover[2]:
+                data = turnover_metrics["轻度滞销风险"]
+                compare_text = get_turnover_compare_text_metric(data, "轻度滞销风险")
+                low_turnover_overstock = \
+                turnover_current_data[turnover_current_data["库存周转状态判断"] == "轻度滞销风险"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                last_week_low_turnover_overstock = \
+                turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "轻度滞销风险"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                overstock_text = get_turnover_compare_text(low_turnover_overstock, last_week_low_turnover_overstock,
+                                                           status="轻度滞销")
+                change_text = get_turnover_status_change_text("轻度滞销风险", turnover_status_change)
+                render_metric_card(
+                    f"{selected_store} 轻度滞销风险{compare_text}{overstock_text}{change_text}",
+                    data["current"],
+                    data["diff"],
+                    data["pct"],
+                    TURNOVER_STATUS_COLORS["轻度滞销风险"]
+                )
+
+            with cols_turnover[3]:
+                data = turnover_metrics["中度滞销风险"]
+                compare_text = get_turnover_compare_text_metric(data, "中度滞销风险")
+                mid_turnover_overstock = \
+                turnover_current_data[turnover_current_data["库存周转状态判断"] == "中度滞销风险"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                last_week_mid_turnover_overstock = \
+                turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "中度滞销风险"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                overstock_text = get_turnover_compare_text(mid_turnover_overstock, last_week_mid_turnover_overstock,
+                                                           status="中度滞销")
+                change_text = get_turnover_status_change_text("中度滞销风险", turnover_status_change)
+                render_metric_card(
+                    f"{selected_store} 中度滞销风险{compare_text}{overstock_text}{change_text}",
+                    data["current"],
+                    data["diff"],
+                    data["pct"],
+                    TURNOVER_STATUS_COLORS["中度滞销风险"]
+                )
+
+            with cols_turnover[4]:
+                data = turnover_metrics["严重滞销风险"]
+                compare_text = get_turnover_compare_text_metric(data, "严重滞销风险")
+                high_turnover_overstock = \
+                turnover_current_data[turnover_current_data["库存周转状态判断"] == "严重滞销风险"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_current_data is not None and "库存周转状态判断" in turnover_current_data.columns and "周转天数超过100天的滞销数量" in turnover_current_data.columns) else 0
+                last_week_high_turnover_overstock = \
+                turnover_last_week_data[turnover_last_week_data["库存周转状态判断"] == "严重滞销风险"][
+                    "周转天数超过100天的滞销数量"].sum() if (
+                        turnover_last_week_data is not None and "库存周转状态判断" in turnover_last_week_data.columns and "周转天数超过100天的滞销数量" in turnover_last_week_data.columns) else 0
+                overstock_text = get_turnover_compare_text(high_turnover_overstock, last_week_high_turnover_overstock,
+                                                           status="严重滞销")
+                change_text = get_turnover_status_change_text("严重滞销风险", turnover_status_change)
+                render_metric_card(
+                    f"{selected_store} 严重滞销风险{compare_text}{overstock_text}{change_text}",
+                    data["current"],
+                    data["diff"],
+                    data["pct"],
+                    TURNOVER_STATUS_COLORS["严重滞销风险"]
+                )
+
+            with cols_turnover[5]:
+                data = turnover_metrics["数据异常"]
+                compare_text = get_turnover_compare_text_metric(data, "数据异常")
+                render_metric_card(
+                    f"{selected_store} 数据异常{compare_text}",
+                    data["current"],
+                    data["diff"],
+                    data["pct"],
+                    TURNOVER_STATUS_COLORS["数据异常"]
+                )
+
+            # 6. 周转状态图表
+            col1_turnover, col2_turnover, col3_turnover = st.columns(3)
+            # 6.1 周转状态分布柱状图
+            with col1_turnover:
+                turnover_status_data = pd.DataFrame({
+                    "状态": ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"],
+                    "MSKU数": [turnover_current_metrics.get(stat, 0) for stat in
+                               ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]]
+                })
+                fig_turnover_status = px.bar(
+                    turnover_status_data,
+                    x="状态",
+                    y="MSKU数",
+                    color="状态",
+                    color_discrete_map=TURNOVER_STATUS_COLORS,
+                    title=f"{selected_store} 库存周转状态分布",
+                    text="MSKU数",
+                    height=400
+                )
+                fig_turnover_status.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=12, weight="bold"),
+                    marker=dict(line=dict(color="#fff", width=1))
+                )
+                fig_turnover_status.update_layout(
+                    xaxis_title="周转状态",
+                    yaxis_title="MSKU数量",
+                    showlegend=True,
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=20, l=20, r=20)
+                )
+                st.plotly_chart(fig_turnover_status, use_container_width=True)
+
+            # 6.2 周转状态占比饼图
+            with col2_turnover:
+                turnover_pie_data = pd.DataFrame({
+                    "状态": ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"],
+                    "MSKU数": [turnover_current_metrics.get(stat, 0) for stat in
+                               ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]]
+                })
+                total_turnover_msku = turnover_pie_data["MSKU数"].sum()
+                turnover_pie_data["占比(%)"] = turnover_pie_data["MSKU数"].apply(
+                    lambda x: round((x / total_turnover_msku) * 100, 1) if total_turnover_msku != 0 else 0.0
+                )
+                turnover_pie_data["自定义标签"] = turnover_pie_data.apply(
+                    lambda row: f"{row['状态']}<br>{row['MSKU数']}个<br>({row['占比(%)']}%)",
+                    axis=1
+                )
+                fig_turnover_pie = px.pie(
+                    turnover_pie_data,
+                    values="MSKU数",
+                    names="状态",
+                    color="状态",
+                    color_discrete_map=TURNOVER_STATUS_COLORS,
+                    title=f"{selected_store} 库存周转状态占比",
+                    height=400,
+                    labels={"MSKU数": "MSKU数量"}
+                )
+                fig_turnover_pie.update_traces(
+                    text=turnover_pie_data["自定义标签"],
+                    textinfo="text",
+                    textfont=dict(size=10, weight="bold"),
+                    hovertemplate="%{label}: %{value}个 (%{percent:.1%})"
+                )
+                fig_turnover_pie.update_layout(
+                    showlegend=True,
+                    legend_title="周转状态",
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=20, l=20, r=20)
+                )
+                st.plotly_chart(fig_turnover_pie, use_container_width=True)
+
+            # 6.3 周转状态环比对比图
+            with col3_turnover:
+                turnover_change_data = pd.DataFrame({
+                    "状态": ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"],
+                    "本周MSKU数": [turnover_current_metrics.get(stat, 0) for stat in
+                                   ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]],
+                    "上周MSKU数": [turnover_last_week_metrics.get(stat, 0) for stat in
+                                   ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]]
+                })
+                turnover_change_data_long = pd.melt(
+                    turnover_change_data,
+                    id_vars="状态",
+                    value_vars=["本周MSKU数", "上周MSKU数"],
+                    var_name="周期",
+                    value_name="MSKU数"
+                )
+                fig_turnover_change = px.bar(
+                    turnover_change_data_long,
+                    x="状态",
+                    y="MSKU数",
+                    color="周期",
+                    barmode="group",
+                    color_discrete_map={"本周MSKU数": "#2E86AB", "上周MSKU数": "#A23B72"},
+                    title=f"{selected_store} 周转状态变化对比",
+                    height=400,
+                    text="MSKU数"
+                )
+                fig_turnover_change.update_traces(
+                    textposition="outside",
+                    textfont=dict(size=10, weight="bold"),
+                    marker=dict(line=dict(color="#fff", width=1))
+                )
+                fig_turnover_change.update_layout(
+                    xaxis_title="周转状态",
+                    yaxis_title="MSKU数量",
+                    showlegend=True,
+                    legend_title="周期",
+                    plot_bgcolor="#f8f9fa",
+                    margin=dict(t=50, b=20, l=20, r=20)
+                )
+                st.plotly_chart(fig_turnover_change, use_container_width=True)
+
             # ========== 库存消耗天数组合图 ==========
             st.subheader(f"{selected_store} 库存消耗天数分布（MSKU数+总滞销库存）")
             if not store_current_data_all.empty:

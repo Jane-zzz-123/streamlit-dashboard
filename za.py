@@ -387,17 +387,34 @@ def load_and_preprocess_data_from_df(df):
         import traceback
         st.error(f"详细错误信息：{traceback.format_exc()}")  # 新增：打印详细错误，方便调试
         return None
-def get_week_data_year_product(df, target_date):
-    """获取指定日期的数据"""
+# ========== 1. 先定义 get_week_data（基础函数） ==========
+def get_week_data(df, target_date):
+    """获取指定日期的全量数据（年份品+非年份品）"""
     target_date = pd.to_datetime(target_date).normalize()
     week_data = df[df["记录时间"] == target_date].copy()
+    # 注意：这里已经删掉了剔除非年份品的行！
     return week_data if not week_data.empty else None
+
+# ========== 2. 再定义 get_week_data_year_product（依赖上面的函数） ==========
 def get_week_data_year_product(df, target_date):
     """获取指定日期的年份品数据（给指标/图表用）"""
-    week_data = get_week_data(df, target_date)  # 先拿全量
+    week_data = get_week_data(df, target_date)  # 调用上面的基础函数
     if week_data is not None and not week_data.empty:
         week_data = week_data[week_data["是否年份品"] == True].copy()  # 只留年份品
     return week_data
+
+# ========== 3. 最后定义 get_previous_week_data（依赖上面的年份品函数） ==========
+def get_previous_week_data(df, current_date):
+    """获取上一周的年份品数据（用于环比计算）"""
+    current_date = pd.to_datetime(current_date).normalize()
+    all_dates = sorted(df["记录时间"].unique())
+    if current_date not in all_dates:
+        return None
+    current_idx = all_dates.index(current_date)
+    if current_idx > 0:
+        prev_date = all_dates[current_idx - 1]
+        return get_week_data_year_product(df, prev_date)  # 调用年份品函数
+    return None
 
 def get_previous_week_data(df, current_date):
     """获取上一周数据（用于环比计算）"""

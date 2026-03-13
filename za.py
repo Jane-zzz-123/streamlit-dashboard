@@ -1386,6 +1386,76 @@ def render_store_trend_charts(df, date_list):
         # 在对应列显示图表
         with cols[i % 2]:
             st.plotly_chart(fig, use_container_width=True)
+# ===================== 新增：全量品 - 每个店铺的库存周转状态趋势折线图 =====================
+def render_turnover_store_trend_charts(df, date_list):
+    """每个店铺的库存周转状态趋势折线图（全量品）"""
+    if len(date_list) < 1:
+        st.markdown("<p>无数据可展示</p>", unsafe_allow_html=True)
+        return
+
+    # 1. 兜底筛选全量品 + 空值兼容（使用get_week_data，无年份品筛选）
+    week_datas = [get_week_data(df, date) for date in date_list]
+    week_datas = [d for d in week_datas if d is not None and not d.empty]
+    if not week_datas:
+        st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
+        return
+    all_data = pd.concat(week_datas)
+
+    # 2. 过滤非周转状态（防店铺列表包含异常状态）
+    turnover_status_list = ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]
+    all_data = all_data[all_data["库存周转状态判断"].isin(turnover_status_list)]
+    if all_data.empty:
+        st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
+        return
+
+    stores = sorted(all_data["店铺"].unique())
+    date_labels = [d.strftime("%Y-%m-%d") for d in date_list]
+    # 分两列显示（和年份品样式一致）
+    cols = st.columns(2)
+    for i, store in enumerate(stores):
+        # 准备店铺数据
+        store_data = []
+        for date, label in zip(date_list, date_labels):
+            data = get_week_data(df, date)  # 全量品数据，无年份品筛选
+            if data is not None and not data.empty:
+                store_status_data = data[data["店铺"] == store]
+                # 过滤店铺数据的非周转状态
+                store_status_data = store_status_data[
+                    store_status_data["库存周转状态判断"].isin(turnover_status_list)]
+                # 计算全量品周转状态指标
+                metrics = calculate_turnover_metrics(store_status_data)
+                for status in turnover_status_list:
+                    store_data.append({
+                        "日期": label,
+                        "状态": status,
+                        "MSKU数": metrics[status]
+                    })
+        if not store_data:
+            continue
+        store_df = pd.DataFrame(store_data)
+        # 折线图（样式和年份品保持一致）
+        fig = go.Figure()
+        for status in turnover_status_list:
+            status_data = store_df[store_df["状态"] == status]
+            fig.add_trace(go.Scatter(
+                x=status_data["日期"],
+                y=status_data["MSKU数"],
+                mode="lines+markers",
+                name=status,
+                line=dict(color=STATUS_COLORS.get(status, "#808080"), width=2),
+                marker=dict(size=8)
+            ))
+        fig.update_layout(
+            title=f"{store} 库存周转状态变化趋势",
+            xaxis_title="日期",
+            yaxis_title="MSKU数量",
+            plot_bgcolor="#f8f9fa",
+            height=300,
+            margin=dict(t=50, b=20, l=20, r=20)
+        )
+        # 在对应列显示图表
+        with cols[i % 2]:
+            st.plotly_chart(fig, use_container_width=True)
 
 
 def render_store_weekly_changes(df, date_list):
@@ -3410,18 +3480,21 @@ def main():
     # 第二部分：趋势与变化分析
     st.header("2 近一个月的趋势与变化分析")
     # 2.1 三周状态变化趋势
-    st.subheader("2.1 近一个月状态变化趋势（年份品清仓风险）")
+    st.subheader("2.1.1 近一个月状态变化趋势（年份品清仓风险）")
     trend_fig = render_four_week_status_chart(df, all_dates)
     st.plotly_chart(trend_fig, use_container_width=True)
     # 新增：全量品库存周转状态近一个月趋势
-    st.subheader("2.2 近一个月状态变化趋势（全量品库存周转）")
+    st.subheader("2.1.2 近一个月状态变化趋势（全量品库存周转）")
     turnover_trend_fig = render_turnover_four_week_status_chart(df, all_dates)
+    # 原有：年份品店铺清仓风险趋势
     # 2.2 店铺周变化情况
-    st.subheader("2.2 店铺年份品清仓风险变化情况")
+    st.subheader("2.2 店铺周变化情况")
     render_store_weekly_changes(df, all_dates)
-    # 店铺趋势图表
-    st.subheader("2.3 店铺状态趋势图")
+    st.subheader("2.3.1各店铺年份品清仓风险趋势")
     render_store_trend_charts(df, all_dates)
+    # 新增：全量品店铺库存周转趋势
+    st.subheader("2.3.2各店铺全量品库存周转状态趋势")
+    render_turnover_store_trend_charts(df, all_dates)
     # 2.4 店铺与状态变化联合分析
     st.subheader("2.4 店铺与状态变化联合分析")
     if df is not None and not df.empty:

@@ -1976,7 +1976,7 @@ def main():
         current_data_year = current_data_full[current_data_full["是否年份品"] == True].copy()
 
     # 3. 获取全量的上周数据（包含年份品+非年份品）
-    prev_data_full = get_previous_week_data(df, selected_date)
+    prev_data_full = get_previous_week_turnover_data(df, selected_date)
     # 4. 过滤出年份品的上周数据 - 用于环比统计
     prev_data_year = None
     if prev_data_full is not None and not prev_data_full.empty:

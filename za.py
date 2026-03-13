@@ -2758,8 +2758,9 @@ def main():
                 st.plotly_chart(fig_turnover_change, use_container_width=True)
 
             # ===================== 新增：全量商品周转风险汇总表核心函数 =====================
+            # ===================== 新增：全量商品周转风险汇总表核心函数 =====================
             def create_turnover_summary_table(current_week_store_data, previous_week_store_data):
-                """生成全量商品的库存周转风险汇总表"""
+                """生成全量商品的库存周转风险汇总表（复用已计算的100天滞销数量字段）"""
                 turnover_status_list = [
                     "库存周转健康", "轻度滞销风险", "中度滞销风险",
                     "严重滞销风险", "数据异常"
@@ -2794,18 +2795,15 @@ def main():
                         "环比变化率(%)": round(pct, 2)
                     })
 
-                # 2. 统计周转天数超100天的滞销数量
+                # 2. 复用已计算的「周转天数超过100天的滞销数量」字段（核心调整）
                 current_over_100d = 0
                 if current_week_store_data is not None and not current_week_store_data.empty:
-                    current_over_100d = len(current_week_store_data[
-                                                current_week_store_data["库存周转天数"] > 100
-                                                ])
+                    # 直接取已计算好的字段求和/取值（根据你的字段类型调整：若为单值取sum，若为计数取len）
+                    current_over_100d = current_week_store_data["周转天数超过100天的滞销数量"].sum()
 
                 previous_over_100d = 0
                 if previous_week_store_data is not None and not previous_week_store_data.empty:
-                    previous_over_100d = len(previous_week_store_data[
-                                                 previous_week_store_data["库存周转天数"] > 100
-                                                 ])
+                    previous_over_100d = previous_week_store_data["周转天数超过100天的滞销数量"].sum()
 
                 diff_over_100d = current_over_100d - previous_over_100d
                 pct_over_100d = (diff_over_100d / previous_over_100d * 100) if previous_over_100d != 0 else (

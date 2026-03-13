@@ -1106,6 +1106,219 @@ def render_four_week_status_chart(df, date_list):
     return fig
 
 
+# ===================== 新增：全量品库存周转状态四周统计（仅新增，不修改原有代码） =====================
+# 补充状态颜色（若你的代码中已定义STATUS_COLORS，可删除这一段）
+if 'STATUS_COLORS' not in locals():
+    STATUS_COLORS = {
+        "库存周转健康": "#2E8B57",  # 全量品-周转健康
+        "轻度滞销风险": "#FFD700",  # 全量品-轻度滞销
+        "中度滞销风险": "#FF8C00",  # 全量品-中度滞销
+        "严重滞销风险": "#DC143C",  # 全量品-严重滞销
+        "数据异常": "#808080"  # 全量品-数据异常
+    }
+
+
+def calculate_turnover_metrics(data):
+    """计算全量品库存周转状态指标"""
+    if data is None or data.empty:
+        return {
+            "总MSKU数": 0,
+            "库存周转健康": 0,
+            "轻度滞销风险": 0,
+            "中度滞销风险": 0,
+            "严重滞销风险": 0,
+            "数据异常": 0
+        }
+
+    # 统计各周转状态的MSKU数（字段名和你的数据保持一致）
+    metrics = {
+        "总MSKU数": len(data),
+        "库存周转健康": len(data[data["库存周转状态判断"] == "库存周转健康"]),
+        "轻度滞销风险": len(data[data["库存周转状态判断"] == "轻度滞销风险"]),
+        "中度滞销风险": len(data[data["库存周转状态判断"] == "中度滞销风险"]),
+        "严重滞销风险": len(data[data["库存周转状态判断"] == "严重滞销风险"]),
+        "数据异常": len(data[data["库存周转状态判断"] == "数据异常"])
+    }
+    return metrics
+
+
+def compare_turnover_with_previous(current_metrics, prev_metrics):
+    """对比全量品周转状态环比变化"""
+    comparisons = {}
+    status_list = ["总MSKU数", "库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]
+
+    for status in status_list:
+        current_val = current_metrics[status]
+        prev_val = prev_metrics[status]
+        diff = current_val - prev_val
+        pct = (diff / prev_val * 100) if prev_val != 0 else 0.0
+        comparisons[status] = {
+            "变化值": diff,
+            "变化率(%)": round(pct, 2)
+        }
+    return comparisons
+
+
+def render_turnover_four_week_comparison_table(df, date_list):
+    """近四周概览表（全量品库存周转状态）"""
+    if len(date_list) < 1:
+        st.markdown("<p>无数据可展示</p>", unsafe_allow_html=True)
+        return
+    display_dates = date_list[-4:] if len(date_list) >= 4 else date_list
+    date_labels = [d.strftime("%Y-%m-%d") for d in display_dates]
+    comparison_data = []
+    for i, date in enumerate(display_dates):
+        # 获取全量品周数据（使用你已定义的get_week_data函数，无年份品筛选）
+        data = get_week_data(df, date)
+        metrics = calculate_turnover_metrics(data)
+        if i > 0:
+            prev_data = get_week_data(df, display_dates[i - 1])
+            prev_metrics = calculate_turnover_metrics(prev_data)
+            comparisons = compare_turnover_with_previous(metrics, prev_metrics)
+        else:
+            comparisons = None
+        row = {
+            "日期": date_labels[i],
+            "总MSKU数": metrics["总MSKU数"],
+            "库存周转健康": metrics["库存周转健康"],
+            "轻度滞销风险": metrics["轻度滞销风险"],
+            "中度滞销风险": metrics["中度滞销风险"],
+            "严重滞销风险": metrics["严重滞销风险"],
+            "数据异常": metrics["数据异常"]
+        }
+        if comparisons:
+            row["总MSKU数变化"] = comparisons["总MSKU数"]["变化值"]
+            row["库存周转健康变化"] = comparisons["库存周转健康"]["变化值"]
+            row["轻度滞销风险变化"] = comparisons["轻度滞销风险"]["变化值"]
+            row["中度滞销风险变化"] = comparisons["中度滞销风险"]["变化值"]
+            row["严重滞销风险变化"] = comparisons["严重滞销风险"]["变化值"]
+            row["数据异常变化"] = comparisons["数据异常"]["变化值"]
+
+        comparison_data.append(row)
+
+    # 构建HTML表格（样式和原有年份品表格一致）
+    html = "<table style='width:100%; border-collapse:collapse;'>"
+    html += "<tr><th style='border:1px solid #ddd; padding:8px;'>日期</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>总MSKU数</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>库存周转健康</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>轻度滞销风险</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>中度滞销风险</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>严重滞销风险</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>数据异常</th></tr>"
+
+    for row in comparison_data:
+        html += f"<tr><td style='border:1px solid #ddd; padding:8px; font-weight:bold;'>{row['日期']}</td>"
+        # 总MSKU数
+        if "总MSKU数变化" in row:
+            diff = row["总MSKU数变化"]
+            color = "#2E8B57" if diff >= 0 else "#DC143C"
+            symbol = "+" if diff > 0 else ""
+            html += f"<td style='border:1px solid #ddd; padding:8px;'>{row['总MSKU数']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+        else:
+            html += f"<td style='border:1px solid #ddd; padding:8px;'>{row['总MSKU数']}</td>"
+
+        # 库存周转健康
+        if "库存周转健康变化" in row:
+            diff = row["库存周转健康变化"]
+            color = "#2E8B57" if diff >= 0 else "#DC143C"
+            symbol = "+" if diff > 0 else ""
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['库存周转健康']};'>{row['库存周转健康']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+        else:
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['库存周转健康']};'>{row['库存周转健康']}</td>"
+
+        # 轻度滞销风险
+        if "轻度滞销风险变化" in row:
+            diff = row["轻度滞销风险变化"]
+            color = "#2E8B57" if diff <= 0 else "#DC143C"
+            symbol = "+" if diff > 0 else ""
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['轻度滞销风险']};'>{row['轻度滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+        else:
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['轻度滞销风险']};'>{row['轻度滞销风险']}</td>"
+
+        # 中度滞销风险
+        if "中度滞销风险变化" in row:
+            diff = row["中度滞销风险变化"]
+            color = "#2E8B57" if diff <= 0 else "#DC143C"
+            symbol = "+" if diff > 0 else ""
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['中度滞销风险']};'>{row['中度滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+        else:
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['中度滞销风险']};'>{row['中度滞销风险']}</td>"
+
+        # 严重滞销风险
+        if "严重滞销风险变化" in row:
+            diff = row["严重滞销风险变化"]
+            color = "#2E8B57" if diff <= 0 else "#DC143C"
+            symbol = "+" if diff > 0 else ""
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['严重滞销风险']};'>{row['严重滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+        else:
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['严重滞销风险']};'>{row['严重滞销风险']}</td>"
+
+        # 数据异常
+        if "数据异常变化" in row:
+            diff = row["数据异常变化"]
+            color = "#DC143C" if diff >= 0 else "#2E8B57"
+            symbol = "+" if diff > 0 else ""
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['数据异常']};'>{row['数据异常']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+        else:
+            html += f"<td style='border:1px solid #ddd; padding:8px; color:{STATUS_COLORS['数据异常']};'>{row['数据异常']}</td>"
+
+        html += "</tr>"
+    html += "</table>"
+    st.markdown(html, unsafe_allow_html=True)
+
+
+def render_turnover_four_week_status_chart(df, date_list):
+    """四周状态变化趋势（全量品库存周转状态）"""
+    if len(date_list) < 1:
+        fig = go.Figure()
+        fig.add_annotation(text="无数据可展示", x=0.5, y=0.5, showarrow=False, font=dict(size=16))
+        fig.update_layout(title="全量品 - 四周库存周转状态变化趋势", plot_bgcolor="#f8f9fa", height=400)
+        st.plotly_chart(fig, use_container_width=True)
+        return
+
+    # 获取最多四周数据
+    display_dates = date_list[-4:] if len(date_list) >= 4 else date_list
+    date_labels = [d.strftime("%Y-%m-%d") for d in display_dates]
+
+    # 准备数据
+    trend_data = []
+    for date, label in zip(display_dates, date_labels):
+        # 获取全量品周数据
+        data = get_week_data(df, date)
+        metrics = calculate_turnover_metrics(data)
+
+        for status in ["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险", "数据异常"]:
+            trend_data.append({
+                "日期": label,
+                "状态": status,
+                "MSKU数": metrics[status]
+            })
+
+    trend_df = pd.DataFrame(trend_data)
+
+    # 创建柱状图（样式和原有年份品图表一致）
+    fig = px.bar(
+        trend_df,
+        x="状态",
+        y="MSKU数",
+        color="日期",
+        barmode="group",
+        title="全量品 - 四周库存周转状态变化趋势",
+        text="MSKU数",
+        height=400
+    )
+    fig.update_traces(
+        textposition="outside",
+        textfont=dict(size=12)
+    )
+    fig.update_layout(
+        xaxis_title="库存周转状态",
+        yaxis_title="MSKU数量",
+        plot_bgcolor="#f8f9fa",
+        margin=dict(t=50, b=20, l=20, r=20)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
 def render_store_trend_charts(df, date_list):
     """每个店铺的状态趋势折线图"""
     if len(date_list) < 1:
@@ -1281,111 +1494,6 @@ def render_store_weekly_changes(df, date_list):
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
 
-def render_store_weekly_changes1(df, date_list):
-    """店铺每周变化情况表"""
-    if len(date_list) < 1:
-        st.markdown("<p>无数据可展示</p>", unsafe_allow_html=True)
-        return
-
-    # ========== 新增1：兜底筛选年份品 + 空值兼容 ==========
-    week_datas = [get_week_data(df, date) for date in date_list]
-    week_datas = [d for d in week_datas if d is not None and not d.empty]
-    if not week_datas:
-        st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
-        return
-    all_data = pd.concat(week_datas)
-
-    # ========== 新增2：过滤非年份品状态（防店铺列表异常） ==========
-    all_data = all_data[all_data["库存周转状态判断"].isin(["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险"])]
-    if all_data.empty:
-        st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
-        return
-
-    stores = sorted(all_data["店铺"].unique())
-    date_labels = [d.strftime("%Y-%m-%d") for d in date_list]
-
-    # 创建HTML表格
-    html = "<table style='width:100%; border-collapse:collapse;'>"
-    html += "<tr><th style='border:1px solid #ddd; padding:8px;'>店铺</th>"
-    html += "<th style='border:1px solid #ddd; padding:8px;'>日期</th>"
-    html += "<th style='border:1px solid #ddd; padding:8px;'>总MSKU数</th>"
-    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#2E8B5720;'>健康</th>"
-    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#4169E120;'>低滞销风险</th>"
-    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#FFD70020;'>中滞销风险</th>"
-    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#DC143C20;'>高滞销风险</th></tr>"
-
-    for store in stores:
-        for i, (date, label) in enumerate(zip(date_list, date_labels)):
-            data = get_week_data_year_product(df, date)  # 已内置年份品筛选
-            if data is not None and not data.empty:
-                store_status_data = data[data["店铺"] == store]
-                # ========== 新增3：过滤店铺数据的非年份品状态 ==========
-                store_status_data = store_status_data[
-                    store_status_data["库存周转状态判断"].isin(["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险"])]
-                metrics = calculate_status_metrics(store_status_data)
-
-                # 获取上周数据
-                prev_metrics = None
-                if i > 0:
-                    prev_data = get_week_data_year_product(df, date_list[i - 1])
-                    if prev_data is not None and not prev_data.empty:
-                        prev_store_data = prev_data[prev_data["店铺"] == store]
-                        prev_store_data = prev_store_data[
-                            prev_store_data["库存周转状态判断"].isin(["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险"])]
-                        prev_metrics = calculate_status_metrics(prev_store_data)
-
-                html += f"<tr><td style='border:1px solid #ddd; padding:8px; font-weight:bold;'>{store}</td>"
-                html += f"<td style='border:1px solid #ddd; padding:8px;'>{label}</td>"
-
-                # 总MSKU数
-                if prev_metrics:
-                    diff = metrics["总MSKU数"] - prev_metrics["总MSKU数"]
-                    color = "#2E8B57" if diff >= 0 else "#DC143C"
-                    symbol = "+" if diff > 0 else ""
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['总MSKU数']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
-                else:
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['总MSKU数']}</td>"
-
-                # 健康
-                if prev_metrics:
-                    diff = metrics["库存周转健康"] - prev_metrics["库存周转健康"]
-                    color = "#2E8B57" if diff >= 0 else "#DC143C"
-                    symbol = "+" if diff > 0 else ""
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['库存周转健康']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
-                else:
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['库存周转健康']}</td>"
-
-                # 低滞销风险
-                if prev_metrics:
-                    diff = metrics["轻度滞销风险"] - prev_metrics["轻度滞销风险"]
-                    color = "#2E8B57" if diff <= 0 else "#DC143C"
-                    symbol = "+" if diff > 0 else ""
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['轻度滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
-                else:
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['轻度滞销风险']}</td>"
-
-                # 中滞销风险
-                if prev_metrics:
-                    diff = metrics["中度滞销风险"] - prev_metrics["中度滞销风险"]
-                    color = "#2E8B57" if diff <= 0 else "#DC143C"
-                    symbol = "+" if diff > 0 else ""
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['中度滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
-                else:
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['中度滞销风险']}</td>"
-
-                # 高滞销风险
-                if prev_metrics:
-                    diff = metrics["严重滞销风险"] - prev_metrics["严重滞销风险"]
-                    color = "#2E8B57" if diff <= 0 else "#DC143C"
-                    symbol = "+" if diff > 0 else ""
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['严重滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
-                else:
-                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['严重滞销风险']}</td>"
-
-                html += "</tr>"
-
-    html += "</table>"
-    st.markdown(html, unsafe_allow_html=True)
 def render_status_change_table(data, page=1, page_size=30):
     """环比上周库年份品滞销风险变化表"""
     if data is None or data.empty:
@@ -3302,14 +3410,15 @@ def main():
     # 第二部分：趋势与变化分析
     st.header("2 近一个月的趋势与变化分析")
     # 2.1 三周状态变化趋势
-    st.subheader("2.1 近一个月状态变化趋势")
+    st.subheader("2.1 近一个月状态变化趋势（年份品清仓风险）")
     trend_fig = render_four_week_status_chart(df, all_dates)
     st.plotly_chart(trend_fig, use_container_width=True)
+    # 新增：全量品库存周转状态近一个月趋势
+    st.subheader("2.2 近一个月状态变化趋势（全量品库存周转）")
+    turnover_trend_fig = render_turnover_four_week_status_chart(df, all_dates)
     # 2.2 店铺周变化情况
     st.subheader("2.2 店铺年份品清仓风险变化情况")
     render_store_weekly_changes(df, all_dates)
-    st.subheader("2.2 库存周转状态判断风险变化情况")
-    render_store_weekly_changes1(df, all_dates)
     # 店铺趋势图表
     st.subheader("2.3 店铺状态趋势图")
     render_store_trend_charts(df, all_dates)

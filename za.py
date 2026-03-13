@@ -394,7 +394,7 @@ def get_week_data_year_product(df, target_date):
     return week_data if not week_data.empty else None
 def get_week_data_year_product(df, target_date):
     """获取指定日期的年份品数据（给指标/图表用）"""
-    week_data = get_week_data_year_product(df, target_date)  # 先拿全量
+    week_data = get_week_data(df, target_date)  # 先拿全量
     if week_data is not None and not week_data.empty:
         week_data = week_data[week_data["是否年份品"] == True].copy()  # 只留年份品
     return week_data

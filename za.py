@@ -444,77 +444,127 @@ def get_previous_week_data(df, current_date):
         return get_week_data_year_product(df, prev_date)
     return None
 
-
 # ========== 新增：获取上周周转数据（全量商品，兼容非年份品） ==========
 def get_previous_week_turnover_data(df, current_date):
     """
-    获取上一周的全量周转数据（用于周转指标环比）
-    区别于年份品的get_previous_week_data：保留所有商品，不过滤年份品
+    修复：获取上一周的全量周转数据（用于周转指标环比）
+    优化点：
+    1. 按自然周逻辑匹配上周数据（而非仅上一个记录日期）
+    2. 统一返回格式（空数据返回空DataFrame而非None）
+    3. 补全必要列，避免后续统计报错
     """
+    # 标准化日期格式
     current_date = pd.to_datetime(current_date).normalize()
-    all_dates = sorted(df["记录时间"].unique())
+    df["记录时间"] = pd.to_datetime(df["记录时间"]).dt.normalize()
 
-    # 校验当前日期是否存在
-    if current_date not in all_dates:
-        return None
+    # 计算当前日期所在自然周的时间范围（周一至周日）
+    current_weekday = current_date.weekday()  # 0=周一, 6=周日
+    current_week_start = current_date - timedelta(days=current_weekday)
+    current_week_end = current_week_start + timedelta(days=6)
 
-    current_idx = all_dates.index(current_date)
-    # 取上一个日期的全量数据（不过滤年份品）
-    if current_idx > 0:
-        prev_date = all_dates[current_idx - 1]
-        prev_week_data = df[df["记录时间"] == prev_date].copy()
-        return prev_week_data if not prev_week_data.empty else None
-    return None
+    # 计算上一周的时间范围
+    prev_week_start = current_week_start - timedelta(days=7)
+    prev_week_end = prev_week_start + timedelta(days=6)
+
+    # 筛选上周数据（全量商品，不过滤年份品）
+    prev_week_data = df[
+        (df["记录时间"] >= prev_week_start) &
+        (df["记录时间"] <= prev_week_end)
+        ].copy()
+
+    # 兜底：确保必要列存在，避免后续报错
+    required_cols = ["MSKU", "店铺", "库存周转状态判断", "周转滞销库存"]
+    for col in required_cols:
+        if col not in prev_week_data.columns:
+            prev_week_data[col] = np.nan
+
+    # 统一返回空DataFrame（而非None），方便后续判断
+    return prev_week_data
 
 
-# ========== 新增：计算周转指标环比（核心补全） ==========
 def compare_turnover_metrics(current_turnover_metrics, prev_turnover_metrics):
     """
-    计算周转指标的环比差异（补全上周数据对比逻辑）
-    返回：各指标的当前值、上周值、差值、变化率
+    修复：计算周转指标的环比差异
+    优化点：
+    1. 严谨处理除0/空值/异常值
+    2. 区分“新增”（上周0本周有值）和“清零”（上周有值本周0）
+    3. 统一数值类型，避免计算报错
     """
     turnover_comparison = {}
-    # 遍历所有周转指标
-    for key in current_turnover_metrics:
-        curr_val = current_turnover_metrics[key]
-        prev_val = prev_turnover_metrics.get(key, 0) if prev_turnover_metrics else 0
+    # 处理空值：若上周无数据，默认空字典
+    prev_turnover_metrics = prev_turnover_metrics or {}
 
+    for key in current_turnover_metrics:
+        # 标准化数值类型，处理空值/异常值
+        curr_val = float(current_turnover_metrics[key]) if pd.notna(current_turnover_metrics[key]) else 0.0
+        prev_val = float(prev_turnover_metrics.get(key, 0)) if pd.notna(prev_turnover_metrics.get(key, 0)) else 0.0
+
+        # 计算差值和变化率
         diff = curr_val - prev_val
-        pct = (diff / prev_val) * 100 if prev_val != 0 else 0.0
+
+        # 精细化处理变化率：区分除0场景
+        if prev_val == 0:
+            if curr_val > 0:
+                pct = "新增"  # 上周无数据，本周新增
+            else:
+                pct = 0.0  # 两周均无数据
+        elif curr_val == 0:
+            pct = -100.0  # 本周清零（100%下降）
+        else:
+            pct = round((diff / prev_val) * 100, 2)
 
         turnover_comparison[key] = {
-            "current": curr_val,
-            "last_week": prev_val,
-            "diff": diff,
-            "pct": round(pct, 2)
+            "current": round(curr_val, 2),  # 保留2位小数，提升可读性
+            "last_week": round(prev_val, 2),
+            "diff": round(diff, 2),
+            "pct": pct
         }
     return turnover_comparison
 
 
-# ========== 新增：计算周转状态变化（改善/不变/恶化） ==========
 def calculate_turnover_status_change(current_data, prev_data):
     """
-    补全：对比本周/上周的周转状态，统计各状态的改善/不变/恶化数量
+    修复：对比本周/上周的周转状态，统计各状态的改善/不变/恶化数量
+    优化点：
+    1. 完整统计所有MSKU（新增/流失/存量）
+    2. 修正状态变化归因逻辑（累加到来源状态）
+    3. 完善异常状态处理
     """
-    if current_data is None or current_data.empty or prev_data is None or prev_data.empty:
-        return {
-            "库存周转健康": {"改善": 0, "不变": 0, "恶化": 0},
-            "轻度滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-            "中度滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-            "严重滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-            "数据异常": {"改善": 0, "不变": 0, "恶化": 0}
-        }
+    # 初始化返回结果
+    status_change = {
+        "库存周转健康": {"改善": 0, "不变": 0, "恶化": 0, "新增": 0, "流失": 0},
+        "轻度滞销风险": {"改善": 0, "不变": 0, "恶化": 0, "新增": 0, "流失": 0},
+        "中度滞销风险": {"改善": 0, "不变": 0, "恶化": 0, "新增": 0, "流失": 0},
+        "严重滞销风险": {"改善": 0, "不变": 0, "恶化": 0, "新增": 0, "流失": 0},
+        "数据异常": {"改善": 0, "不变": 0, "恶化": 0, "新增": 0, "流失": 0}
+    }
 
-    # 合并本周和上周数据（按MSKU匹配）
+    # 边界处理：无数据时返回初始化结果
+    if current_data is None or current_data.empty:
+        return status_change
+    if prev_data is None or prev_data.empty:
+        # 仅本周有数据：所有MSKU标记为“新增”
+        current_status_count = current_data["库存周转状态判断"].value_counts()
+        for status, count in current_status_count.items():
+            if status in status_change:
+                status_change[status]["新增"] = count
+        return status_change
+
+    # 标准化数据：确保关键列存在且非空
     merge_keys = ["MSKU", "店铺"]
+    current_data = current_data[merge_keys + ["库存周转状态判断"]].fillna("数据异常")
+    prev_data = prev_data[merge_keys + ["库存周转状态判断"]].fillna("数据异常")
+
+    # 全量合并数据（outer join），覆盖所有MSKU
     compare_df = pd.merge(
-        current_data[merge_keys + ["库存周转状态判断"]].rename(columns={"库存周转状态判断": "当前状态"}),
-        prev_data[merge_keys + ["库存周转状态判断"]].rename(columns={"库存周转状态判断": "上周状态"}),
+        current_data.rename(columns={"库存周转状态判断": "当前状态"}),
+        prev_data.rename(columns={"库存周转状态判断": "上周状态"}),
         on=merge_keys,
-        how="inner"  # 只对比两周都有数据的MSKU
+        how="outer",
+        indicator=True
     )
 
-    # 定义周转状态的严重程度（数值越大越健康）
+    # 定义周转状态严重程度（数值越大越健康）
     turnover_severity = {
         "数据异常": -1,
         "严重滞销风险": 0,
@@ -523,37 +573,36 @@ def calculate_turnover_status_change(current_data, prev_data):
         "库存周转健康": 3
     }
 
-    # 统计各状态的变化
-    status_change = {
-        "库存周转健康": {"改善": 0, "不变": 0, "恶化": 0},
-        "轻度滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-        "中度滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-        "严重滞销风险": {"改善": 0, "不变": 0, "恶化": 0},
-        "数据异常": {"改善": 0, "不变": 0, "恶化": 0}
-    }
-
+    # 遍历所有MSKU，统计状态变化
     for _, row in compare_df.iterrows():
-        curr_status = row["当前状态"]
-        prev_status = row["上周状态"]
+        curr_status = row["当前状态"] if pd.notna(row["当前状态"]) else "数据异常"
+        prev_status = row["上周状态"] if pd.notna(row["上周状态"]) else "数据异常"
+        merge_flag = row["_merge"]
 
-        # 跳过异常状态对比
-        if curr_status not in turnover_severity or prev_status not in turnover_severity:
-            continue
+        # 跳过不在定义内的异常状态
+        if curr_status not in turnover_severity:
+            curr_status = "数据异常"
+        if prev_status not in turnover_severity:
+            prev_status = "数据异常"
 
-        curr_sev = turnover_severity[curr_status]
-        prev_sev = turnover_severity[prev_status]
+        # 分类处理：新增/流失/存量
+        if merge_flag == "left_only":  # 本周新增MSKU
+            status_change[curr_status]["新增"] += 1
+        elif merge_flag == "right_only":  # 本周流失MSKU
+            status_change[prev_status]["流失"] += 1
+        else:  # 两周都有数据，判断改善/不变/恶化
+            curr_sev = turnover_severity[curr_status]
+            prev_sev = turnover_severity[prev_status]
 
-        # 统计变化类型
-        if curr_sev > prev_sev:
-            change_type = "改善"
-        elif curr_sev < prev_sev:
-            change_type = "恶化"
-        else:
-            change_type = "不变"
+            if curr_sev > prev_sev:
+                change_type = "改善"
+            elif curr_sev < prev_sev:
+                change_type = "恶化"
+            else:
+                change_type = "不变"
 
-        # 累加到对应状态的统计中
-        if curr_status in status_change:
-            status_change[curr_status][change_type] += 1
+            # 关键修复：变化归因到「上周状态」（而非当前状态）
+            status_change[prev_status][change_type] += 1
 
     return status_change
 def calculate_status_metrics(data):

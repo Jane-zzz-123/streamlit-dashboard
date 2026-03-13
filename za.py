@@ -1281,7 +1281,111 @@ def render_store_weekly_changes(df, date_list):
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
 
+def render_store_weekly_changes1(df, date_list):
+    """店铺每周变化情况表"""
+    if len(date_list) < 1:
+        st.markdown("<p>无数据可展示</p>", unsafe_allow_html=True)
+        return
 
+    # ========== 新增1：兜底筛选年份品 + 空值兼容 ==========
+    week_datas = [get_week_data(df, date) for date in date_list]
+    week_datas = [d for d in week_datas if d is not None and not d.empty]
+    if not week_datas:
+        st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
+        return
+    all_data = pd.concat(week_datas)
+
+    # ========== 新增2：过滤非年份品状态（防店铺列表异常） ==========
+    all_data = all_data[all_data["库存周转状态判断"].isin(["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险"])]
+    if all_data.empty:
+        st.markdown("<p>无店铺数据可展示</p>", unsafe_allow_html=True)
+        return
+
+    stores = sorted(all_data["店铺"].unique())
+    date_labels = [d.strftime("%Y-%m-%d") for d in date_list]
+
+    # 创建HTML表格
+    html = "<table style='width:100%; border-collapse:collapse;'>"
+    html += "<tr><th style='border:1px solid #ddd; padding:8px;'>店铺</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>日期</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px;'>总MSKU数</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#2E8B5720;'>健康</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#4169E120;'>低滞销风险</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#FFD70020;'>中滞销风险</th>"
+    html += "<th style='border:1px solid #ddd; padding:8px; background-color:#DC143C20;'>高滞销风险</th></tr>"
+
+    for store in stores:
+        for i, (date, label) in enumerate(zip(date_list, date_labels)):
+            data = get_week_data_year_product(df, date)  # 已内置年份品筛选
+            if data is not None and not data.empty:
+                store_status_data = data[data["店铺"] == store]
+                # ========== 新增3：过滤店铺数据的非年份品状态 ==========
+                store_status_data = store_status_data[
+                    store_status_data["库存周转状态判断"].isin(["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险"])]
+                metrics = calculate_status_metrics(store_status_data)
+
+                # 获取上周数据
+                prev_metrics = None
+                if i > 0:
+                    prev_data = get_week_data_year_product(df, date_list[i - 1])
+                    if prev_data is not None and not prev_data.empty:
+                        prev_store_data = prev_data[prev_data["店铺"] == store]
+                        prev_store_data = prev_store_data[
+                            prev_store_data["库存周转状态判断"].isin(["库存周转健康", "轻度滞销风险", "中度滞销风险", "严重滞销风险"])]
+                        prev_metrics = calculate_status_metrics(prev_store_data)
+
+                html += f"<tr><td style='border:1px solid #ddd; padding:8px; font-weight:bold;'>{store}</td>"
+                html += f"<td style='border:1px solid #ddd; padding:8px;'>{label}</td>"
+
+                # 总MSKU数
+                if prev_metrics:
+                    diff = metrics["总MSKU数"] - prev_metrics["总MSKU数"]
+                    color = "#2E8B57" if diff >= 0 else "#DC143C"
+                    symbol = "+" if diff > 0 else ""
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['总MSKU数']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+                else:
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['总MSKU数']}</td>"
+
+                # 健康
+                if prev_metrics:
+                    diff = metrics["库存周转健康"] - prev_metrics["库存周转健康"]
+                    color = "#2E8B57" if diff >= 0 else "#DC143C"
+                    symbol = "+" if diff > 0 else ""
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['库存周转健康']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+                else:
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['库存周转健康']}</td>"
+
+                # 低滞销风险
+                if prev_metrics:
+                    diff = metrics["轻度滞销风险"] - prev_metrics["轻度滞销风险"]
+                    color = "#2E8B57" if diff <= 0 else "#DC143C"
+                    symbol = "+" if diff > 0 else ""
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['轻度滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+                else:
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['轻度滞销风险']}</td>"
+
+                # 中滞销风险
+                if prev_metrics:
+                    diff = metrics["中度滞销风险"] - prev_metrics["中度滞销风险"]
+                    color = "#2E8B57" if diff <= 0 else "#DC143C"
+                    symbol = "+" if diff > 0 else ""
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['中度滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+                else:
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['中度滞销风险']}</td>"
+
+                # 高滞销风险
+                if prev_metrics:
+                    diff = metrics["严重滞销风险"] - prev_metrics["严重滞销风险"]
+                    color = "#2E8B57" if diff <= 0 else "#DC143C"
+                    symbol = "+" if diff > 0 else ""
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['严重滞销风险']}<br><span style='color:{color}; font-size:12px;'>{symbol}{diff}</span></td>"
+                else:
+                    html += f"<td style='border:1px solid #ddd; padding:8px;'>{metrics['严重滞销风险']}</td>"
+
+                html += "</tr>"
+
+    html += "</table>"
+    st.markdown(html, unsafe_allow_html=True)
 def render_status_change_table(data, page=1, page_size=30):
     """环比上周库年份品滞销风险变化表"""
     if data is None or data.empty:
@@ -1363,7 +1467,7 @@ def render_status_change_table(data, page=1, page_size=30):
 
 
 def render_risk_summary_table(summary_df):
-    st.subheader("库存风险状态汇总表")
+    st.subheader("年份品清仓风险状态汇总表")
     st.markdown("""
     <style>
     .summary-table {
@@ -3202,8 +3306,10 @@ def main():
     trend_fig = render_four_week_status_chart(df, all_dates)
     st.plotly_chart(trend_fig, use_container_width=True)
     # 2.2 店铺周变化情况
-    st.subheader("2.2 店铺周变化情况")
+    st.subheader("2.2 店铺年份品清仓风险变化情况")
     render_store_weekly_changes(df, all_dates)
+    st.subheader("2.2 库存周转状态判断风险变化情况")
+    render_store_weekly_changes1(df, all_dates)
     # 店铺趋势图表
     st.subheader("2.3 店铺状态趋势图")
     render_store_trend_charts(df, all_dates)

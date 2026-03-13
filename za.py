@@ -2385,8 +2385,8 @@ def main():
                         info_df[col] = pd.to_datetime(info_df[col]).dt.strftime("%Y-%m-%d")
 
                 # 状态颜色渲染（加默认值）
-                if "状态判断" in info_df.columns:
-                    info_df["状态判断"] = info_df["状态判断"].apply(
+                if "年份品清仓风险" in info_df.columns:
+                    info_df["年份品清仓风险"] = info_df["年份品清仓风险"].apply(
                         lambda x: f"<span style='color:{STATUS_COLORS.get(x, '#808080')}; font-weight:bold;'>{x}</span>"
                     )
 
@@ -2444,7 +2444,7 @@ def main():
             "FBA+AWD+在途库存", "本地可用",
             "全部总库存", "预计FBA+AWD+在途用完时间",
             "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
-            "状态判断",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均",
+            "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均",
             "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
             "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
             "环比上周库存滞销情况变化"
@@ -2464,7 +2464,7 @@ def main():
                 "FBA+AWD+在途库存", "本地可用",
                 "全部总库存", "预计FBA+AWD+在途用完时间",
                 "预计总库存用完", "库存周转状态判断", "总库存周转天数100天内达标日均",
-                "状态判断", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
+                "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均",
                 "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数",
                 "环比上周库存滞销情况变化"
@@ -2529,7 +2529,7 @@ def main():
                 # "12月1-31日系数", "12月1-31日调整后日均",
                 "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间", "预计总库存用完",
                 "库存周转状态判断", "总库存周转天数100天内达标日均",
-                "状态判断",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
+                "年份品清仓风险",  "预计清完FBA+AWD+在途需要的日均","清库存的目标日均", "FBA+AWD+在途滞销数量", "本地滞销数量", "总滞销库存",
                 "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库存滞销情况变化"
             ]
             valid_display_cols = [col for col in display_cols if col in product_history_data.columns]
@@ -2542,8 +2542,8 @@ def main():
             for col in date_cols:
                 if col in table_data.columns:
                     table_data[col] = pd.to_datetime(table_data[col]).dt.strftime("%Y-%m-%d")
-            if "状态判断" in table_data.columns:
-                table_data["状态判断"] = table_data["状态判断"].apply(
+            if "年份品清仓风险" in table_data.columns:
+                table_data["年份品清仓风险"] = table_data["年份品清仓风险"].apply(
                     lambda x: f"<span style='color:{STATUS_COLORS[x]}; font-weight:bold;'>{x}</span>"
                 )
             if "环比上周库存滞销情况变化" in table_data.columns:

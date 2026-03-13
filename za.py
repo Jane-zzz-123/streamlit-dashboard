@@ -1793,7 +1793,7 @@ def main():
 
     # ========== 核心修改：分离全量数据和年份品数据 ==========
     # 1. 获取全量的当前周数据（包含年份品+非年份品）- 用于产品列表/单个MSKU
-    current_data_full = get_week_data_year_product(df, selected_date)
+    current_data_full = get_week_data(df, selected_date)
     # 2. 过滤出年份品数据 - 用于指标/图表统计
     current_data_year = None
     if current_data_full is not None and not current_data_full.empty:

@@ -2822,7 +2822,7 @@ def main():
                     stock_change = f"{stock_diff} ({stock_diff_pct:.1f}%)" if previous_stock != 0 else f"{stock_diff} (0.0%)"
 
                     summary_data.append({
-                        "年份品清仓风险": status_name,
+                        "库存周转状态判断": status_name,
                         "MSKU数": current_msku,
                         "MSKU占比": f"{msku_ratio:.1f}%",
                         "MSKU环比变化": msku_change,
@@ -2864,7 +2864,7 @@ def main():
                     stock_change = f"{stock_diff} ({stock_diff_pct:.1f}%)" if previous_stock != 0 else f"{stock_diff} (0.0%)"
 
                     summary_data.append({
-                        "年份品清仓风险": combine_name,
+                        "库存周转状态判断": combine_name,
                         "MSKU数": current_msku,
                         "MSKU占比": f"{msku_ratio:.1f}%",
                         "MSKU环比变化": msku_change,
@@ -2914,7 +2914,7 @@ def main():
                 # 构建带颜色的HTML表格
                 html_table = "<table class='risk-summary-table'><thead><tr>"
                 # 表头（和目标表完全一致）
-                headers = ["年份品清仓风险", "MSKU数", "MSKU占比", "MSKU环比变化", "总滞销库存数", "总滞销库存占比",
+                headers = ["库存周转状态判断", "MSKU数", "MSKU占比", "MSKU环比变化", "周转天数超过100天的滞销数量", "周转天数超过100天的滞销数量占比",
                            "库存环比变化"]
                 for header in headers:
                     html_table += f"<th>{header}</th>"
@@ -2922,7 +2922,7 @@ def main():
 
                 # 表体（按风险等级加颜色）
                 for _, row in summary_df.iterrows():
-                    risk_name = row["年份品清仓风险"]
+                    risk_name = row["库存周转状态判断"]
                     # 风险等级颜色匹配
                     color_class = ""
                     if "低滞销风险" in risk_name:
@@ -2941,7 +2941,7 @@ def main():
 
                 st.markdown(html_table, unsafe_allow_html=True)
 
-            st.subheader("库存风险状态汇总表")
+            st.subheader("库存周转状态判断汇总表")
 
             # 获取当前周全量商品数据
             current_week_turnover_data = get_week_data(df, selected_date)

@@ -2781,12 +2781,12 @@ def main():
                 # 本周全量
                 current_total_msku = len(current_week_store_data) if (
                             current_week_store_data is not None and not current_week_store_data.empty) else 0
-                current_total_stock = current_week_store_data["周转滞销库存"].sum() if (
+                current_total_stock = current_week_store_data["周转天数超过100天的滞销数量"].sum() if (
                             current_week_store_data is not None and not current_week_store_data.empty) else 0
                 # 上周全量
                 previous_total_msku = len(previous_week_store_data) if (
                             previous_week_store_data is not None and not previous_week_store_data.empty) else 0
-                previous_total_stock = previous_week_store_data["周转滞销库存"].sum() if (
+                previous_total_stock = previous_week_store_data["周转天数超过100天的滞销数量"].sum() if (
                             previous_week_store_data is not None and not previous_week_store_data.empty) else 0
 
                 # 3. 单状态维度统计（健康/低/中/高/数据异常）
@@ -2797,7 +2797,7 @@ def main():
                     if current_week_store_data is not None and not current_week_store_data.empty:
                         current_filter = current_week_store_data["库存周转状态判断"] == status_key
                         current_msku = len(current_week_store_data[current_filter])
-                        current_stock = current_week_store_data[current_filter]["周转滞销库存"].sum()
+                        current_stock = current_week_store_data[current_filter]["周转天数超过100天的滞销数量"].sum()
 
                     # 上周数据
                     previous_msku = 0
@@ -2805,7 +2805,7 @@ def main():
                     if previous_week_store_data is not None and not previous_week_store_data.empty:
                         previous_filter = previous_week_store_data["库存周转状态判断"] == status_key
                         previous_msku = len(previous_week_store_data[previous_filter])
-                        previous_stock = previous_week_store_data[previous_filter]["周转滞销库存"].sum()
+                        previous_stock = previous_week_store_data[previous_filter]["周转天数超过100天的滞销数量"].sum()
 
                     # 计算占比
                     msku_ratio = (current_msku / current_total_msku * 100) if current_total_msku != 0 else 0.0
@@ -2826,8 +2826,8 @@ def main():
                         "MSKU数": current_msku,
                         "MSKU占比": f"{msku_ratio:.1f}%",
                         "MSKU环比变化": msku_change,
-                        "总滞销库存数": current_stock,
-                        "总滞销库存占比": f"{stock_ratio:.1f}%",
+                        "周转天数超过100天的滞销数量": current_stock,
+                        "周转天数超过100天的滞销数量占比": f"{stock_ratio:.1f}%",
                         "库存环比变化": stock_change
                     })
 
@@ -2839,7 +2839,7 @@ def main():
                     if current_week_store_data is not None and not current_week_store_data.empty:
                         current_filter = current_week_store_data["库存周转状态判断"].isin(combine_status)
                         current_msku = len(current_week_store_data[current_filter])
-                        current_stock = current_week_store_data[current_filter]["周转滞销库存"].sum()
+                        current_stock = current_week_store_data[current_filter]["周转天数超过100天的滞销数量"].sum()
 
                     # 上周数据
                     previous_msku = 0
@@ -2847,7 +2847,7 @@ def main():
                     if previous_week_store_data is not None and not previous_week_store_data.empty:
                         previous_filter = previous_week_store_data["库存周转状态判断"].isin(combine_status)
                         previous_msku = len(previous_week_store_data[previous_filter])
-                        previous_stock = previous_week_store_data[previous_filter]["周转滞销库存"].sum()
+                        previous_stock = previous_week_store_data[previous_filter]["周转天数超过100天的滞销数量"].sum()
 
                     # 计算占比
                     msku_ratio = (current_msku / current_total_msku * 100) if current_total_msku != 0 else 0.0
@@ -2868,8 +2868,8 @@ def main():
                         "MSKU数": current_msku,
                         "MSKU占比": f"{msku_ratio:.1f}%",
                         "MSKU环比变化": msku_change,
-                        "总滞销库存数": current_stock,
-                        "总滞销库存占比": f"{stock_ratio:.1f}%",
+                        "周转天数超过100天的滞销数量": current_stock,
+                        "周转天数超过100天的滞销数量占比": f"{stock_ratio:.1f}%",
                         "库存环比变化": stock_change
                     })
 

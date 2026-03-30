@@ -96,11 +96,11 @@ def load_data():
 
     # 核心列筛选
     core_columns = [
-        "FBA号", "计划物流方式", "店铺", "仓库", "货代", "异常备注",
-        "发货-提取", "提取-到港", "到港-签收","签收-完成上架",
+        "货件单号", "FBA号", "物流方式", "店铺", "仓库", "货代", "异常备注",
+        "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
         "到货年月", "签收-发货时间", "上架完成-发货时间",
         "预计物流时效-实际物流时效差值(绝对值)",
-        "预计物流时效-实际物流时效差值", "提前/延期",
+        "预计物流时效-实际物流时效差值", "提前/延期(整体)",
         "预计物流时效-实际物流时效差值（货代）",
         "提前/延期（货代）", "提前/延期（仓库）", abnormal_col
     ]
@@ -129,6 +129,7 @@ def load_data():
 
     return df_all, df_clean
 
+
 # ---------------------- 主程序逻辑 ----------------------
 # 1. 加载两份基础数据
 df_all, df_clean = load_data()
@@ -146,21 +147,33 @@ data_filter = st.radio(
     key="data_filter"
 )
 
-# 3. 核心：按钮切换数据（统一变量df_selected）
+# 3. 核心：生成两套数据（完全满足你的需求）
 if data_filter == "纯净数据（剔除异常）":
-    df_selected = df_clean.copy()
+    # 仓库分析用：不去重，全部FBA号
+    df_selected_FBA = df_clean.copy()
+
+    # 非仓库分析用：按【货件单号】去重（保留第一条）
+    df_selected = df_clean.drop_duplicates(subset=["货件单号"], keep="first").copy()
+
     exclude_count = len(df_all) - len(df_clean)
-    st.success(f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（全局），当前共 {len(df_selected)} 条记录")
+    st.success(
+        f"✅ 已筛选为纯净数据，剔除 {exclude_count} 条异常数据（全局），当前共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录")
 else:
-    df_selected = df_all.copy()
+    # 仓库分析用：不去重，全部FBA号
+    df_selected_FBA = df_all.copy()
+
+    # 非仓库分析用：按【货件单号】去重（保留第一条）
+    df_selected = df_all.drop_duplicates(subset=["货件单号"], keep="first").copy()
+
     abnormal_count_total = len(df_all[df_all["是否为异常数据"] == "是"])
-    st.info(f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条记录（含 {abnormal_count_total} 条异常数据）")
+    st.info(
+        f"ℹ️ 当前展示全部数据（全局），共 {len(df_selected)} 条货件记录 | {len(df_selected_FBA)} 条FBA记录（含 {abnormal_count_total} 条异常数据）")
 
 # 5. 主看板区域
 st.title("🚢 FBA红单分析看板区域")
 st.divider()
 
-# 6. 当月数据筛选（基于df_selected，不会丢数据）
+# 6. 当月数据筛选（基于 df_selected，不会丢数据）
 st.subheader("🔍 当月红单分析")
 month_options = sorted(df_selected["到货年月"].unique(), reverse=True)
 if not month_options:
@@ -174,43 +187,57 @@ selected_month = st.selectbox(
     key="month_selector_current"
 )
 st.subheader("")  # 空行分隔，优化排版
-# 获取所有计划物流方式选项（去重），并添加“全部”选项
-logistics_methods = ['全部'] + list(df_selected['计划物流方式'].dropna().unique())
+# 获取所有物流方式选项（去重），并添加“全部”选项
+logistics_methods = ['全部'] + list(df_selected['物流方式'].dropna().unique())
 # 创建下拉筛选器，默认选中“全部”
 selected_logistics = st.selectbox(
-    "选择计划物流方式",
+    "选择物流方式",
     options=logistics_methods,
     index=0,  # 默认选中第一个选项（全部）
     key="logistics_filter"  # 唯一key，避免streamlit缓存冲突
 )
 
-# 7. 当月数据（基于选中的df_selected + 计划物流方式筛选）
+# -------------------------------------------
+# 7. 当月数据【两套同步筛选】
+# -------------------------------------------
+# A. 货件去重（非仓库用）
 df_current = df_selected[df_selected["到货年月"] == selected_month].copy()
-# 新增：过滤计划物流方式
 if selected_logistics != '全部':
-    df_current = df_current[df_current['计划物流方式'] == selected_logistics].copy()
+    df_current = df_current[df_current['物流方式'] == selected_logistics].copy()
 
-# 8. 上月数据（基于df_selected + 计划物流方式筛选）
+# B. FBA不去重（仓库分析用）→ 新增
+df_current_FBA = df_selected_FBA[df_selected_FBA["到货年月"] == selected_month].copy()
+if selected_logistics != '全部':
+    df_current_FBA = df_current_FBA[df_current_FBA['物流方式'] == selected_logistics].copy()
+
+# -------------------------------------------
+# 8. 上月数据【两套同步筛选】
+# -------------------------------------------
 prev_month = get_prev_month(selected_month)
-df_prev = df_selected[df_selected["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
-# 新增：过滤计划物流方式（上月数据同步筛选）
-if selected_logistics != '全部' and not df_prev.empty:
-    df_prev = df_prev[df_prev['计划物流方式'] == selected_logistics].copy()
 
-# 9. 当月异常数据统计（同步筛选计划物流方式）
-# 第一步：先筛选年月
+# A. 货件去重（非仓库用）
+df_prev = df_selected[df_selected["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+if selected_logistics != '全部' and not df_prev.empty:
+    df_prev = df_prev[df_prev['物流方式'] == selected_logistics].copy()
+
+# B. FBA不去重（仓库分析用）→ 新增
+df_prev_FBA = df_selected_FBA[df_selected_FBA["到货年月"] == prev_month].copy() if prev_month and prev_month in month_options else pd.DataFrame()
+if selected_logistics != '全部' and not df_prev_FBA.empty:
+    df_prev_FBA = df_prev_FBA[df_prev_FBA['物流方式'] == selected_logistics].copy()
+
+# -------------------------------------------
+# 9. 当月异常数据统计（保持你原有逻辑不变）
+# -------------------------------------------
 abnormal_filter = (df_all["到货年月"] == selected_month) & (df_all["是否为异常数据"] == "是")
-# 第二步：如果选了具体物流方式，再叠加筛选
 if selected_logistics != '全部':
-    abnormal_filter = abnormal_filter & (df_all["计划物流方式"] == selected_logistics)
-# 第三步：计算符合条件的异常数据条数
+    abnormal_filter = abnormal_filter & (df_all["物流方式"] == selected_logistics)
 abnormal_current_month = len(df_all[abnormal_filter])
-# 当月提示（新增物流方式说明）
+
 logistics_tip = f"，筛选物流方式：{selected_logistics}" if selected_logistics != "全部" else ""
 if data_filter == "纯净数据（剔除异常）":
-    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据{logistics_tip}，当前共 {len(df_current)} 条记录")
+    st.info(f"📌 【{selected_month}】已筛选为纯净数据，剔除 {abnormal_current_month} 条异常数据{logistics_tip}，当前共 {len(df_current)} 条货件记录 | {len(df_current_FBA)} 条FBA记录")
 else:
-    st.info(f"📌 【{selected_month}】当前显示全部数据{logistics_tip}，共 {len(df_current)} 条记录（含 {abnormal_current_month} 条异常数据）")
+    st.info(f"📌 【{selected_month}】当前显示全部数据{logistics_tip}，共 {len(df_current)} 条货件记录 | {len(df_current_FBA)} 条FBA记录（含 {abnormal_current_month} 条异常数据）")
 
 # ---------------------- 你的核心指标/可视化/表格代码（仅改数据源引用） ----------------------
 # ---------------------- ① 核心指标卡片 ----------------------
@@ -226,14 +253,14 @@ fba_change_color = "red" if fba_change > 0 else "green" if fba_change < 0 else "
 
 # 2. 提前/准时数（修复：匹配实际数据中的值，比如可能是"提前"或"准时"分开存储）
 # 兼容处理：如果数据中是"提前"和"准时"分开，合并统计
-if "提前/延期" in df_current.columns:
+if "提前/延期(整体)" in df_current.columns:
     # 适配不同的数据值：支持"提前/准时"、"提前"、"准时"三种情况
-    current_on_time = len(df_current[df_current["提前/延期"].isin(["提前/准时", "提前", "准时"])])
+    current_on_time = len(df_current[df_current["提前/延期(整体)"].isin(["提前/准时", "提前", "准时"])])
 else:
     current_on_time = 0
 
-if not df_prev.empty and "提前/延期" in df_prev.columns:
-    prev_on_time = len(df_prev[df_prev["提前/延期"].isin(["提前/准时", "提前", "准时"])])
+if not df_prev.empty and "提前/延期(整体)" in df_prev.columns:
+    prev_on_time = len(df_prev[df_prev["提前/延期(整体)"].isin(["提前/准时", "提前", "准时"])])
 else:
     prev_on_time = 0
 
@@ -242,9 +269,9 @@ on_time_change_text = f"{'↑' if on_time_change > 0 else '↓' if on_time_chang
 on_time_change_color = "red" if on_time_change > 0 else "green" if on_time_change < 0 else "gray"
 
 # 3. 延期数
-current_delay = len(df_current[df_current["提前/延期"] == "延期"]) if "提前/延期" in df_current.columns else 0
+current_delay = len(df_current[df_current["提前/延期(整体)"] == "延期"]) if "提前/延期(整体)" in df_current.columns else 0
 prev_delay = len(
-    df_prev[df_prev["提前/延期"] == "延期"]) if not df_prev.empty and "提前/延期" in df_prev.columns else 0
+    df_prev[df_prev["提前/延期(整体)"] == "延期"]) if not df_prev.empty and "提前/延期(整体)" in df_prev.columns else 0
 delay_change = current_delay - prev_delay
 delay_change_text = f"{'↑' if delay_change > 0 else '↓' if delay_change < 0 else '—'} {abs(delay_change)} (上月: {prev_delay})"
 delay_change_color = "red" if delay_change > 0 else "green" if delay_change < 0 else "gray"
@@ -399,12 +426,12 @@ col1, col2 = st.columns(2)
 
 # 左：饼图（提前/准时 vs 延期）
 with col1:
-    if "提前/延期" in df_current.columns and len(df_current) > 0:
+    if "提前/延期(整体)" in df_current.columns and len(df_current) > 0:
         # 兼容数据值：合并"提前/准时"、"提前"、"准时"为同一类别
-        df_current["提前/延期_分类"] = df_current["提前/延期"].apply(
+        df_current["提前/延期(整体)_分类"] = df_current["提前/延期(整体)"].apply(
             lambda x: "提前/准时" if x in ["提前/准时", "提前", "准时"] else "延期" if x == "延期" else "其他"
         )
-        pie_data = df_current["提前/延期_分类"].value_counts()
+        pie_data = df_current["提前/延期(整体)_分类"].value_counts()
 
         # 确保颜色映射严格生效（显式指定颜色列表）
         categories = pie_data.index.tolist()
@@ -490,7 +517,7 @@ st.markdown("### 红单明细（含平均值）")
 
 # 准备明细数据
 detail_cols = [
-    "到货年月", "提前/延期", "FBA号", "计划物流方式", "店铺", "仓库", "货代",
+    "到货年月", "提前/延期(整体)", "FBA号", "物流方式", "店铺", "仓库", "货代",
     # 新增的物流阶段列（加在货代右边）
     "发货-提取", "提取-到港", "到港-签收", "签收-完成上架",
     "签收-发货时间", "上架完成-发货时间", "提前/延期（货代）",
@@ -523,7 +550,7 @@ if len(df_detail) > 0:
     for col in detail_cols:
         if col in ["到货年月"]:
             avg_row[col] = "平均值"
-        elif col in ["提前/延期", "FBA号", "店铺", "仓库", "货代", "计划物流方式", "提前/延期（货代）",
+        elif col in ["提前/延期(整体)", "FBA号", "店铺", "仓库", "货代", "物流方式", "提前/延期（货代）",
                      "提前/延期（仓库）"]:
             avg_row[col] = "-"
         elif col in int_cols:
@@ -692,17 +719,14 @@ st.divider()
 st.subheader("📝 延期订单深度归因分析")
 
 # 请确认以下字段名与你的数据完全一致！
-main_delay_col = "提前/延期"  # 总提前/延期列
+main_delay_col = "提前/延期(整体)"  # 总提前/延期列
 forwarder_delay_col = "提前/延期（货代）"  # 货代延期分类列
 warehouse_delay_col = "提前/延期（仓库）"  # 仓库延期分类列
-# 环节字段定义
-forwarder_stage_cols = [  # 货代负责的环节
-    "发货-提取",
-    "提取-到港",
-    "到港-签收",
-]
-warehouse_stage_col = "签收-完成上架"  # 仓库负责的环节（单独列）
-all_stage_cols = forwarder_stage_cols + [warehouse_stage_col]  # 所有环节
+# 🔥 按物流口径修正：仅发货-提取属于货代，其余归为其他原因
+forwarder_stage_col = "发货-提取"  # 货代仅负责这一个环节
+other_stage_cols = ["提取-到港", "到港-签收"]  # 其他原因环节
+warehouse_stage_col = "签收-完成上架"  # 仓库负责环节
+all_stage_cols = [forwarder_stage_col] + other_stage_cols + [warehouse_stage_col]  # 所有环节
 
 # 1.1 基础字段清洗（统一格式，避免筛选错误）
 df_current[main_delay_col] = df_current[main_delay_col].fillna("未知").apply(
@@ -717,21 +741,27 @@ for col in all_stage_cols:
     df_current[col] = pd.to_numeric(df_current[col], errors="coerce").fillna(0.0)
 
 # --------------------------
-# 2. 严格按业务逻辑筛选数据集
+# 2. 按修正后业务逻辑筛选数据集
 # --------------------------
 # 2.1 正常订单集：总状态=提前/准时
 df_normal = df_current[df_current[main_delay_col] == "提前/准时"].copy()
-# 2.2 货代延期订单集：总状态=延期 + 货代状态=延期
+# 2.2 货代延期订单集：总状态=延期 + 货代状态=延期（仅关联发货-提取环节）
 df_forwarder_delay = df_current[
     (df_current[main_delay_col] == "延期") &
     (df_current[forwarder_delay_col] == "延期")
     ].copy()
-# 2.3 仓库延期订单集：总状态=延期 + 仓库状态=延期
+# 2.3 其他原因延期订单集：总状态=延期 + 非货代/非仓库原因（提取-到港/到港-签收）
+df_other_delay = df_current[
+    (df_current[main_delay_col] == "延期") &
+    (df_current[forwarder_delay_col] != "延期") &
+    (df_current[warehouse_delay_col] != "延期")
+    ].copy()
+# 2.4 仓库延期订单集：总状态=延期 + 仓库状态=延期
 df_warehouse_delay = df_current[
     (df_current[main_delay_col] == "延期") &
     (df_current[warehouse_delay_col] == "延期")
     ].copy()
-# 2.4 总延期订单数（用于占比计算）
+# 2.5 总延期订单数（用于占比计算）
 df_total_delay = df_current[df_current[main_delay_col] == "延期"].copy()
 total_delay = len(df_total_delay)
 total_normal = len(df_normal)
@@ -749,13 +779,15 @@ if total_delay == 0:
         st.markdown(f"- **{stage}**：正常均值 {float(normal_mean[stage])} 天")
 else:
     # --------------------------
-    # 4. 统计货代/仓库延期订单数（精准匹配）
+    # 4. 统计三类延期订单数（精准匹配）
     # --------------------------
     forwarder_count = int(len(df_forwarder_delay))
+    other_count = int(len(df_other_delay))
     warehouse_count = int(len(df_warehouse_delay))
 
     # 计算占比（纯Python原生计算，防错）
     forwarder_pct = round((forwarder_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
+    other_pct = round((other_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
     warehouse_pct = round((warehouse_count / total_delay) * 100, 1) if total_delay > 0 else 0.0
     normal_pct = round((total_normal / total_current) * 100, 1) if total_current > 0 else 0.0
     delay_pct = round((total_delay / total_current) * 100, 1) if total_current > 0 else 0.0
@@ -771,85 +803,120 @@ else:
     """)
 
     # --------------------------
-    # 6. 货代/仓库延期占比
+    # 6. 延期订单主因占比（修正为三类）
     # --------------------------
     st.markdown("### 🎯 延期订单主因占比")
-    st.markdown(f"- **货代原因**：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）")
-    st.markdown(f"- **仓库原因**：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）")
+    st.markdown(f"- **货代原因（仅发货-提取）**：{forwarder_count} 单（占延期订单的 {forwarder_pct}%）")
+    st.markdown(f"- **其他原因（提取-到港/到港-签收）**：{other_count} 单（占延期订单的 {other_pct}%）")
+    st.markdown(f"- **仓库原因（签收-完成上架）**：{warehouse_count} 单（占延期订单的 {warehouse_pct}%）")
 
     # --------------------------
-    # 7. 合并展示+红色异常标记（核心优化！）
+    # 7. 合并展示+红色异常标记（全大白话，无专业术语）
     # --------------------------
-    st.markdown("### 📈 各环节耗时均值对比（正常 vs 延期）")
-    # 预计算所有均值
+    st.markdown("### 📈 各环节耗时对比（大白话版）")
     normal_mean = df_normal[all_stage_cols].mean().round(2)
-    forwarder_delay_mean = df_forwarder_delay[forwarder_stage_cols].mean().round(2) if forwarder_count > 0 else None
-    warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean().round(2) if warehouse_count > 0 else None
-    # 异常阈值：偏差≥120%（即均值≥正常均值的2.2倍）标记为红色
-    abnormal_threshold = 120.0
+    # 预计算各环节均值
+    forwarder_delay_mean = df_forwarder_delay[forwarder_stage_col].mean().round(2) if forwarder_count > 0 else 0.0
+    other_delay_mean = {col: df_other_delay[col].mean().round(2) for col in other_stage_cols} if other_count > 0 else {}
+    warehouse_delay_mean = df_warehouse_delay[warehouse_stage_col].mean().round(2) if warehouse_count > 0 else 0.0
+    abnormal_threshold = 2.2  # 超过正常2.2倍=严重超时
 
-    # 7.1 货代环节合并展示（正常 + 货代延期）
-    st.markdown("#### 🔹 货代环节（发货-提取 → 到港-签收）")
-    for stage in forwarder_stage_cols:
-        n_mean = float(normal_mean[stage])
-        if forwarder_count > 0:
-            d_mean = float(forwarder_delay_mean[stage])
-            diff_pct = round(((d_mean - n_mean) / n_mean) * 100, 1) if n_mean > 0 else 0.0
-            # 红色标记异常：偏差≥120%
-            if diff_pct >= abnormal_threshold:
-                st.markdown(
-                    f"- **{stage}**：正常 {n_mean} 天 | 货代延期均值 **:red[{d_mean} 天]** | 偏差 **:red[{diff_pct:+}%]**（异常）")
-            else:
-                st.markdown(f"- **{stage}**：正常 {n_mean} 天 | 货代延期均值 {d_mean} 天 | 偏差 {diff_pct:+}%")
+    # 7.1 货代环节（仅发货-提取）
+    st.markdown("#### 🔹 货代环节（仅发货-提取）")
+    n_mean = float(normal_mean[forwarder_stage_col])
+    if forwarder_count > 0:
+        d_mean = float(forwarder_delay_mean)
+        slow_days = round(d_mean - n_mean, 2)
+        # 大白话描述
+        if slow_days <= 0:
+            info = f"✅ 比正常还快 {-slow_days} 天"
         else:
-            st.markdown(f"- **{stage}**：正常 {n_mean} 天 | 无货代延期订单")
+            info = f"🔸 平均慢了 {slow_days} 天"
+        # 严重超时标红
+        if d_mean >= n_mean * abnormal_threshold:
+            st.markdown(f"- **{forwarder_stage_col}**：正常 {n_mean} 天 → 货代延期 **:red[{d_mean} 天]** | **:red[严重超时，慢了 {slow_days} 天]**")
+        else:
+            st.markdown(f"- **{forwarder_stage_col}**：正常 {n_mean} 天 → 货代延期 {d_mean} 天 | {info}")
+    else:
+        st.markdown(f"- **{forwarder_stage_col}**：正常 {n_mean} 天 | 无货代延期订单")
 
-    # 7.2 仓库环节合并展示（正常 + 仓库延期）
+    # 7.2 其他原因环节（提取-到港/到港-签收）
+    st.markdown("#### 🔹 其他原因环节（提取-到港/到港-签收）")
+    for stage in other_stage_cols:
+        n_mean = float(normal_mean[stage])
+        if other_count > 0:
+            d_mean = other_delay_mean.get(stage, 0.0)
+            slow_days = round(d_mean - n_mean, 2)
+            if slow_days <= 0:
+                info = f"✅ 比正常还快 {-slow_days} 天"
+            else:
+                info = f"🔸 平均慢了 {slow_days} 天"
+            if d_mean >= n_mean * abnormal_threshold:
+                st.markdown(f"- **{stage}**：正常 {n_mean} 天 → 延期订单 **:red[{d_mean} 天]** | **:red[严重超时，慢了 {slow_days} 天]**")
+            else:
+                st.markdown(f"- **{stage}**：正常 {n_mean} 天 → 延期订单 {d_mean} 天 | {info}")
+        else:
+            st.markdown(f"- **{stage}**：正常 {n_mean} 天 | 无该环节延期订单")
+
+    # 7.3 仓库环节（签收-完成上架）
     st.markdown("#### 🔹 仓库环节（签收-完成上架）")
     n_mean = float(normal_mean[warehouse_stage_col])
     if warehouse_count > 0:
         d_mean = float(warehouse_delay_mean)
-        diff_pct = round(((d_mean - n_mean) / n_mean) * 100, 1) if n_mean > 0 else 0.0
-        if diff_pct >= abnormal_threshold:
-            st.markdown(
-                f"- **{warehouse_stage_col}**：正常 {n_mean} 天 | 仓库延期均值 **:red[{d_mean} 天]** | 偏差 **:red[{diff_pct:+}%]**（异常）")
+        slow_days = round(d_mean - n_mean, 2)
+        if slow_days <= 0:
+            info = f"✅ 比正常还快 {-slow_days} 天"
         else:
-            st.markdown(f"- **{warehouse_stage_col}**：正常 {n_mean} 天 | 仓库延期均值 {d_mean} 天 | 偏差 {diff_pct:+}%")
+            info = f"🔸 平均慢了 {slow_days} 天"
+        if d_mean >= n_mean * abnormal_threshold:
+            st.markdown(f"- **{warehouse_stage_col}**：正常 {n_mean} 天 → 仓库延期 **:red[{d_mean} 天]** | **:red[严重超时，慢了 {slow_days} 天]**")
+        else:
+            st.markdown(f"- **{warehouse_stage_col}**：正常 {n_mean} 天 → 仓库延期 {d_mean} 天 | {info}")
     else:
         st.markdown(f"- **{warehouse_stage_col}**：正常 {n_mean} 天 | 无仓库延期订单")
 
     # --------------------------
-    # 8. 针对性优化建议
+    # 8. 针对性优化建议（大白话）
     # --------------------------
     st.markdown("### 💡 优化建议")
     suggestions = []
+    # 货代建议
     if forwarder_count > 0:
-        # 找出货代环节中偏差≥120%的异常环节
-        forwarder_abnormal_stages = [
-            s for s in forwarder_stage_cols
-            if forwarder_delay_mean is not None and
-               float(normal_mean[s]) > 0 and
-               round(((float(forwarder_delay_mean[s]) - float(normal_mean[s])) / float(normal_mean[s])) * 100,
-                     1) >= abnormal_threshold
+        if forwarder_delay_mean >= normal_mean[forwarder_stage_col] * abnormal_threshold:
+            suggestions.append(f"⚠️ 货代环节【{forwarder_stage_col}】严重超时，平均慢了 {round(forwarder_delay_mean - normal_mean[forwarder_stage_col], 2)} 天，需立刻跟进货代改善揽收/提取效率。")
+        else:
+            suggestions.append(f"⚠️ 货代环节【{forwarder_stage_col}】存在延期，平均慢了 {round(forwarder_delay_mean - normal_mean[forwarder_stage_col], 2)} 天，建议与货代沟通优化。")
+    # 其他原因建议
+    if other_count > 0:
+        abnormal_other_stages = [
+            stage for stage in other_stage_cols
+            if other_delay_mean.get(stage, 0.0) >= normal_mean[stage] * abnormal_threshold
         ]
-        if forwarder_abnormal_stages:
-            suggestions.append(
-                f"⚠️ 货代环节异常：「{'」「'.join(forwarder_abnormal_stages)}」偏差≥120%，需重点跟进货代优化这些环节的时效。")
+        if abnormal_other_stages:
+            suggestions.append(f"⚠️ 其他原因环节【{'、'.join(abnormal_other_stages)}】严重超时，需关注航线稳定性、清关效率或末端派送服务。")
+        else:
+            suggestions.append(f"⚠️ 其他原因环节（提取-到港/到港-签收）存在延期，建议排查物流链路中间环节问题。")
+    # 仓库建议
     if warehouse_count > 0:
-        if diff_pct >= abnormal_threshold:
-            suggestions.append(
-                f"⚠️ 仓库环节异常：「{warehouse_stage_col}」偏差≥120%，均值 {d_mean} 天（正常 {n_mean} 天），需紧急优化仓内操作流程。")
+        if warehouse_delay_mean >= normal_mean[warehouse_stage_col] * abnormal_threshold:
+            suggestions.append(f"⚠️ 仓库环节【{warehouse_stage_col}】严重超时，平均慢了 {round(warehouse_delay_mean - normal_mean[warehouse_stage_col], 2)} 天，需紧急优化仓内操作流程、增加上架人手或调整优先级。")
+        else:
+            suggestions.append(f"⚠️ 仓库环节【{warehouse_stage_col}】存在延期，平均慢了 {round(warehouse_delay_mean - normal_mean[warehouse_stage_col], 2)} 天，建议优化仓内协作效率。")
+    # 无建议时的提示
+    if not suggestions:
+        suggestions.append("💡 各环节延期均在合理范围，建议维持现有操作流程并持续监控。")
+    # 展示建议
     for idx, suggestion in enumerate(suggestions, 1):
         st.markdown(f"{idx}. {suggestion}")
 
 # ---------------------- 货代准时率-物流时效分析（终极无报错版） ----------------------
 st.divider()
-st.subheader("📦 计划物流方式-准时率对应物流时效分析（上架完成-发货时间）")
+st.subheader("📦 物流方式-准时率对应物流时效分析（上架完成-发货时间）")
 
 # ====================== 1. 全局变量初始化（核心：避免未定义报错） ======================
 target_rates = [75, 80, 85, 90, 95, 100]  # 目标累计占比（准时率）
 time_col = "上架完成-发货时间"  # 核心统计列
-logistics_col = "计划物流方式"  # 计划物流方式列
+logistics_col = "物流方式"  # 物流方式列
 is_all_logistics = False  # 是否筛选全部物流方式
 all_results = []  # 所有物流方式的计算结果
 group_data = {}  # 每个物流方式的排序后数据
@@ -872,7 +939,7 @@ else:
 
     # 检查清洗后是否有数据
     if len(df_analysis) == 0:
-        st.warning("⚠️ 无有效数据（时效为空/≤0 或 计划物流方式为空）")
+        st.warning("⚠️ 无有效数据（时效为空/≤0 或 物流方式为空）")
     else:
         # 获取唯一物流方式并判断是否为「全部」筛选
         unique_logistics = df_analysis[logistics_col].unique()
@@ -903,7 +970,7 @@ else:
                         actual_rate = df_matched[df_matched[time_col] == min_time]["累计占比(%)"].iloc[0]
                         pass_orders = len(df_sorted[df_sorted[time_col] <= min_time])
                         all_results.append({
-                            "计划物流方式": logistics_type,
+                            "物流方式": logistics_type,
                             "目标准时率(%)": target_rate,
                             "实际累计占比(%)": round(actual_rate, 1),
                             "对应时效上限(天)": round(min_time, 1),
@@ -912,7 +979,7 @@ else:
                         })
                     else:
                         all_results.append({
-                            "计划物流方式": logistics_type,
+                            "物流方式": logistics_type,
                             "目标准时率(%)": target_rate,
                             "实际累计占比(%)": "-",
                             "对应时效上限(天)": "-",
@@ -937,7 +1004,7 @@ else:
                         actual_rate = df_matched[df_matched[time_col] == min_time]["累计占比(%)"].iloc[0]
                         pass_orders = len(df_sorted[df_sorted[time_col] <= min_time])
                         all_results.append({
-                            "计划物流方式": logistics_type,
+                            "物流方式": logistics_type,
                             "目标准时率(%)": target_rate,
                             "实际累计占比(%)": round(actual_rate, 1),
                             "对应时效上限(天)": round(min_time, 1),
@@ -946,7 +1013,7 @@ else:
                         })
                     else:
                         all_results.append({
-                            "计划物流方式": logistics_type,
+                            "物流方式": logistics_type,
                             "目标准时率(%)": target_rate,
                             "实际累计占比(%)": "-",
                             "对应时效上限(天)": "-",
@@ -956,13 +1023,13 @@ else:
 
 # ====================== 4. 展示结果总表 ======================
 if all_results:
-    st.markdown("#### 📊 各计划物流方式-准时率-时效阈值对应表")
+    st.markdown("#### 📊 各物流方式-准时率-时效阈值对应表")
     df_results = pd.DataFrame(all_results)
     st.dataframe(
         df_results,
         use_container_width=True,
         column_config={
-            "计划物流方式": st.column_config.TextColumn("计划物流方式"),
+            "物流方式": st.column_config.TextColumn("物流方式"),
             "目标准时率(%)": st.column_config.NumberColumn("目标准时率(%)", format="%d"),
             "实际累计占比(%)": st.column_config.NumberColumn("实际累计占比(%)", format="%.1f"),
             "对应时效上限(天)": st.column_config.NumberColumn("时效上限(天)", format="%.1f"),
@@ -974,7 +1041,7 @@ else:
     st.info("ℹ️ 暂无有效数据生成时效阈值表")
 
 # ====================== 5. 可视化：分开展示独立图表（核心优化） ======================
-st.markdown("#### 📈 各计划物流方式时效分布 & 累计准时率分析")
+st.markdown("#### 📈 各物流方式时效分布 & 累计准时率分析")
 if group_data and len(group_data) > 0:  # 确保group_data有数据
     if is_all_logistics:
         # 筛选「全部」：为每个物流方式生成独立图表
@@ -1028,7 +1095,7 @@ if group_data and len(group_data) > 0:  # 确保group_data有数据
             scatter_y = []
             scatter_text = []
             for res in all_results:
-                if res["计划物流方式"] == logistics_type and res["对应时效上限(天)"] != "-":
+                if res["物流方式"] == logistics_type and res["对应时效上限(天)"] != "-":
                     scatter_x.append(res["对应时效上限(天)"])
                     scatter_y.append(res["实际累计占比(%)"])
                     scatter_text.append(f"{res['目标准时率(%)']}% → {res['对应时效上限(天)']}天")
@@ -1163,19 +1230,19 @@ else:
     st.info("ℹ️ 暂无有效数据生成对比图表")
 
 # ====================== 6. 业务解读 ======================
-st.markdown("#### 📝 各计划物流方式核心结论")
+st.markdown("#### 📝 各物流方式核心结论")
 if all_results:
     # 90%准时率汇总对比
     df_summary = pd.DataFrame(all_results)
     rate_90_summary = df_summary[df_summary["目标准时率(%)"] == 90].copy()
     if not rate_90_summary.empty:
         st.markdown("##### 🔍 90%准时率核心对比")
-        display_cols = ["计划物流方式", "对应时效上限(天)", "达标订单数", "总订单数"]
+        display_cols = ["物流方式", "对应时效上限(天)", "达标订单数", "总订单数"]
         st.dataframe(
             rate_90_summary[display_cols],
             use_container_width=True,
             column_config={
-                "计划物流方式": st.column_config.TextColumn("计划物流方式"),
+                "物流方式": st.column_config.TextColumn("物流方式"),
                 "对应时效上限(天)": st.column_config.NumberColumn("时效上限(天)", format="%.1f"),
                 "达标订单数": st.column_config.NumberColumn("达标订单数"),
                 "总订单数": st.column_config.NumberColumn("总订单数")
@@ -1185,7 +1252,7 @@ if all_results:
     # 逐方式详细解读
     st.markdown("##### 📋 各方式详细结论")
     for logistics_type in unique_logistics:
-        lt_results = [r for r in all_results if r["计划物流方式"] == logistics_type]
+        lt_results = [r for r in all_results if r["物流方式"] == logistics_type]
         if not lt_results:
             continue
 
@@ -1206,7 +1273,7 @@ else:
     st.info("ℹ️ 暂无有效数据生成分析解读")
 
 # ---------------------- 货代准时情况分析（独立版：发货-签收环节，无仓库关联） ----------------------
-st.markdown("### 货代准时情况分析（发货-签收环节）")
+st.markdown("### 货代准时情况分析（发货-提取环节）")
 
 # ========== 列名映射字典（根据你的实际列名修改！）==========
 COLUMN_MAPPING = {
@@ -1535,10 +1602,10 @@ WAREHOUSE_COLUMN_MAPPING = {
 }
 
 # 筛选有效数据（仅保留有仓库信息+签收上架时长的行）
-df_warehouse_valid = df_current[
-    (df_current[WAREHOUSE_COLUMN_MAPPING["仓库列名"]].notna() &
-     (df_current[WAREHOUSE_COLUMN_MAPPING["仓库列名"]] != "")) &
-    (df_current[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].notna())
+df_warehouse_valid = df_current_FBA[
+    (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["仓库列名"]].notna() &
+     (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["仓库列名"]] != "")) &
+    (df_current_FBA[WAREHOUSE_COLUMN_MAPPING["签收上架时长列名"]].notna())
     ].copy()
 
 if len(df_warehouse_valid) == 0:
@@ -1786,10 +1853,16 @@ else:
         lambda x: format_order_col(x["延期订单数"], x["上月延期订单数"]), axis=1
     )
 
-    # 其他数值格式化
-    warehouse_display["签收上架时长均值"] = round(warehouse_display["签收上架时长均值"], 2)
-    warehouse_display["最短上架时长"] = warehouse_display["最短上架时长"].apply(lambda x: f"{x:.1f}天")
-    warehouse_display["最长上架时长"] = warehouse_display["最长上架时长"].apply(lambda x: f"{x:.1f}天")
+    # ===================== 强制固定 2 位小数（核心修复） =====================
+    # 强制转为数值 → 四舍五入2位 → 格式化为字符串 "xx.xx"
+    warehouse_display["签收上架时长均值"] = warehouse_stats["签收上架时长均值"].astype(float).round(2)
+    warehouse_display["签收上架时长均值"] = warehouse_display["签收上架时长均值"].apply(lambda x: f"{x:.2f}")
+
+    # 最短/最长也统一格式
+    warehouse_display["最短上架时长"] = warehouse_stats["最短上架时长"].astype(float).round(1).apply(
+        lambda x: f"{x:.1f}天")
+    warehouse_display["最长上架时长"] = warehouse_stats["最长上架时长"].astype(float).round(1).apply(
+        lambda x: f"{x:.1f}天")
 
     # 百分比列格式化
     for col in ["订单量占比(%)", "延期率(%)", "准时率(%)", "上月准时率(%)", "准时率差值(%)"]:
@@ -1800,18 +1873,23 @@ else:
     def highlight_warehouse(row):
         styles = [""] * len(row)
         # 准时率差值为负标红
-        if row["准时率差值(%)"] and isinstance(row["准时率差值(%)"], str) and float(
-                row["准时率差值(%)"].replace("%", "")) < 0:
-            styles[display_cols.index(
-                "准时率差值(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+        if row["准时率差值(%)"] and isinstance(row["准时率差值(%)"], str):
+            val = float(row["准时率差值(%)"].replace("%", ""))
+            if val < 0:
+                styles[display_cols.index(
+                    "准时率差值(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
         # 延期率>20%标红
-        if row["延期率(%)"] and isinstance(row["延期率(%)"], str) and float(row["延期率(%)"].replace("%", "")) > 20:
-            styles[
-                display_cols.index("延期率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+        if row["延期率(%)"] and isinstance(row["延期率(%)"], str):
+            val = float(row["延期率(%)"].replace("%", ""))
+            if val > 20:
+                styles[
+                    display_cols.index("延期率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
         # 准时率<80%标红
-        if row["准时率(%)"] and isinstance(row["准时率(%)"], str) and float(row["准时率(%)"].replace("%", "")) < 80:
-            styles[
-                display_cols.index("准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+        if row["准时率(%)"] and isinstance(row["准时率(%)"], str):
+            val = float(row["准时率(%)"].replace("%", ""))
+            if val < 80:
+                styles[
+                    display_cols.index("准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
         return styles
 
 
@@ -1887,23 +1965,23 @@ st.markdown("## 📈 不同月份整体趋势分析")
 st.divider()
 
 # ===== 1. 数据预处理（先加物流方式筛选，再聚合年月）=====
-# ---------------------- 【修改1】：新增计划物流方式列校验 ----------------------
-required_cols = ["到货年月", "FBA号", "提前/延期", "计划物流方式"]  # 新增：计划物流方式
+# ---------------------- 【修改1】：新增物流方式列校验 ----------------------
+required_cols = ["到货年月", "FBA号", "提前/延期(整体)", "物流方式"]  # 新增：物流方式
 missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
-    # ---------------------- 【新增1】：计划物流方式筛选器（核心新增） ----------------------
+    # ---------------------- 【新增1】：物流方式筛选器（核心新增） ----------------------
     st.markdown("### 筛选条件")  # 保留原标题，位置提前
     # 新增：控制筛选器列宽，界面更美观
     col_logistics, col_empty = st.columns([1, 3])
     with col_logistics:
-        # 新增：获取唯一的计划物流方式（去重+排序）
-        unique_logistics = sorted(df_selected["计划物流方式"].dropna().unique())
+        # 新增：获取唯一的物流方式（去重+排序）
+        unique_logistics = sorted(df_selected["物流方式"].dropna().unique())
         # 新增：添加"全部"选项，默认选中
         logistics_options = ["全部"] + unique_logistics
         selected_logistics = st.selectbox(
-            "计划物流方式",
+            "物流方式",
             options=logistics_options,
             index=0,
             key="selected_logistics"
@@ -1913,7 +1991,7 @@ else:
     if selected_logistics == "全部":
         df_filtered_by_logistics = df_selected.copy()  # 全部物流方式
     else:
-        df_filtered_by_logistics = df_selected[df_selected["计划物流方式"] == selected_logistics].copy()
+        df_filtered_by_logistics = df_selected[df_selected["物流方式"] == selected_logistics].copy()
 
     # 新增：容错处理 - 筛选后无数据的提示
     if len(df_filtered_by_logistics) == 0:
@@ -1923,8 +2001,8 @@ else:
         # 按到货年月分组计算核心指标（基于筛选后的物流方式数据）
         monthly_stats = df_filtered_by_logistics.groupby("到货年月").agg(
             总订单数=("FBA号", "count"),
-            提前准时订单数=("提前/延期", lambda x: len(x[x == "提前/准时"])),
-            延期订单数=("提前/延期", lambda x: len(x[x == "延期"]))
+            提前准时订单数=("提前/延期(整体)", lambda x: len(x[x == "提前/准时"])),
+            延期订单数=("提前/延期(整体)", lambda x: len(x[x == "延期"]))
         ).reset_index()
 
         # 计算准时率（保留2位小数）
@@ -2169,7 +2247,7 @@ df_time_analysis[time_col] = pd.to_numeric(df_time_analysis[time_col], errors="c
 df_time_analysis = df_time_analysis[
     (df_time_analysis[time_col] > 0) &
     (df_time_analysis["到货年月"].notna()) &
-    (df_time_analysis["计划物流方式"].notna())
+    (df_time_analysis["物流方式"].notna())
     ].reset_index(drop=True)
 
 if len(df_time_analysis) == 0:
@@ -2179,18 +2257,18 @@ else:
     trend_results = []
     # 获取所有需要分析的物流方式（根据筛选条件）
     if selected_logistics == "全部":
-        analysis_logistics = sorted(df_time_analysis["计划物流方式"].unique())
+        analysis_logistics = sorted(df_time_analysis["物流方式"].unique())
     else:
         analysis_logistics = [selected_logistics]
 
     # 遍历每个物流方式
     for logistics_type in analysis_logistics:
-        df_logistics = df_time_analysis[df_time_analysis["计划物流方式"] == logistics_type].copy()
+        df_logistics = df_time_analysis[df_time_analysis["物流方式"] == logistics_type].copy()
         # 遍历每个月份
         for ym in sorted(df_logistics["到货年月"].unique()):
             df_month = df_logistics[df_logistics["到货年月"] == ym].copy()
             month_total = len(df_month)
-            if month_total < 5:  # 数据量过少时跳过，避免无意义计算
+            if month_total < 1:  # 数据量为0的剔除，避免无意义计算
                 continue
 
             # 按时效升序排序并计算累计占比
@@ -2209,7 +2287,7 @@ else:
                     # 新增：计算该阈值下的累计订单数
                     pass_orders = len(df_month_sorted[df_month_sorted[time_col] <= min_time])
                     trend_results.append({
-                        "计划物流方式": logistics_type,
+                        "物流方式": logistics_type,
                         "到货年月": ym,
                         "中文月份": month_cn,
                         "准时率阈值(%)": target_rate,
@@ -2231,7 +2309,7 @@ else:
 
         # 遍历每个物流方式生成独立折线图
         for logistics_type in analysis_logistics:
-            df_single_log = df_trend[df_trend["计划物流方式"] == logistics_type].copy()
+            df_single_log = df_trend[df_trend["物流方式"] == logistics_type].copy()
             if len(df_single_log) == 0:
                 continue
 
@@ -2274,7 +2352,7 @@ else:
         st.markdown("#### 📊 时效趋势原始数据（含累计订单数）")
         # 选择展示的列（调整顺序，突出核心信息）
         display_cols = [
-            "计划物流方式", "中文月份", "准时率阈值(%)",
+            "物流方式", "中文月份", "准时率阈值(%)",
             "时效上限(天)", "当月总订单数", "达标累计订单数"
         ]
         st.dataframe(
@@ -2304,29 +2382,29 @@ FREIGHT_MONTH_COLUMN_MAPPING = {
     "到货年月列名": "到货年月",  # 替换为你实际的到货年月列名
     "提前延期列名": "提前/延期（货代）"  # 替换为你实际的提前/延期列名
 }
-# ---------------------- 【修改1】：新增计划物流方式列校验 ----------------------
+# ---------------------- 【修改1】：新增物流方式列校验 ----------------------
 required_cols = [
     FREIGHT_MONTH_COLUMN_MAPPING["货代列名"],
     FREIGHT_MONTH_COLUMN_MAPPING["到货年月列名"],
     FREIGHT_MONTH_COLUMN_MAPPING["提前延期列名"],
     "FBA号",  # 用于统计订单数
-    "计划物流方式"  # 新增：计划物流方式列
+    "物流方式"  # 新增：物流方式列
 ]
 missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少货代月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
-    # ---------------------- 【新增1】：计划物流方式筛选器（第一步筛选） ----------------------
+    # ---------------------- 【新增1】：物流方式筛选器（第一步筛选） ----------------------
     st.markdown("### 筛选条件")
     # 新增：物流方式筛选行（控制列宽）
     col_logistics, col_empty = st.columns([1, 3])
     with col_logistics:
-        # 获取唯一的计划物流方式（去重+排序+去空）
-        unique_logistics = sorted(df_selected["计划物流方式"].dropna().unique())
+        # 获取唯一的物流方式（去重+排序+去空）
+        unique_logistics = sorted(df_selected["物流方式"].dropna().unique())
         # 新增"全部"选项，默认选中
         logistics_options = ["全部"] + unique_logistics
         selected_logistics = st.selectbox(
-            "计划物流方式",
+            "物流方式",
             options=logistics_options,
             index=0,
             key="freight_selected_logistics"  # 独立key，避免冲突
@@ -2336,7 +2414,7 @@ else:
     if selected_logistics == "全部":
         df_filtered_by_logistics = df_selected.copy()
     else:
-        df_filtered_by_logistics = df_selected[df_selected["计划物流方式"] == selected_logistics].copy()
+        df_filtered_by_logistics = df_selected[df_selected["物流方式"] == selected_logistics].copy()
 
     # 新增：容错处理 - 物流方式筛选后无数据
     if len(df_filtered_by_logistics) == 0:
@@ -2789,29 +2867,29 @@ WAREHOUSE_MONTH_COLUMN_MAPPING = {
     "到货年月列名": "到货年月",  # 替换为你实际的到货年月列名
     "提前延期列名": "提前/延期（仓库）"  # 替换为你实际的提前/延期列名
 }
-# ---------------------- 【修改1】：新增计划物流方式列校验 ----------------------
+# ---------------------- 【修改1】：新增物流方式列校验 ----------------------
 required_warehouse_cols = [
     WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"],
     WAREHOUSE_MONTH_COLUMN_MAPPING["到货年月列名"],
     WAREHOUSE_MONTH_COLUMN_MAPPING["提前延期列名"],
     "FBA号",
-    "计划物流方式"  # 新增：计划物流方式列
+    "物流方式"  # 新增：物流方式列
 ]
 missing_warehouse_cols = [col for col in required_warehouse_cols if col not in df_selected.columns]
 if missing_warehouse_cols:
     st.error(f"缺少仓库月度分析必要列：{missing_warehouse_cols}，请检查数据列名！")
 else:
-    # ---------------------- 【新增1】：计划物流方式筛选器（第一步筛选） ----------------------
+    # ---------------------- 【新增1】：物流方式筛选器（第一步筛选） ----------------------
     st.markdown("### 筛选条件")
     # 新增：物流方式筛选行（控制列宽）
     col_logistics, col_empty = st.columns([1, 3])
     with col_logistics:
-        # 获取唯一的计划物流方式（去重+排序+去空）
-        unique_logistics = sorted(df_selected["计划物流方式"].dropna().unique())
+        # 获取唯一的物流方式（去重+排序+去空）
+        unique_logistics = sorted(df_selected["物流方式"].dropna().unique())
         # 新增"全部"选项，默认选中
         logistics_options = ["全部"] + unique_logistics
         selected_logistics = st.selectbox(
-            "计划物流方式",
+            "物流方式",
             options=logistics_options,
             index=0,
             key="warehouse_selected_logistics"  # 独立key，避免冲突
@@ -2821,7 +2899,7 @@ else:
     if selected_logistics == "全部":
         df_filtered_by_logistics = df_selected.copy()
     else:
-        df_filtered_by_logistics = df_selected[df_selected["计划物流方式"] == selected_logistics].copy()
+        df_filtered_by_logistics = df_selected[df_selected["物流方式"] == selected_logistics].copy()
 
     # 新增：容错处理 - 物流方式筛选后无数据
     if len(df_filtered_by_logistics) == 0:

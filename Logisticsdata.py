@@ -76,7 +76,7 @@ def get_table_download_link(df, filename, text):
 def load_data():
     url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
     try:
-        df_all = pd.read_excel(url, sheet_name="上架完成-红单")  # 全部数据
+        df_all = pd.read_excel(url, sheet_name="上架完成-红单(FBA号）")  # 全部数据
     except Exception as e:
         st.error(f"读取数据失败：{str(e)}")
         return pd.DataFrame(), pd.DataFrame()

@@ -1490,7 +1490,7 @@ else:
     )
 
     # 其他数值格式化
-    freight_display["时效差值均值"] = round(freight_display["时效差值均值"], 2)
+    freight_display["时效差值均值"] = freight_display["时效差值均值"].apply(lambda x: f"{x:.2f}")
     freight_display["最大延期天数"] = freight_display["最大延期天数"].apply(
         lambda x: f"{abs(x)}天" if x < 0 else "0天")
     freight_display["最大提前天数"] = freight_display["最大提前天数"].apply(lambda x: f"{x}天" if x > 0 else "0天")
@@ -2019,6 +2019,16 @@ else:
                 return pd.NaT
 
 
+        # 时间计算工具函数：根据最新月份，计算往前推N个月的年月（格式YYYY-MM）
+        def calc_prev_n_month(latest_ym, n):
+            try:
+                latest_dt = pd.to_datetime(latest_ym + "-01")
+                prev_dt = latest_dt - pd.DateOffset(months=n - 1)
+                return prev_dt.strftime("%Y-%m")
+            except:
+                return latest_ym
+
+
         # 修改：用容错函数解析日期
         monthly_stats["年月排序"] = monthly_stats["到货年月"].apply(safe_parse_ym)
         # 新增：过滤无效日期行
@@ -2035,199 +2045,222 @@ else:
             monthly_stats["总订单数环比变化"] = monthly_stats["总订单数"].diff(1).fillna(0)
             monthly_stats["准时率环比变化(百分点)"] = monthly_stats["准时率(%)"].diff(1).fillna(0)
 
-            # ===== 2. 筛选器：双下拉框时间范围选择 =====
-            # ---------------------- 【修改4】：移除重复的"筛选条件"标题 ----------------------
-            # 原代码的st.markdown("### 筛选条件")被移到上方，这里删除（避免重复）
-            col_start, col_end = st.columns(2)
-            with col_start:
-                start_month = st.selectbox(
-                    "开始月份",
-                    options=monthly_stats["中文月份"].tolist(),
+            # ===== 2. 新增【自动化快捷筛选器】+ 保留原有自定义筛选（核心修改）=====
+            # 自动提取数据中最新的月份（作为时间基准，无需手动改）
+            latest_ym = monthly_stats["到货年月"].max()
+            # 快捷筛选器：一行两列布局（快捷筛选+说明），更美观
+            col_quick, col_tip = st.columns([2, 3])
+            with col_quick:
+                st.markdown("#### 快捷时间筛选")
+                quick_options = ["自定义时间范围", "上个月", "近三个月", "近半年", "近一年"]
+                selected_quick = st.selectbox(
+                    "快速选择",
+                    options=quick_options,
                     index=0,
-                    key="start_month"
+                    key="quick_time_filter",
+                    label_visibility="collapsed"
                 )
-            with col_end:
-                end_month = st.selectbox(
-                    "结束月份",
-                    options=monthly_stats["中文月份"].tolist(),
-                    index=len(monthly_stats) - 1,
-                    key="end_month"
-                )
+            with col_tip:
+                st.markdown(f"#### 筛选基准（自动获取）")
+                st.caption(f"📌 数据最新月份：{latest_ym}")
+                st.caption(f"💡 快捷筛选均以最新月份为结束时间")
 
-            # 转换回原始年月格式用于筛选
-            start_ym = monthly_stats[monthly_stats["中文月份"] == start_month]["到货年月"].iloc[0]
-            end_ym = monthly_stats[monthly_stats["中文月份"] == end_month]["到货年月"].iloc[0]
+            # 初始化起始/结束年月
+            start_ym = None
+            end_ym = latest_ym
 
-            # 筛选数据并保持时间正序
+            # 自动化计算各快捷筛选的时间范围
+            if selected_quick == "上个月":
+                start_ym = latest_ym  # 上个月=仅最新月份
+            elif selected_quick == "近三个月":
+                start_ym = calc_prev_n_month(latest_ym, 3)  # 往前推2个月，共3个月
+            elif selected_quick == "近半年":
+                start_ym = calc_prev_n_month(latest_ym, 6)  # 往前推5个月，共6个月
+            elif selected_quick == "近一年":
+                start_ym = calc_prev_n_month(latest_ym, 12)  # 往前推11个月，共12个月
+            else:
+                # 自定义时间范围：保留原有双下拉框
+                st.markdown("#### 自定义时间范围")
+                col_start, col_end = st.columns(2)
+                with col_start:
+                    start_month = st.selectbox(
+                        "开始月份",
+                        options=monthly_stats["中文月份"].tolist(),
+                        index=0,
+                        key="start_month"
+                    )
+                with col_end:
+                    end_month = st.selectbox(
+                        "结束月份",
+                        options=monthly_stats["中文月份"].tolist(),
+                        index=len(monthly_stats) - 1,
+                        key="end_month"
+                    )
+                # 转换回原始年月格式
+                start_ym = monthly_stats[monthly_stats["中文月份"] == start_month]["到货年月"].iloc[0]
+                end_ym = monthly_stats[monthly_stats["中文月份"] == end_month]["到货年月"].iloc[0]
+
+            # 最终数据筛选（统一逻辑，兼容快捷/自定义）
             df_filtered = monthly_stats[
                 (monthly_stats["到货年月"] >= start_ym) &
                 (monthly_stats["到货年月"] <= end_ym)
                 ].copy()
             df_filtered = df_filtered.sort_values("年月排序", ascending=True).reset_index(drop=True)
 
-            # ---------------------- 【新增2】：调试用筛选结果展示（可选） ----------------------
-            st.write(f"筛选结果：{selected_logistics} | {start_month} 至 {end_month}")
-            st.write(df_filtered[["中文月份", "总订单数", "准时率(%)"]])
+            # ---------------------- 【新增2】：筛选结果展示（优化） ----------------------
+            start_cn = df_filtered["中文月份"].min() if len(df_filtered) > 0 else ""
+            end_cn = df_filtered["中文月份"].max() if len(df_filtered) > 0 else ""
+            st.info(f"✅ 筛选结果：{selected_logistics} | {start_cn} 至 {end_cn}（共{len(df_filtered)}个月份）")
+            # 可选：展示核心筛选数据预览
+            st.dataframe(df_filtered[["中文月份", "总订单数", "准时率(%)"]], use_container_width=True, hide_index=True)
 
-        # ===== 3. 计算平均准时率（用于红色虚线）=====
-        avg_on_time_rate = df_filtered["准时率(%)"].mean()
+            # ===== 后续原有逻辑（无需任何修改，直接保留）=====
+            # 计算平均准时率（用于红色虚线）
+            avg_on_time_rate = df_filtered["准时率(%)"].mean()
+            # ===== 4. 双轴趋势图（中文X轴+平均准时率虚线）=====
+            st.markdown("### 月度订单数&准时率趋势")
+            import plotly.graph_objects as go
 
-        # ===== 4. 双轴趋势图（中文X轴+平均准时率虚线）=====
-        st.markdown("### 月度订单数&准时率趋势")
-        import plotly.graph_objects as go
-
-        fig = go.Figure()
-
-        # 左轴：柱状图（总订单数、提前准时订单数、延期订单数）
-        fig.add_trace(go.Bar(
-            x=df_filtered["中文月份"],
-            y=df_filtered["总订单数"],
-            name="总订单数",
-            yaxis="y1",
-            marker_color="#4299e1",
-            opacity=0.8
-        ))
-        fig.add_trace(go.Bar(
-            x=df_filtered["中文月份"],
-            y=df_filtered["提前准时订单数"],
-            name="提前/准时订单数",
-            yaxis="y1",
-            marker_color="#48bb78",
-            opacity=0.8
-        ))
-        fig.add_trace(go.Bar(
-            x=df_filtered["中文月份"],
-            y=df_filtered["延期订单数"],
-            name="延期订单数",
-            yaxis="y1",
-            marker_color="#e53e3e",
-            opacity=0.8
-        ))
-
-        # 右轴：折线图（准时率）
-        fig.add_trace(go.Scatter(
-            x=df_filtered["中文月份"],
-            y=df_filtered["准时率(%)"],
-            name="准时率(%)",
-            yaxis="y2",
-            marker_color="#9f7aea",
-            mode="lines+markers+text",
-            line=dict(width=3),
-            marker=dict(size=8),
-            text=df_filtered["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
-            textposition="top center"
-        ))
-
-        # 新增：平均准时率红色虚线
-        fig.add_trace(go.Scatter(
-            x=df_filtered["中文月份"],
-            y=[avg_on_time_rate] * len(df_filtered),
-            name=f"平均准时率: {avg_on_time_rate:.2f}%",
-            yaxis="y2",
-            mode="lines",
-            line=dict(color="#ff0000", dash="dash", width=2),
-            hoverinfo="name+y"
-        ))
-
-        # 图表配置
-        fig.update_layout(
-            title="月度总订单数/提前准时订单数/延期订单数 & 准时率趋势",
-            yaxis=dict(title="订单数", side="left", range=[0, max(df_filtered["总订单数"]) * 1.2]),
-            yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
-            xaxis=dict(title="到货年月", tickangle=45),
-            legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
-            height=450,
-            plot_bgcolor="#ffffff",
-            barmode="group"
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # ===== 5. 月度明细表格（倒序排列）=====
-        st.markdown("### 月度核心指标明细（倒序排列）")
-        # 按倒序展示表格（最新月份在最前）
-        df_display = df_filtered.sort_values("年月排序", ascending=False).reset_index(drop=True)
-        display_cols = [
-            "中文月份", "总订单数", "总订单数环比变化", "提前准时订单数", "延期订单数",
-            "准时率(%)", "准时率环比变化(百分点)"
-        ]
-        df_display = df_display[display_cols].copy()
-
-        # 格式化环比变化（带正负号）
-        df_display["总订单数环比变化"] = df_display["总订单数环比变化"].apply(
-            lambda x: f"+{int(x)}" if x > 0 else f"{int(x)}" if x < 0 else "0"
-        )
-        df_display["准时率环比变化(百分点)"] = df_display["准时率环比变化(百分点)"].apply(
-            lambda x: f"+{x:.2f}" if x > 0 else f"{x:.2f}" if x < 0 else "0.00"
-        )
+            fig = go.Figure()
+            # 左轴：柱状图（总订单数、提前准时订单数、延期订单数）
+            fig.add_trace(go.Bar(
+                x=df_filtered["中文月份"],
+                y=df_filtered["总订单数"],
+                name="总订单数",
+                yaxis="y1",
+                marker_color="#4299e1",
+                opacity=0.8
+            ))
+            fig.add_trace(go.Bar(
+                x=df_filtered["中文月份"],
+                y=df_filtered["提前准时订单数"],
+                name="提前/准时订单数",
+                yaxis="y1",
+                marker_color="#48bb78",
+                opacity=0.8
+            ))
+            fig.add_trace(go.Bar(
+                x=df_filtered["中文月份"],
+                y=df_filtered["延期订单数"],
+                name="延期订单数",
+                yaxis="y1",
+                marker_color="#e53e3e",
+                opacity=0.8
+            ))
+            # 右轴：折线图（准时率）
+            fig.add_trace(go.Scatter(
+                x=df_filtered["中文月份"],
+                y=df_filtered["准时率(%)"],
+                name="准时率(%)",
+                yaxis="y2",
+                marker_color="#9f7aea",
+                mode="lines+markers+text",
+                line=dict(width=3),
+                marker=dict(size=8),
+                text=df_filtered["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
+                textposition="top center"
+            ))
+            # 新增：平均准时率红色虚线
+            fig.add_trace(go.Scatter(
+                x=df_filtered["中文月份"],
+                y=[avg_on_time_rate] * len(df_filtered),
+                name=f"平均准时率: {avg_on_time_rate:.2f}%",
+                yaxis="y2",
+                mode="lines",
+                line=dict(color="#ff0000", dash="dash", width=2),
+                hoverinfo="name+y"
+            ))
+            # 图表配置
+            fig.update_layout(
+                title="月度总订单数/提前准时订单数/延期订单数 & 准时率趋势",
+                yaxis=dict(title="订单数", side="left", range=[0, max(df_filtered["总订单数"]) * 1.2]),
+                yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
+                xaxis=dict(title="到货年月", tickangle=45),
+                legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),
+                height=450,
+                plot_bgcolor="#ffffff",
+                barmode="group"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            # ===== 5. 月度明细表格（倒序排列）=====
+            st.markdown("### 月度核心指标明细（倒序排列）")
+            # 按倒序展示表格（最新月份在最前）
+            df_display = df_filtered.sort_values("年月排序", ascending=False).reset_index(drop=True)
+            display_cols = [
+                "中文月份", "总订单数", "总订单数环比变化", "提前准时订单数", "延期订单数",
+                "准时率(%)", "准时率环比变化(百分点)"
+            ]
+            df_display = df_display[display_cols].copy()
+            # 格式化环比变化（带正负号）
+            df_display["总订单数环比变化"] = df_display["总订单数环比变化"].apply(
+                lambda x: f"+{int(x)}" if x > 0 else f"{int(x)}" if x < 0 else "0"
+            )
+            df_display["准时率环比变化(百分点)"] = df_display["准时率环比变化(百分点)"].apply(
+                lambda x: f"+{x:.2f}" if x > 0 else f"{x:.2f}" if x < 0 else "0.00"
+            )
 
 
-        # 表格高亮规则（准时率<80%标红，环比下降标红）
-        def highlight_monthly(row):
-            styles = [""] * len(row)
-            # 准时率<80%标红
-            if float(row["准时率(%)"]) < 80:
-                styles[display_cols.index(
-                    "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-            # 总订单数环比下降标红
-            if row["总订单数环比变化"].startswith("-"):
-                styles[display_cols.index(
-                    "总订单数环比变化")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-            # 准时率环比下降标红
-            if row["准时率环比变化(百分点)"].startswith("-"):
-                styles[display_cols.index(
-                    "准时率环比变化(百分点)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
-            return styles
+            # 表格高亮规则（准时率<80%标红，环比下降标红）
+            def highlight_monthly(row):
+                styles = [""] * len(row)
+                # 准时率<80%标红
+                if float(row["准时率(%)"]) < 80:
+                    styles[display_cols.index(
+                        "准时率(%)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+                # 总订单数环比下降标红
+                if row["总订单数环比变化"].startswith("-"):
+                    styles[display_cols.index(
+                        "总订单数环比变化")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+                # 准时率环比下降标红
+                if row["准时率环比变化(百分点)"].startswith("-"):
+                    styles[display_cols.index(
+                        "准时率环比变化(百分点)")] = "background-color: #fff5f5; color: #c62828; font-weight: bold;"
+                return styles
 
 
-        # 展示表格
-        styled_table = df_display.style.apply(highlight_monthly, axis=1)
-        st.dataframe(
-            styled_table,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # ===== 6. 数据下载 =====
-        csv_data = monthly_stats.to_csv(index=False, encoding="utf-8-sig")
-        st.download_button(
-            label="📥 下载所有月度整体数据",
-            data=csv_data,
-            file_name="月度整体趋势分析数据.csv",
-            mime="text/csv",
-            key="monthly_trend_download"
-        )
-
-        # ===== 7. 整体趋势总结 =====
-        st.markdown("### 整体趋势总结")
-        latest_month = df_filtered.iloc[-1]["中文月份"] if len(df_filtered) > 0 else ""
-        if latest_month:
-            latest_total = df_filtered.iloc[-1]["总订单数"]
-            latest_on_time = df_filtered.iloc[-1]["提前准时订单数"]
-            latest_delay = df_filtered.iloc[-1]["延期订单数"]
-            latest_rate = df_filtered.iloc[-1]["准时率(%)"]
-            prev_month = df_filtered.iloc[-2]["中文月份"] if len(df_filtered) > 1 else None
-
-            summary = f"最新{latest_month}整体表现：总订单数{latest_total}单，其中提前/准时订单{latest_on_time}单，延期订单{latest_delay}单，准时率{latest_rate:.2f}%。"
-
-            if prev_month:
-                prev_total = df_filtered.iloc[-2]["总订单数"]
-                prev_rate = df_filtered.iloc[-2]["准时率(%)"]
-                total_change = latest_total - prev_total
-                rate_change = latest_rate - prev_rate
-                summary += f" 与{prev_month}相比，总订单数{'增加' if total_change > 0 else '减少' if total_change < 0 else '持平'} {abs(total_change)}单，准时率{'提升' if rate_change > 0 else '下降' if rate_change < 0 else '持平'} {abs(rate_change):.2f}个百分点。"
-
-            # 趋势判断
-            if len(df_filtered) >= 3:
-                rate_trend = df_filtered["准时率(%)"].tail(3).tolist()
-                if rate_trend[2] > rate_trend[1] > rate_trend[0]:
-                    summary += f" 近{len(df_filtered)}个月准时率呈上升趋势，整体表现向好！"
-                elif rate_trend[2] < rate_trend[1] < rate_trend[0]:
-                    summary += f" 近{len(df_filtered)}个月准时率呈下降趋势，需重点关注延期问题！"
-                else:
-                    summary += f" 近{len(df_filtered)}个月准时率波动较小，整体表现稳定。"
-
-            summary += f" 所选时间范围平均准时率为：{avg_on_time_rate:.2f}%。"
-            st.markdown(f"> {summary}")
+            # 展示表格
+            styled_table = df_display.style.apply(highlight_monthly, axis=1)
+            st.dataframe(
+                styled_table,
+                use_container_width=True,
+                hide_index=True
+            )
+            # ===== 6. 数据下载 =====
+            csv_data = monthly_stats.to_csv(index=False, encoding="utf-8-sig")
+            st.download_button(
+                label="📥 下载所有月度整体数据",
+                data=csv_data,
+                file_name="月度整体趋势分析数据.csv",
+                mime="text/csv",
+                key="monthly_trend_download"
+            )
+            # ===== 7. 整体趋势总结 =====
+            st.markdown("### 整体趋势总结")
+            latest_month = df_filtered.iloc[-1]["中文月份"] if len(df_filtered) > 0 else ""
+            if latest_month:
+                latest_total = df_filtered.iloc[-1]["总订单数"]
+                latest_on_time = df_filtered.iloc[-1]["提前准时订单数"]
+                latest_delay = df_filtered.iloc[-1]["延期订单数"]
+                latest_rate = df_filtered.iloc[-1]["准时率(%)"]
+                prev_month = df_filtered.iloc[-2]["中文月份"] if len(df_filtered) > 1 else None
+                summary = f"最新{latest_month}整体表现：总订单数{latest_total}单，其中提前/准时订单{latest_on_time}单，延期订单{latest_delay}单，准时率{latest_rate:.2f}%。"
+                if prev_month:
+                    prev_total = df_filtered.iloc[-2]["总订单数"]
+                    prev_rate = df_filtered.iloc[-2]["准时率(%)"]
+                    total_change = latest_total - prev_total
+                    rate_change = latest_rate - prev_rate
+                    summary += f" 与{prev_month}相比，总订单数{'增加' if total_change > 0 else '减少' if total_change < 0 else '持平'} {abs(total_change)}单，准时率{'提升' if rate_change > 0 else '下降' if rate_change < 0 else '持平'} {abs(rate_change):.2f}个百分点。"
+                # 趋势判断
+                if len(df_filtered) >= 3:
+                    rate_trend = df_filtered["准时率(%)"].tail(3).tolist()
+                    if rate_trend[2] > rate_trend[1] > rate_trend[0]:
+                        summary += f" 近{len(df_filtered)}个月准时率呈上升趋势，整体表现向好！"
+                    elif rate_trend[2] < rate_trend[1] < rate_trend[0]:
+                        summary += f" 近{len(df_filtered)}个月准时率呈下降趋势，需重点关注延期问题！"
+                    else:
+                        summary += f" 近{len(df_filtered)}个月准时率波动较小，整体表现稳定。"
+                summary += f" 所选时间范围平均准时率为：{avg_on_time_rate:.2f}%。"
+                st.markdown(f"> {summary}")
 
 # ===== 【简化版】多物流方式-多阈值时效趋势折线图（新增累计订单数）=====
 st.markdown("### 📦 各物流方式-不同准时率阈值时效趋势")

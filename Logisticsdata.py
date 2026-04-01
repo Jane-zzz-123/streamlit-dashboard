@@ -2191,6 +2191,7 @@ else:
                 "准时率(%)", "准时率环比变化(百分点)"
             ]
             df_display = df_display[display_cols].copy()
+
             # 格式化环比变化（带正负号）
             df_display["总订单数环比变化"] = df_display["总订单数环比变化"].apply(
                 lambda x: f"+{int(x)}" if x > 0 else f"{int(x)}" if x < 0 else "0"
@@ -2198,6 +2199,9 @@ else:
             df_display["准时率环比变化(百分点)"] = df_display["准时率环比变化(百分点)"].apply(
                 lambda x: f"+{x:.2f}" if x > 0 else f"{x:.2f}" if x < 0 else "0.00"
             )
+
+            # ========== 关键修改：强制准时率保留2位小数 ==========
+            df_display["准时率(%)"] = df_display["准时率(%)"].apply(lambda x: f"{x:.2f}")
 
 
             # 表格高亮规则（准时率<80%标红，环比下降标红）
@@ -2529,21 +2533,67 @@ else:
                 unique_ym = freight_month_stats.sort_values("年月排序")["到货年月"].unique().tolist()
 
                 # 双下拉框选择开始/结束月份
-                col_start, col_end = st.columns(2)
-                with col_start:
-                    start_month_cn = st.selectbox(
-                        "开始月份",
-                        options=unique_months,
-                        index=0,
-                        key="freight_start_month"
-                    )
-                with col_end:
-                    end_month_cn = st.selectbox(
-                        "结束月份",
-                        options=unique_months,
-                        index=len(unique_months) - 1,
-                        key="freight_end_month"
-                    )
+                # ====================== 快捷筛选器 + 双下拉框 ======================
+                st.markdown("#### 快捷筛选")
+
+                # 基准月：数据最新月份 = 2026年2月（自动获取，不用手动改）
+                latest_month = freight_month_stats["年月排序"].max()
+
+                # 快捷筛选选项
+                quick_options = [
+                    "自定义时间 range",
+                    "上个月",
+                    "近三个月",
+                    "近半年",
+                    "近一年"
+                ]
+                selected_quick = st.selectbox("快捷筛选", options=quick_options, index=0)
+
+                # 根据选项计算 开始月份 & 结束月份
+                if selected_quick == "上个月":
+                    start_month = latest_month - pd.DateOffset(months=1)
+                    end_month = latest_month - pd.DateOffset(months=1)
+
+                elif selected_quick == "近三个月":
+                    start_month = latest_month - pd.DateOffset(months=2)
+                    end_month = latest_month
+
+                elif selected_quick == "近半年":
+                    start_month = latest_month - pd.DateOffset(months=5)
+                    end_month = latest_month
+
+                elif selected_quick == "近一年":
+                    start_month = latest_month - pd.DateOffset(months=11)
+                    end_month = latest_month
+
+                else:  # 自定义时间 range
+                    start_month = None
+                    end_month = None
+
+                # 生成中文月份映射
+                month_cn_list = freight_month_stats.sort_values("年月排序")["中文月份"].tolist()
+                month_dt_list = freight_month_stats.sort_values("年月排序")["年月排序"].tolist()
+                month_map = dict(zip(month_dt_list, month_cn_list))
+
+                # 如果是快捷筛选 → 自动设置开始/结束月份
+                if start_month is not None and end_month is not None:
+                    start_month_cn = month_map.get(start_month, month_cn_list[0])
+                    end_month_cn = month_map.get(end_month, month_cn_list[-1])
+                else:
+                    # 原有双下拉框
+                    st.markdown("#### 自定义时间范围")
+                    col_start, col_end = st.columns(2)
+                    with col_start:
+                        start_month_cn = st.selectbox("开始月份", options=unique_months, index=0,
+                                                      key="freight_start_month")
+                    with col_end:
+                        end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months) - 1,
+                                                    key="freight_end_month")
+
+                # ====================== 以下你原有代码完全不用动 ======================
+                # 安全转换为原始年月格式（避免IndexError）
+                start_ym = freight_month_stats[freight_month_stats["中文月份"] == start_month_cn]["到货年月"].iloc[0]
+                end_ym = freight_month_stats[freight_month_stats["中文月份"] == end_month_cn]["到货年月"].iloc[0]
 
                 # 安全转换为原始年月格式（避免IndexError）
                 start_ym = freight_month_stats[freight_month_stats["中文月份"] == start_month_cn]["到货年月"].iloc[0]
@@ -2908,7 +2958,7 @@ required_warehouse_cols = [
     "FBA号",
     "物流方式"  # 新增：物流方式列
 ]
-missing_warehouse_cols = [col for col in required_warehouse_cols if col not in df_selected.columns]
+missing_warehouse_cols = [col for col in required_warehouse_cols if col not in df_selected_FBA.columns]
 if missing_warehouse_cols:
     st.error(f"缺少仓库月度分析必要列：{missing_warehouse_cols}，请检查数据列名！")
 else:
@@ -2918,7 +2968,7 @@ else:
     col_logistics, col_empty = st.columns([1, 3])
     with col_logistics:
         # 获取唯一的物流方式（去重+排序+去空）
-        unique_logistics = sorted(df_selected["物流方式"].dropna().unique())
+        unique_logistics = sorted(df_selected_FBA["物流方式"].dropna().unique())
         # 新增"全部"选项，默认选中
         logistics_options = ["全部"] + unique_logistics
         selected_logistics = st.selectbox(
@@ -2930,15 +2980,15 @@ else:
 
     # 新增：根据选中的物流方式过滤原始数据
     if selected_logistics == "全部":
-        df_filtered_by_logistics = df_selected.copy()
+        df_filtered_by_logistics = df_selected_FBA.copy()
     else:
-        df_filtered_by_logistics = df_selected[df_selected["物流方式"] == selected_logistics].copy()
+        df_filtered_by_logistics = df_selected_FBA[df_selected_FBA["物流方式"] == selected_logistics].copy()
 
     # 新增：容错处理 - 物流方式筛选后无数据
     if len(df_filtered_by_logistics) == 0:
         st.warning(f"所选物流方式「{selected_logistics}」暂无仓库数据")
     else:
-        # ---------------------- 【修改2】：数据源从df_selected改为df_filtered_by_logistics ----------------------
+        # ---------------------- 【修改2】：数据源从df_selected_FBA改为df_filtered_by_logistics ----------------------
         # 筛选有效数据（基于物流方式筛选后的数据）
         df_warehouse_month_valid = df_filtered_by_logistics[
             (df_filtered_by_logistics[WAREHOUSE_MONTH_COLUMN_MAPPING["仓库列名"]].notna()) &
@@ -3019,12 +3069,67 @@ else:
                 unique_months = sorted(warehouse_month_stats["中文月份"].unique())
 
                 # 核心修改2：下拉框选择中文月份，但筛选时直接用年月排序
-                col_start, col_end = st.columns(2)
-                with col_start:
-                    start_month_cn = st.selectbox("开始月份", options=unique_months, index=0, key="warehouse_start")
-                with col_end:
-                    end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months) - 1,
-                                                key="warehouse_end")
+                # ====================== 快捷筛选器 + 双下拉框 ======================
+                st.markdown("#### 快捷筛选")
+
+                # 基准月：数据最新月份 = 2026年2月（自动获取，不用手动改）
+                latest_month = warehouse_month_stats["年月排序"].max()
+
+                # 快捷筛选选项
+                quick_options = [
+                    "自定义时间 range",
+                    "上个月",
+                    "近三个月",
+                    "近半年",
+                    "近一年"
+                ]
+                selected_quick = st.selectbox("快捷筛选", options=quick_options, index=0)
+
+                # 根据选项计算 开始月份 & 结束月份
+                if selected_quick == "上个月":
+                    start_month = latest_month - pd.DateOffset(months=1)
+                    end_month = latest_month - pd.DateOffset(months=1)
+
+                elif selected_quick == "近三个月":
+                    start_month = latest_month - pd.DateOffset(months=2)
+                    end_month = latest_month
+
+                elif selected_quick == "近半年":
+                    start_month = latest_month - pd.DateOffset(months=5)
+                    end_month = latest_month
+
+                elif selected_quick == "近一年":
+                    start_month = latest_month - pd.DateOffset(months=11)
+                    end_month = latest_month
+
+                else:  # 自定义时间 range
+                    start_month = None
+                    end_month = None
+
+                # 生成中文月份映射
+                month_cn_list = warehouse_month_stats.sort_values("年月排序")["中文月份"].tolist()
+                month_dt_list = warehouse_month_stats.sort_values("年月排序")["年月排序"].tolist()
+                month_map = dict(zip(month_dt_list, month_cn_list))
+
+                # 如果是快捷筛选 → 自动设置开始/结束月份
+                if start_month is not None and end_month is not None:
+                    start_month_cn = month_map.get(start_month, month_cn_list[0])
+                    end_month_cn = month_map.get(end_month, month_cn_list[-1])
+                else:
+                    # 原有双下拉框
+                    st.markdown("#### 自定义时间范围")
+                    col_start, col_end = st.columns(2)
+                    with col_start:
+                        start_month_cn = st.selectbox("开始月份", options=unique_months, index=0,
+                                                      key="warehouse_start")
+                    with col_end:
+                        end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months) - 1,
+                                                    key="warehouse_end")
+
+                # ====================== 以下你原有代码完全不用动 ======================
+                # 安全转换为原始年月格式（避免IndexError）
+                start_ym = freight_month_stats[freight_month_stats["中文月份"] == start_month_cn]["到货年月"].iloc[0]
+                end_ym = freight_month_stats[freight_month_stats["中文月份"] == end_month_cn]["到货年月"].iloc[0]
 
                 # 核心修改3：将选中的中文月份转回datetime，直接筛选年月排序（无反向匹配）
                 start_dt = pd.to_datetime(start_month_cn + "-01", format="%Y年%m月-%d")
@@ -3221,21 +3326,27 @@ else:
                 # 仓库卡片（一行3列 + 按优质→合格→异常排序）
                 st.markdown("#### 各仓库详细表现")
 
-                # 1. 按评级排序：优质→合格→异常→样本不足，同评级按加权准时率降序
+                # 1. 计算总订单数（用于占比）
+                total_orders = df_summary["累计订单数"].sum()
+
+                # 2. 计算占比，并保留2位小数
+                df_summary["订单占比(%)"] = (df_summary["累计订单数"] / total_orders * 100).round(2)
+
+                # 3. 按评级排序：优质→合格→异常→样本不足，同评级按【累计订单数】降序
                 grade_order = {"优质": 0, "合格": 1, "异常": 2, "样本不足": 3}
                 df_summary["排序标识"] = df_summary["综合评级"].map(grade_order)
                 df_summary_sorted = df_summary.sort_values(
-                    by=["排序标识", "加权平均准时率"],
+                    by=["排序标识", "累计订单数"],  # 这里改成 累计订单数
                     ascending=[True, False]
                 ).reset_index(drop=True)
 
-                # 2. 一行3列展示（用itertools分组，兼容不足3个的情况）
+                # 4. 一行3列展示（用itertools分组，兼容不足3个的情况）
                 from itertools import zip_longest
 
                 # 每3个仓库分为一组
                 warehouse_groups = list(zip_longest(*[iter(df_summary_sorted.to_dict('records'))] * 3))
 
-                # 3. 循环渲染每组的3列卡片
+                # 5. 循环渲染每组的3列卡片
                 for group in warehouse_groups:
                     # 创建3列布局
                     col1, col2, col3 = st.columns(3)
@@ -3249,18 +3360,18 @@ else:
                             # 保留你原来的颜色和文案逻辑
                             color = "#2e7d32" if warehouse["综合评级"] == "优质" else "#ff9800" if warehouse[
                                                                                                        "综合评级"] == "合格" else "#c62828" if \
-                            warehouse["综合评级"] == "异常" else "#718096"
+                                warehouse["综合评级"] == "异常" else "#718096"
                             desc = "优秀稳定" if warehouse["综合评级"] == "优质" else "达标待优化" if warehouse[
                                                                                                           "综合评级"] == "合格" else "风险较高" if \
-                            warehouse["综合评级"] == "异常" else "需持续观察"
+                                warehouse["综合评级"] == "异常" else "需持续观察"
 
-                            # 保留你原来的卡片样式（仅调整换行符适配列布局）
+                            # 卡片样式（新增 订单占比）
                             st.markdown(f"""
                             <div style='border:1px solid #e2e8f0; border-radius:6px; padding:15px; margin:10px 0; border-left:4px solid {color};'>
                               <strong style='font-size:16px;'>{warehouse['仓库']}</strong>
                               <p style='color:{color}; margin:8px 0;'>{warehouse['综合评级']} | {desc}</p>
                               <p style='font-size:14px; margin:4px 0;'>📊 加权准时率：{warehouse['加权平均准时率']}%</p>
-                              <p style='font-size:14px; margin:4px 0;'>📦 累计订单：{warehouse['累计订单数']}单</p>
+                              <p style='font-size:14px; margin:4px 0;'>📦 累计订单：{warehouse['累计订单数']}单 ({warehouse['订单占比(%)']}%)</p>
                               <p style='font-size:14px; margin:4px 0;'>📅 出现月份：{warehouse['出现月份数']}个</p>
                               <p style='font-size:14px; margin:4px 0;'>🔍 最新表现：{warehouse['最新表现']}</p>
                             </div>

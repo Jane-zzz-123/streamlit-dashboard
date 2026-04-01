@@ -3365,28 +3365,40 @@ else:
 
 
                 # ==============================================
-                # 🔥 真正可用：最近3个月趋势（用 到货年月 排序）
+                # 🔥 升级版：最近3个月趋势 + 每月平均时效
                 # ==============================================
                 def analyze_3month_trend(warehouse_name):
                     # 筛选当前仓库数据
                     wh_data = df_warehouse_month_valid[df_warehouse_month_valid["仓库"] == warehouse_name].copy()
 
-                    # 用你真实的列：到货年月 排序（修复核心报错点）
-                    wh_data = wh_data.sort_values("到货年月", ascending=False).head(3)
+                    # 按到货年月从新到旧排序，取最近3个月
+                    wh_data_sorted = wh_data.sort_values("到货年月", ascending=False).head(3)
 
-                    if len(wh_data) < 2:
-                        return "📊 数据不足"
+                    if len(wh_data_sorted) < 2:
+                        # 数据不足2个月，只显示已有月份时效
+                        months = wh_data_sorted["到货年月"].tolist()
+                        efficiencies = wh_data_sorted["签收-完成上架"].round(1).tolist()
+                        month_eff_str = " | ".join([f"{m}: {e}天" for m, e in zip(months, efficiencies)])
+                        return f"📊 数据不足（{month_eff_str}）"
 
-                    # 取最近2个月的上架时效判断趋势
-                    months = wh_data["签收-完成上架"].head(2).tolist()
-                    diff = months[0] - months[1]
+                    # 按到货年月正序排列（旧→新），方便看变化
+                    wh_data_asc = wh_data_sorted.sort_values("到货年月", ascending=True)
+                    months = wh_data_asc["到货年月"].tolist()
+                    efficiencies = wh_data_asc["签收-完成上架"].round(1).tolist()
+
+                    # 生成每月时效字符串（旧→新）
+                    month_eff_str = " → ".join([f"{m}: {e}天" for m, e in zip(months, efficiencies)])
+
+                    # 计算趋势（用最新2个月的差值）
+                    latest_2_eff = efficiencies[-2:]  # 倒数2个（上一月、最新月）
+                    diff = latest_2_eff[1] - latest_2_eff[0]
 
                     if diff < -0.5:
-                        return "📉 时效变慢"
+                        return f"📈 时效变快（{month_eff_str}）"
                     elif diff > 0.5:
-                        return "📈 时效变快"
+                        return f"📉 时效变慢（{month_eff_str}）"
                     else:
-                        return "📊 保持稳定"
+                        return f"📊 保持稳定（{month_eff_str}）"
 
 
                 df_summary["最近3个月趋势"] = df_summary["仓库"].apply(analyze_3month_trend)
@@ -3402,7 +3414,7 @@ else:
                 ).reset_index(drop=True)
 
                 # ==============================================
-                # 卡片渲染（最终版）
+                # 卡片渲染（最终升级版）
                 # ==============================================
                 from itertools import zip_longest
 
@@ -3431,7 +3443,7 @@ else:
                               <p style='font-size:14px; margin:4px 0;'>📈 平均月单量：{warehouse['平均月订单量']}单</p>
                               <p style='font-size:14px; margin:4px 0;'>✅ 稳定性评分：{warehouse['稳定性评分']}分</p>
                               <p style='font-size:14px; margin:4px 0;'>🚀 平均上架时效：{warehouse['平均上架时效']} 天</p>
-                              <p style='font-size:14px; margin:4px 0;'>📅 最近3个月：{warehouse['最近3个月趋势']}</p>
+                              <p style='font-size:14px; margin:4px 0; word-break: break-all;'>📅 最近3个月：{warehouse['最近3个月趋势']}</p>
                               <p style='font-size:14px; margin:4px 0;'>📅 出现月份：{warehouse['出现月份数']}个</p>
                               <p style='font-size:14px; margin:4px 0;'>🔍 最新表现：{warehouse['最新表现']}</p>
                             </div>

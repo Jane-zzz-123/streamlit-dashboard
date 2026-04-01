@@ -3365,22 +3365,25 @@ else:
 
 
                 # ==============================================
-                # 🔥 自动计算最近3个月趋势
+                # 🔥 真正可用：最近3个月趋势（用 到货年月 排序）
                 # ==============================================
                 def analyze_3month_trend(warehouse_name):
-                    warehouse_month_data = df_warehouse_month_valid[
-                        df_warehouse_month_valid["仓库"] == warehouse_name].copy()
-                    warehouse_month_data = warehouse_month_data.sort_values("年月排序", ascending=False).head(3)
+                    # 筛选当前仓库数据
+                    wh_data = df_warehouse_month_valid[df_warehouse_month_valid["仓库"] == warehouse_name].copy()
 
-                    if len(warehouse_month_data) < 2:
+                    # 用你真实的列：到货年月 排序（修复核心报错点）
+                    wh_data = wh_data.sort_values("到货年月", ascending=False).head(3)
+
+                    if len(wh_data) < 2:
                         return "📊 数据不足"
 
-                    latest_2months = warehouse_month_data.head(2)["签收-完成上架"].tolist()
-                    trend_diff = latest_2months[0] - latest_2months[1]
+                    # 取最近2个月的上架时效判断趋势
+                    months = wh_data["签收-完成上架"].head(2).tolist()
+                    diff = months[0] - months[1]
 
-                    if trend_diff < -0.5:
+                    if diff < -0.5:
                         return "📉 时效变慢"
-                    elif trend_diff > 0.5:
+                    elif diff > 0.5:
                         return "📈 时效变快"
                     else:
                         return "📊 保持稳定"
@@ -3399,7 +3402,7 @@ else:
                 ).reset_index(drop=True)
 
                 # ==============================================
-                # 卡片渲染（不变，去掉了报错的延期订单）
+                # 卡片渲染（最终版）
                 # ==============================================
                 from itertools import zip_longest
 

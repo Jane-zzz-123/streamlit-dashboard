@@ -3077,7 +3077,7 @@ else:
 
                 # 快捷筛选选项
                 quick_options = [
-                    "自定义时间 range",
+                    "自定义时间",
                     "上个月",
                     "近三个月",
                     "近半年",
@@ -3334,46 +3334,115 @@ else:
                 # 2. 计算占比，并保留2位小数
                 df_summary["订单占比(%)"] = (df_summary["累计订单数"] / total_orders * 100).round(2)
 
-                # 3. 按评级排序：优质→合格→异常→样本不足，同评级按【累计订单数】降序
+                # ==================== 新增核心指标（适配你的数据）====================
+                # 平均月订单量
+                df_summary["平均月订单量"] = (df_summary["累计订单数"] / df_summary["出现月份数"]).round(0).astype(int)
+
+                # 总延期订单数
+                if "总延期订单数" not in df_summary.columns:
+                    df_summary["总延期订单数"] = df_summary["累计订单数"] - df_summary["总准时订单数"]
+
+
+                # 稳定性评分
+                def calc_stability(row):
+                    rate_score = row["加权平均准时率"] * 0.7
+                    volume_score = min(row["平均月订单量"] / 50, 30)  # 订单量越大加分越多，封顶30分
+                    return round(rate_score + volume_score, 1)
+
+
+                df_summary["稳定性评分"] = df_summary.apply(calc_stability, axis=1)
+
+                # ==============================================
+                # 🔥 适配你的数据：用「签收-完成上架」算 平均上架时效
+                # ==============================================
+                # 从原始数据（df_warehouse_month_valid）计算每个仓库的平均上架时效
+                warehouse_avg_delivery = df_warehouse_month_valid.groupby("仓库")["签收-完成上架"].agg(
+                    平均上架时效="mean"
+                ).reset_index()
+
+                # 把平均上架时效合并到汇总表
+                df_summary = pd.merge(
+                    df_summary,
+                    warehouse_avg_delivery,
+                    on="仓库",
+                    how="left"
+                )
+                # 保留1位小数，符合物流时效展示习惯
+                df_summary["平均上架时效"] = df_summary["平均上架时效"].round(1).fillna(0)
+
+
+                # ==============================================
+                # 🔥 自动算：最近3个月上架时效趋势（不用你手动加数据）
+                # ==============================================
+                def analyze_3month_trend(warehouse_name):
+                    # 1. 筛选该仓库的所有月度数据
+                    warehouse_month_data = df_warehouse_month_valid[
+                        df_warehouse_month_valid["仓库"] == warehouse_name].copy()
+
+                    # 2. 按时间排序，取最近3个月
+                    warehouse_month_data = warehouse_month_data.sort_values("年月排序", ascending=False).head(3)
+
+                    if len(warehouse_month_data) < 2:
+                        return "📊 数据不足"  # 少于2个月数据，无法判断趋势
+
+                    # 3. 计算最近3个月的上架时效变化
+                    latest_2months = warehouse_month_data.head(2)["签收-完成上架"].tolist()
+                    if len(latest_2months) < 2:
+                        return "📊 保持稳定"
+
+                    # 4. 判断趋势（时效越短越好，所以下降=变好，上升=变差）
+                    trend_diff = latest_2months[0] - latest_2months[1]  # 最新月 - 上上月
+                    if trend_diff < -0.5:  # 时效增加超过0.5天 → 变差
+                        return "📉 时效变慢"
+                    elif trend_diff > 0.5:  # 时效减少超过0.5天 → 变好
+                        return "📈 时效变快"
+                    else:  # 波动小于0.5天 → 稳定
+                        return "📊 保持稳定"
+
+
+                # 给每个仓库计算最近3个月趋势
+                df_summary["最近3个月趋势"] = df_summary["仓库"].apply(analyze_3month_trend)
+
+                # 3. 排序规则不变
                 grade_order = {"优质": 0, "合格": 1, "异常": 2, "样本不足": 3}
                 df_summary["排序标识"] = df_summary["综合评级"].map(grade_order)
                 df_summary_sorted = df_summary.sort_values(
-                    by=["排序标识", "累计订单数"],  # 这里改成 累计订单数
+                    by=["排序标识", "累计订单数"],
                     ascending=[True, False]
                 ).reset_index(drop=True)
 
-                # 4. 一行3列展示（用itertools分组，兼容不足3个的情况）
+                # 4. 一行3列展示
                 from itertools import zip_longest
 
-                # 每3个仓库分为一组
                 warehouse_groups = list(zip_longest(*[iter(df_summary_sorted.to_dict('records'))] * 3))
 
-                # 5. 循环渲染每组的3列卡片
+                # 5. 渲染卡片（最终适配版）
                 for group in warehouse_groups:
-                    # 创建3列布局
                     col1, col2, col3 = st.columns(3)
                     cols = [col1, col2, col3]
-
-                    # 为每组内的每个仓库渲染卡片
                     for idx, warehouse in enumerate(group):
-                        if warehouse is None:  # 处理最后一组不足3个的情况
+                        if warehouse is None:
                             continue
                         with cols[idx]:
-                            # 保留你原来的颜色和文案逻辑
                             color = "#2e7d32" if warehouse["综合评级"] == "优质" else "#ff9800" if warehouse[
                                                                                                        "综合评级"] == "合格" else "#c62828" if \
-                                warehouse["综合评级"] == "异常" else "#718096"
+                            warehouse["综合评级"] == "异常" else "#718096"
                             desc = "优秀稳定" if warehouse["综合评级"] == "优质" else "达标待优化" if warehouse[
                                                                                                           "综合评级"] == "合格" else "风险较高" if \
-                                warehouse["综合评级"] == "异常" else "需持续观察"
+                            warehouse["综合评级"] == "异常" else "需持续观察"
 
-                            # 卡片样式（新增 订单占比）
+                            # ========= 最终卡片（适配你的数据，自动算趋势）=========
                             st.markdown(f"""
                             <div style='border:1px solid #e2e8f0; border-radius:6px; padding:15px; margin:10px 0; border-left:4px solid {color};'>
                               <strong style='font-size:16px;'>{warehouse['仓库']}</strong>
                               <p style='color:{color}; margin:8px 0;'>{warehouse['综合评级']} | {desc}</p>
                               <p style='font-size:14px; margin:4px 0;'>📊 加权准时率：{warehouse['加权平均准时率']}%</p>
                               <p style='font-size:14px; margin:4px 0;'>📦 累计订单：{warehouse['累计订单数']}单 ({warehouse['订单占比(%)']}%)</p>
+                              <p style='font-size:14px; margin:4px 0;'>📈 平均月单量：{warehouse['平均月订单量']}单</p>
+                              <p style='font-size:14px; margin:4px 0;'>⚠️ 总延期订单：{warehouse['总延期订单数']}单</p>
+                              <p style='font-size:14px; margin:4px 0;'>✅ 稳定性评分：{warehouse['稳定性评分']}分</p>
+                              <p style='font-size:14px; margin:4px 0;'>🚀 平均上架时效：{warehouse['平均上架时效']} 天</p>
+                              <p style='font-size:14px; margin:4px 0;'>📅 最近3个月：{warehouse['最近3个月趋势']}</p>
                               <p style='font-size:14px; margin:4px 0;'>📅 出现月份：{warehouse['出现月份数']}个</p>
                               <p style='font-size:14px; margin:4px 0;'>🔍 最新表现：{warehouse['最新表现']}</p>
                             </div>

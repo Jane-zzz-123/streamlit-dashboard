@@ -3072,7 +3072,7 @@ else:
                 # ====================== 快捷筛选器 + 双下拉框 ======================
                 st.markdown("#### 快捷筛选")
 
-                # 基准月：数据最新月份 = 2026年2月（自动获取，不用手动改）
+                # 基准月：数据最新月份
                 latest_month = warehouse_month_stats["年月排序"].max()
 
                 # 快捷筛选选项
@@ -3083,7 +3083,9 @@ else:
                     "近半年",
                     "近一年"
                 ]
-                selected_quick = st.selectbox("快捷筛选", options=quick_options, index=0)
+
+                # ====================== 修复：加唯一 key ======================
+                selected_quick = st.selectbox("快捷筛选", options=quick_options, index=0, key="warehouse_quick_filter")
 
                 # 根据选项计算 开始月份 & 结束月份
                 if selected_quick == "上个月":
@@ -3115,13 +3117,13 @@ else:
                 if start_month is not None and end_month is not None:
                     start_month_cn = month_map.get(start_month, month_cn_list[0])
                     end_month_cn = month_map.get(end_month, month_cn_list[-1])
+
                 else:
-                    # 原有双下拉框
+                    # 自定义时间（原有逻辑不动，只保证不会和上面冲突）
                     st.markdown("#### 自定义时间范围")
                     col_start, col_end = st.columns(2)
                     with col_start:
-                        start_month_cn = st.selectbox("开始月份", options=unique_months, index=0,
-                                                      key="warehouse_start")
+                        start_month_cn = st.selectbox("开始月份", options=unique_months, index=0, key="warehouse_start")
                     with col_end:
                         end_month_cn = st.selectbox("结束月份", options=unique_months, index=len(unique_months) - 1,
                                                     key="warehouse_end")

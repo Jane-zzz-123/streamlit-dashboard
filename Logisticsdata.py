@@ -3367,38 +3367,44 @@ else:
                 # ==============================================
                 # 🔥 升级版：最近3个月趋势 + 每月平均时效
                 # ==============================================
+                # ==============================================
+                # 🔥 终极修复：按仓库 + 按月 先汇总，再算趋势
+                # 不会再出现重复月份！
+                # ==============================================
                 def analyze_3month_trend(warehouse_name):
-                    # 筛选当前仓库数据
+                    # 1. 筛选当前仓库的【所有原始订单数据】
                     wh_data = df_warehouse_month_valid[df_warehouse_month_valid["仓库"] == warehouse_name].copy()
 
-                    # 按到货年月从新到旧排序，取最近3个月
-                    wh_data_sorted = wh_data.sort_values("到货年月", ascending=False).head(3)
+                    # 2. 【关键修复】按【到货年月】分组 → 每个月只算1条平均值（去重）
+                    wh_monthly = wh_data.groupby("到货年月").agg(
+                        平均时效=("签收-完成上架", "mean")  # 每月平均上架时效
+                    ).round(1).reset_index()
 
-                    if len(wh_data_sorted) < 2:
-                        # 数据不足2个月，只显示已有月份时效
-                        months = wh_data_sorted["到货年月"].tolist()
-                        efficiencies = wh_data_sorted["签收-完成上架"].round(1).tolist()
-                        month_eff_str = " | ".join([f"{m}: {e}天" for m, e in zip(months, efficiencies)])
-                        return f"📊 数据不足（{month_eff_str}）"
+                    # 3. 按时间排序，取最新3个“不同月份”
+                    wh_monthly_sorted = wh_monthly.sort_values("到货年月", ascending=False).head(3)
 
-                    # 按到货年月正序排列（旧→新），方便看变化
-                    wh_data_asc = wh_data_sorted.sort_values("到货年月", ascending=True)
-                    months = wh_data_asc["到货年月"].tolist()
-                    efficiencies = wh_data_asc["签收-完成上架"].round(1).tolist()
+                    # 4. 数据不足 → 显示单月
+                    if len(wh_monthly_sorted) < 2:
+                        month_val = wh_monthly_sorted["到货年月"].iloc[0]
+                        day_val = wh_monthly_sorted["平均时效"].iloc[0]
+                        return f"📊 单月数据（{month_val}: {day_val}天）"
 
-                    # 生成每月时效字符串（旧→新）
-                    month_eff_str = " → ".join([f"{m}: {e}天" for m, e in zip(months, efficiencies)])
+                    # 5. 按时间正序（旧→新）
+                    wh_monthly_sorted = wh_monthly_sorted.sort_values("到货年月", ascending=True)
+                    month_list = wh_monthly_sorted["到货年月"].tolist()
+                    day_list = wh_monthly_sorted["平均时效"].tolist()
 
-                    # 计算趋势（用最新2个月的差值）
-                    latest_2_eff = efficiencies[-2:]  # 倒数2个（上一月、最新月）
-                    diff = latest_2_eff[1] - latest_2_eff[0]
+                    # 组合成文字
+                    month_str = " → ".join([f"{m}: {d}天" for m, d in zip(month_list, day_list)])
 
+                    # 趋势判断
+                    diff = day_list[-1] - day_list[-2]
                     if diff < -0.5:
-                        return f"📈 时效变快（{month_eff_str}）"
+                        return f"📈 时效变快（{month_str}）"
                     elif diff > 0.5:
-                        return f"📉 时效变慢（{month_eff_str}）"
+                        return f"📉 时效变慢（{month_str}）"
                     else:
-                        return f"📊 保持稳定（{month_eff_str}）"
+                        return f"📊 保持稳定（{month_str}）"
 
 
                 df_summary["最近3个月趋势"] = df_summary["仓库"].apply(analyze_3month_trend)

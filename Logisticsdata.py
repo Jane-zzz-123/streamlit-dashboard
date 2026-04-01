@@ -3339,15 +3339,6 @@ else:
                 df_summary["平均月订单量"] = (df_summary["累计订单数"] / df_summary["出现月份数"]).round(0).astype(int)
 
 
-                # 稳定性评分
-                def calc_stability(row):
-                    rate_score = row["加权平均准时率"] * 0.7
-                    volume_score = min(row["平均月订单量"] / 50, 30)
-                    return round(rate_score + volume_score, 1)
-
-
-                df_summary["稳定性评分"] = df_summary.apply(calc_stability, axis=1)
-
                 # ==============================================
                 # 🔥 平均上架时效（从 签收-完成上架 计算）
                 # ==============================================
@@ -3447,7 +3438,6 @@ else:
                               <p style='font-size:14px; margin:4px 0;'>📊 加权准时率：{warehouse['加权平均准时率']}%</p>
                               <p style='font-size:14px; margin:4px 0;'>📦 累计订单：{warehouse['累计订单数']}单 ({warehouse['订单占比(%)']}%)</p>
                               <p style='font-size:14px; margin:4px 0;'>📈 平均月单量：{warehouse['平均月订单量']}单</p>
-                              <p style='font-size:14px; margin:4px 0;'>✅ 稳定性评分：{warehouse['稳定性评分']}分</p>
                               <p style='font-size:14px; margin:4px 0;'>🚀 平均上架时效：{warehouse['平均上架时效']} 天</p>
                               <p style='font-size:14px; margin:4px 0; word-break: break-all;'>📅 最近3个月：{warehouse['最近3个月趋势']}</p>
                               <p style='font-size:14px; margin:4px 0;'>📅 出现月份：{warehouse['出现月份数']}个</p>

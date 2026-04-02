@@ -3468,7 +3468,7 @@ st.title("📊 物流成本分析")
 # 1. 加载成本数据
 @st.cache_data(show_spinner="加载成本数据中...")
 def load_cost_data():
-    url = "https://raw.githubusercontent.com/Jane-zzz/Logistics/main/CAE.xlsx"
+    url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_cost = pd.read_excel(url, sheet_name="数据")
 
     need_cols = ["周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "总费用"]
@@ -3483,6 +3483,19 @@ def load_cost_data():
     return df_cost
 
 df_cost = load_cost_data()
+
+# ====================== 自定义颜色映射 ======================
+color_map = {
+    "红单": "#ff4b4b",        # 红色
+    "空派": "#1f77b4",        # 蓝色
+    "以星特快": "#2ca02c",    # 绿色
+    "以星": "#ff7f0e",        # 橙色
+    "正班": "#7f7f7f",        # 灰色
+    "普船": "#ffdd00"         # 黄色
+}
+
+# 把不在映射里的物流方式默认用一个颜色
+default_color = "#9467bd"
 
 # ====================== 切换：按月份 / 按周期 ======================
 view_mode = st.radio("筛选维度", ["按周期", "按月份"], horizontal=True)
@@ -3526,7 +3539,7 @@ df_sum = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
     总重量=("重量", "sum"),
     总费用=("总费用", "sum")
 )
-df_sum["折算单价"] = (df_sum["总费用"] / df_sum["总重量"]).round(2)
+df_sum["折算单价"] = (df_sum["总费用"] / df_sum["总重量"]).round(4)
 df_sum = df_sum.sort_values(["实际物流方式", group_col]).reset_index(drop=True)
 
 # 环比
@@ -3546,6 +3559,7 @@ if selected:
     latest = max(selected)
 else:
     latest = sorted_values[-1]
+
 latest_data = df_sum[df_sum[group_col] == latest].copy()
 
 # ====================== 智能总结 ======================
@@ -3570,39 +3584,35 @@ for logi in all_logistics:
 
 st.markdown(summary_html, unsafe_allow_html=True)
 
-# ------------------------------------------------------
-# 👇 下面这部分 才是我新加的：精准数值 + 固定颜色
-# ------------------------------------------------------
+# ====================== 折线图（显示折点数值+自定义颜色） ======================
 st.subheader("📈 各物流方式单价趋势")
 df_sum["x_str"] = df_sum[group_col].astype(str)
 
-# 你要的固定颜色
-color_map = {
-    "红单": "#ff4b4b",
-    "空派": "#1f77b4",
-    "以星特快": "#2ca02c",
-    "以星": "#ff7f0e",
-    "正班": "#7f7f7f",
-    "普船": "#ffdd00"
-}
+# 给不在映射里的物流方式补充颜色
+for logi in all_logistics:
+    if logi not in color_map:
+        color_map[logi] = default_color
 
 fig = px.line(
     df_sum,
-    x="x_str", y="折算单价", color="实际物流方式",
+    x="x_str",
+    y="折算单价",
+    color="实际物流方式",
     color_discrete_map=color_map,
-    markers=True
+    markers=True,
+    category_orders={"x_str": [str(x) for x in sorted_values]}
 )
 
-# ✅ 强制显示正确数值
-for s in fig.data:
-    s.text = [f"{y:.2f}" for y in s.y]
-    s.textposition = "top center"
-    s.mode = "lines+markers+text"
-
+# 关键：折点上直接显示数值（+物流方式可以加在hover里，也可以不加）
+fig.update_traces(
+    text=df_sum["折算单价"].round(2),  # 折点直接显示数值
+    textposition="top center",
+    hovertemplate=f"{group_col}：%{{x}}<br>物流方式：%{{fullData.name}}<br>单价：%{{y:.2f}}<extra></extra>"
+)
 fig.update_xaxes(type="category")
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 统计表（2位小数） ======================
+# ====================== 统计表（单价强制2位小数） ======================
 st.subheader("📋 折算单价统计表（带环比）")
 data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_sum.iterrows()}
 
@@ -3633,13 +3643,14 @@ for val in sorted_values:
             txt = f"{sign}{diff:.2f} ({sign}{pct:.2f}%)"
             color = "#ff4b4b" if diff > 0 else "#00b578"
 
+        # 强制两位小数
         cell = f"<div>{price:.2f}</div><div style='font-size:12px;color:{color}'>{txt}</div>"
         table_html += f"<td style='border:1px solid #ddd;padding:8px'>{cell}</td>"
     table_html += "</tr>"
 table_html += "</table>"
 
 st.markdown(table_html, unsafe_allow_html=True)
-st.caption("📌 红色=上升 | 绿色=下降 | ")
+st.caption("📌 红色=上升 | 绿色=下降 ")
 
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")

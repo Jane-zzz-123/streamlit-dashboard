@@ -3460,21 +3460,18 @@ else:
 st.title("📊 物流成本分析")
 
 
-# 1. 加载成本数据（自动从GitHub读取，带缓存）
+# 1. 加载成本数据
 @st.cache_data(show_spinner="加载成本数据中...")
 def load_cost_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_cost = pd.read_excel(url, sheet_name="数据")
 
-    # 只保留需要的列
     need_cols = ["周期", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "总费用"]
     df_cost = df_cost[[col for col in need_cols if col in df_cost.columns]]
 
-    # 清洗空值 & 异常值
     df_cost = df_cost.dropna(subset=["周期", "实际物流方式", "重量", "总费用"])
     df_cost = df_cost[(df_cost["重量"] > 0) & (df_cost["总费用"] >= 0)]
 
-    # 按数字周排序（完美适配 2、3、4、5、6...）
     df_cost["周期排序"] = pd.to_numeric(df_cost["周期"], errors="coerce")
     df_cost = df_cost.sort_values("周期排序").reset_index(drop=True)
     return df_cost
@@ -3482,97 +3479,102 @@ def load_cost_data():
 
 df_cost = load_cost_data()
 
-# 2. 周期筛选器（支持多选，按数字顺序排列）
+# 2. 周期筛选 —— 默认自动选最近4周
 period_list = sorted(df_cost["周期"].unique(), key=lambda x: float(x))
+max_period = max(period_list)
+default_periods = [p for p in period_list if p > max_period - 4]
+
 selected_periods = st.multiselect(
     "选择周期（可多选）",
     options=period_list,
-    default=period_list,
-    help="筛选后自动更新折线图与统计表"
+    default=default_periods
 )
-
 if not selected_periods:
     st.warning("请至少选择一个周期")
     st.stop()
 
-# 筛选数据
 df_filter = df_cost[df_cost["周期"].isin(selected_periods)].copy()
 
-# 3. 计算：运费+入库配置费折算单价
-df_summary = df_filter.groupby(["周期", "实际物流方式"]).agg(
+# 3. 计算折算单价
+df_summary = df_filter.groupby(["周期", "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum"),
     总重量=("重量", "sum")
-).reset_index()
-
+)
 df_summary["折算单价"] = (df_summary["总费用"] / df_summary["总重量"]).round(4)
 
-# 4. 环比计算（与上周对比）
-df_summary["周期排序"] = pd.to_numeric(df_summary["周期"])
-df_summary = df_summary.sort_values(["实际物流方式", "周期排序"]).reset_index(drop=True)
-
+# 4. 环比
+df_summary["周期数值"] = pd.to_numeric(df_summary["周期"])
+df_summary = df_summary.sort_values(["实际物流方式", "周期数值"])
 df_summary["上周单价"] = df_summary.groupby("实际物流方式")["折算单价"].shift(1)
 df_summary["环比差值"] = (df_summary["折算单价"] - df_summary["上周单价"]).round(4)
-df_summary["环比百分比"] = (df_summary["环比差值"] / df_summary["上周单价"] * 100).round(2)
+
+# 避免除零错误
+df_summary["环比百分比"] = np.where(
+    df_summary["上周单价"] > 0,
+    (df_summary["环比差值"] / df_summary["上周单价"] * 100).round(2),
+    0
+)
 
 # ====================== 折线图 ======================
-st.subheader("📈 各物流方式 折算单价 趋势图")
-fig_line = px.line(
-    df_summary,
-    x="周期",
-    y="折算单价",
-    color="实际物流方式",
-    markers=True,
-    title="周期 × 折算单价（按实际物流方式）",
-    labels={"折算单价": "运费+入库配置费折算单价"}
-)
-st.plotly_chart(fig_line, use_container_width=True)
+st.subheader("📈 各物流方式 折算单价趋势")
+fig = px.line(df_summary, x="周期", y="折算单价", color="实际物流方式", markers=True)
+st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 统计表（带环比：红升绿降） ======================
-st.subheader("📋 周期 × 物流方式 折算单价统计表（周环比）")
+# ====================== 周期×物流方式 统计表 ======================
+st.subheader("📋 折算单价统计表（带周环比）")
 
-# 透视表
-pivot_price = df_summary.pivot_table(index="周期", columns="实际物流方式", values="折算单价", aggfunc="first")
-pivot_diff = df_summary.pivot_table(index="周期", columns="实际物流方式", values="环比差值", aggfunc="first")
-pivot_pct = df_summary.pivot_table(index="周期", columns="实际物流方式", values="环比百分比", aggfunc="first")
+# 统一维度，彻底避免 KeyError
+all_periods = sorted(df_summary["周期"].unique(), key=lambda x: float(x))
+all_logistics = sorted(df_summary["实际物流方式"].unique())
 
-# 按数字周排序
-pivot_price.index = pd.to_numeric(pivot_price.index, errors="coerce")
-pivot_price = pivot_price.sort_index()
+# 构建安全取值结构
+data_map = {}
+for _, row in df_summary.iterrows():
+    p = str(row["周期"])
+    l = row["实际物流方式"]
+    data_map[(p, l)] = {
+        "price": row["折算单价"],
+        "diff": row["环比差值"],
+        "pct": row["环比百分比"]
+    }
 
-# 生成带颜色的表格
+# 生成表格
 table_html = """
 <table style='width:100%; border-collapse:collapse; text-align:center; font-size:14px;'>
 <thead>
-  <tr style='background:#f0f2f6; font-weight:bold'>
-    <td style='border:1px solid #ddd; padding:8px'>周期</td>
+<tr style='background:#f0f2f6; font-weight:bold'>
+<td style='border:1px solid #ddd; padding:8px;'>周期</td>
 """
-for col in pivot_price.columns:
-    table_html += f"<td style='border:1px solid #ddd; padding:8px'>{col}</td>"
+for logi in all_logistics:
+    table_html += f"<td style='border:1px solid #ddd; padding:8px;'>{logi}</td>"
 table_html += "</tr></thead><tbody>"
 
-for period in pivot_price.index:
+for p in all_periods:
     table_html += "<tr>"
-    table_html += f"<td style='border:1px solid #ddd; padding:8px; font-weight:bold'>{int(period)}</td>"
-    for logi in pivot_price.columns:
-        price = pivot_price.loc[period, logi]
-        diff = pivot_diff.loc[period, logi] if logi in pivot_diff.columns else None
-        pct = pivot_pct.loc[period, logi] if logi in pivot_pct.columns else None
+    table_html += f"<td style='border:1px solid #ddd; padding:8px; font-weight:bold'>{p}</td>"
 
-        if pd.isna(price):
+    for logi in all_logistics:
+        key = (str(p), logi)
+        if key not in data_map:
             table_html += "<td style='border:1px solid #ddd; padding:8px'>-</td>"
             continue
 
+        item = data_map[key]
+        price = item["price"]
+        diff = item["diff"]
+        pct = item["pct"]
+
         if pd.isna(diff):
-            diff_text = "首期"
+            diff_txt = "首期"
             color = "#888"
         else:
             sign = "+" if diff > 0 else ""
-            diff_text = f"{sign}{diff:.4f} ({sign}{pct:.2f}%)"
+            diff_txt = f"{sign}{diff:.4f} ({sign}{pct:.2f}%)"
             color = "#ff4b4b" if diff > 0 else "#00b578"
 
         cell = f"""
         <div>{price:.4f}</div>
-        <div style='font-size:12px; color:{color}; margin-top:3px'>{diff_text}</div>
+        <div style='font-size:12px; color:{color}; margin-top:2px'>{diff_txt}</div>
         """
         table_html += f"<td style='border:1px solid #ddd; padding:8px'>{cell}</td>"
     table_html += "</tr>"
@@ -3580,7 +3582,7 @@ for period in pivot_price.index:
 table_html += "</tbody></table>"
 st.markdown(table_html, unsafe_allow_html=True)
 
-st.caption("📌 说明：红色=环比上升，绿色=环比下降，首期无对比")
+st.caption("📌 红色=环比上升 | 绿色=环比下降 | 首期无对比")
 # ====================== 成本分析模块结束 ======================
 
 # ===================== 数据源链接展示（直接打开/下载） =====================

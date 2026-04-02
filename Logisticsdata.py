@@ -3456,8 +3456,9 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
-# ====================== 【最终优化版】物流成本分析模块 ======================
+# ====================== 【最终优化版 - Excel 迷你图】物流成本分析模块 ======================
 st.title("📊 物流成本分析")
+
 
 # 1. 加载成本数据
 @st.cache_data(show_spinner="加载成本数据中...")
@@ -3474,6 +3475,7 @@ def load_cost_data():
     df_cost["周期"] = pd.to_numeric(df_cost["周期"], errors="coerce").astype(int)
     df_cost = df_cost.sort_values("周期").reset_index(drop=True)
     return df_cost
+
 
 df_cost = load_cost_data()
 
@@ -3521,11 +3523,11 @@ all_logistics = sorted(df_sum["实际物流方式"].unique())
 all_periods = sorted(df_sum["周期"].unique())
 latest_p = max(selected_periods) if selected_periods else df_sum["周期"].max()
 
-# ====================== 移除无意义的总指标，改为分方式概览 ======================
+# ====================== 各物流方式概览（带 Excel 式迷你图） ======================
 st.subheader("📦 各物流方式概览")
 latest_data = df_sum[df_sum["周期"] == latest_p].copy()
 
-# 生成每个方式的最新数据和趋势
+# 用 st.line_chart 实现 Excel 式 Sparkline
 for logi in all_logistics:
     col1, col2 = st.columns([1, 3])
     with col1:
@@ -3535,34 +3537,21 @@ for logi in all_logistics:
         else:
             price = row["折算单价"].iloc[0]
             diff = row["环比差值"].iloc[0] if not pd.isna(row["环比差值"].iloc[0]) else None
-            delta = f"{diff:.2f}" if diff is not None else None
-            delta_color = "inverse" if (diff is not None and diff < 0) else "normal"
             st.metric(
                 label=logi,
                 value=f"¥{price:.2f}/kg",
-                delta=delta,
-                delta_color=delta_color
+                delta=f"{diff:.2f}" if diff is not None else None,
+                delta_color="inverse" if (diff is not None and diff < 0) else "normal"
             )
     with col2:
-        # 生成迷你趋势图
         logi_data = df_sum[df_sum["实际物流方式"] == logi]
         if not logi_data.empty:
-            fig = go.Figure(go.Scatter(
-                x=logi_data["周期"],
-                y=logi_data["折算单价"],
-                line=dict(color="#1f77b4", width=2),
-                mode="lines+markers",
-                marker=dict(size=4)
-            ))
-            fig.update_layout(
+            # 只保留价格数据，实现纯线图效果
+            st.line_chart(
+                logi_data.set_index("周期")["折算单价"],
                 height=80,
-                margin=dict(l=0, r=0, t=0, b=0),
-                xaxis=dict(showticklabels=False, showline=False, zeroline=False),
-                yaxis=dict(showticklabels=False, showline=False, zeroline=False),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)"
+                use_container_width=True
             )
-            st.plotly_chart(fig, use_container_width=True)
 
 # ====================== 智能总结（分行+红涨绿跌+无数据） ======================
 st.subheader("📝 成本变化智能总结")
@@ -3586,7 +3575,7 @@ for logi in all_logistics:
 
 st.markdown(summary_html, unsafe_allow_html=True)
 
-# ====================== 折线图（修复：点上显示数值+物流方式） ======================
+# ====================== 折线图（点上显示数值+物流方式） ======================
 st.subheader("📈 各物流方式单价趋势")
 df_sum["周期文本"] = df_sum["周期"].astype(str)
 fig = px.line(
@@ -3599,7 +3588,6 @@ fig = px.line(
     custom_data=["实际物流方式", "折算单价"]
 )
 
-# 修复点上显示数值和物流方式
 fig.update_traces(
     text=df_sum["折算单价"].round(2).astype(str),
     textposition="top center",

@@ -3456,7 +3456,7 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
-# ====================== 【终极版】物流成本分析模块 ======================
+# ====================== 【最终优化版】物流成本分析模块 ======================
 st.title("📊 物流成本分析")
 
 # 1. 加载成本数据
@@ -3506,66 +3506,128 @@ df_sum = df.groupby(["周期", "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum")
 )
 df_sum["折算单价"] = (df_sum["总费用"] / df_sum["总重量"]).round(4)
-df_sum = df_sum.sort_values(["实际物流方式", "周期"])
+df_sum = df_sum.sort_values(["实际物流方式", "周期"]).reset_index(drop=True)
 
 # 环比
 df_sum["上周单价"] = df_sum.groupby("实际物流方式")["折算单价"].shift(1)
 df_sum["环比差值"] = (df_sum["折算单价"] - df_sum["上周单价"]).round(2)
-df_sum["环比幅度"] = np.where(df_sum["上周单价"] > 0, (df_sum["环比差值"] / df_sum["上周单价"] * 100).round(2), 0)
+df_sum["环比幅度"] = np.where(
+    df_sum["上周单价"] > 0,
+    (df_sum["环比差值"] / df_sum["上周单价"] * 100).round(2),
+    0
+)
 
-# ====================== 顶部指标卡片 ======================
-st.subheader("📦 成本总览")
-total_weight = df["重量"].sum()
-total_fee = df["总费用"].sum()
-avg_price = total_fee / total_weight
-
-col1, col2, col3 = st.columns(3)
-col1.metric("总重量", f"{total_weight:.1f} kg")
-col2.metric("总费用", f"¥{total_fee:,.0f}")
-col3.metric("平均折算单价", f"¥{avg_price:.2f}/kg")
-
-# ====================== 智能文字总结（你最想要的！） ======================
-st.subheader("📝 成本变化智能总结")
+all_logistics = sorted(df_sum["实际物流方式"].unique())
+all_periods = sorted(df_sum["周期"].unique())
 latest_p = max(selected_periods) if selected_periods else df_sum["周期"].max()
-latest = df_sum[df_sum["周期"] == latest_p].copy()
 
-summary_texts = []
-for _, row in latest.iterrows():
-    logi = row["实际物流方式"]
-    price = row["折算单价"]
-    diff = row["环比差值"]
-    pct = row["环比幅度"]
+# ====================== 移除无意义的总指标，改为分方式概览 ======================
+st.subheader("📦 各物流方式概览")
+latest_data = df_sum[df_sum["周期"] == latest_p].copy()
+
+# 生成每个方式的最新数据和趋势
+for logi in all_logistics:
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        row = latest_data[latest_data["实际物流方式"] == logi]
+        if row.empty:
+            st.metric(logi, "无数据")
+        else:
+            price = row["折算单价"].iloc[0]
+            diff = row["环比差值"].iloc[0] if not pd.isna(row["环比差值"].iloc[0]) else None
+            delta = f"{diff:.2f}" if diff is not None else None
+            delta_color = "inverse" if (diff is not None and diff < 0) else "normal"
+            st.metric(
+                label=logi,
+                value=f"¥{price:.2f}/kg",
+                delta=delta,
+                delta_color=delta_color
+            )
+    with col2:
+        # 生成迷你趋势图
+        logi_data = df_sum[df_sum["实际物流方式"] == logi]
+        if not logi_data.empty:
+            fig = go.Figure(go.Scatter(
+                x=logi_data["周期"],
+                y=logi_data["折算单价"],
+                line=dict(color="#1f77b4", width=2),
+                mode="lines+markers",
+                marker=dict(size=4)
+            ))
+            fig.update_layout(
+                height=80,
+                margin=dict(l=0, r=0, t=0, b=0),
+                xaxis=dict(showticklabels=False, showline=False, zeroline=False),
+                yaxis=dict(showticklabels=False, showline=False, zeroline=False),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+# ====================== 智能总结（分行+红涨绿跌+无数据） ======================
+st.subheader("📝 成本变化智能总结")
+summary_html = ""
+for logi in all_logistics:
+    row = latest_data[latest_data["实际物流方式"] == logi]
+    if row.empty:
+        summary_html += f"<div style='margin: 4px 0;'>• <b>{logi}</b>：<span style='color:#888;'>最新周期无数据</span></div>"
+        continue
+
+    price = row["折算单价"].iloc[0]
+    diff = row["环比差值"].iloc[0]
+    pct = row["环比幅度"].iloc[0]
 
     if pd.isna(diff):
-        summary_texts.append(f"• **{logi}**：本期单价 ¥{price:.2f}（首期无对比）")
+        summary_html += f"<div style='margin: 4px 0;'>• <b>{logi}</b>：本期单价 ¥{price:.2f}（首期无对比）</div>"
     elif diff > 0:
-        summary_texts.append(f"• **{logi}**：**上升** ¥{diff:.2f}（+{pct:.2f}%），当前单价 ¥{price:.2f}")
+        summary_html += f"<div style='margin: 4px 0; color:#ff4b4b;'>• <b>{logi}</b>：上升 ¥{diff:.2f}（+{pct:.2f}%），当前单价 ¥{price:.2f}</div>"
     else:
-        summary_texts.append(f"• **{logi}**：**下降** ¥{abs(diff):.2f}（{pct:.2f}%），当前单价 ¥{price:.2f}")
+        summary_html += f"<div style='margin: 4px 0; color:#00b578;'>• <b>{logi}</b>：下降 ¥{abs(diff):.2f}（{pct:.2f}%），当前单价 ¥{price:.2f}</div>"
 
-st.markdown("\n".join(summary_texts))
+st.markdown(summary_html, unsafe_allow_html=True)
 
-# ====================== 折线图（已修复：纯整数周期） ======================
+# ====================== 折线图（修复：点上显示数值+物流方式） ======================
 st.subheader("📈 各物流方式单价趋势")
 df_sum["周期文本"] = df_sum["周期"].astype(str)
-fig = px.line(df_sum, x="周期文本", y="折算单价", color="实际物流方式", markers=True)
+fig = px.line(
+    df_sum,
+    x="周期文本",
+    y="折算单价",
+    color="实际物流方式",
+    markers=True,
+    category_orders={"周期文本": [str(p) for p in sorted(all_periods)]},
+    custom_data=["实际物流方式", "折算单价"]
+)
+
+# 修复点上显示数值和物流方式
+fig.update_traces(
+    text=df_sum["折算单价"].round(2).astype(str),
+    textposition="top center",
+    hovertemplate="<br>".join([
+        "周期：%{x}",
+        "物流方式：%{customdata[0]}",
+        "单价：¥%{customdata[1]:.2f}/kg",
+        "<extra></extra>"
+    ])
+)
+
 fig.update_xaxes(type="category")
 st.plotly_chart(fig, use_container_width=True)
 
 # ====================== 周期费用柱状图 ======================
 st.subheader("🧾 各周期总费用趋势")
 fee_by_period = df.groupby("周期")["总费用"].sum().reset_index()
+fee_by_period = fee_by_period.sort_values("周期")
 fee_by_period["周期文本"] = fee_by_period["周期"].astype(str)
-fig_bar = px.bar(fee_by_period, x="周期文本", y="总费用", color_discrete_sequence=["#1f77b4"])
+
+fig_bar = px.bar(
+    fee_by_period,
+    x="周期文本",
+    y="总费用",
+    category_orders={"周期文本": [str(p) for p in sorted(all_periods)]}
+)
 fig_bar.update_xaxes(type="category")
 st.plotly_chart(fig_bar, use_container_width=True)
-
-# ====================== 成本排名表格 ======================
-st.subheader("🏆 物流方式成本排名（最新周期）")
-latest_data = df_sum[df_sum["周期"] == latest_p].sort_values("折算单价", ascending=False)
-rank_table = latest_data[["实际物流方式", "折算单价", "环比差值", "环比幅度"]].copy()
-rank_table["折算单价"] = rank_table["折算单价"].round(2)
-st.dataframe(rank_table, use_container_width=True)
 
 # ====================== 费用占比饼图 ======================
 st.subheader("🥧 各物流方式费用占比")
@@ -3573,26 +3635,22 @@ pie_data = df.groupby("实际物流方式")["总费用"].sum().reset_index()
 fig_pie = px.pie(pie_data, values="总费用", names="实际物流方式")
 st.plotly_chart(fig_pie, use_container_width=True)
 
-# ====================== 你原来的核心统计表 ======================
+# ====================== 折算单价统计表 ======================
 st.subheader("📋 折算单价统计表（带周环比）")
-all_logi = sorted(df_sum["实际物流方式"].unique())
-all_per = sorted(df_sum["周期"].unique())
-data_map = {}
-for _, r in df_sum.iterrows():
-    data_map[(str(r["周期"]), r["实际物流方式"])] = r
+data_map = {(str(r["周期"]), r["实际物流方式"]): r for _, r in df_sum.iterrows()}
 
 table_html = "<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px;'>"
 table_html += "<tr style='background:#f0f2f6;font-weight:bold'><td>周期</td>"
-for l in all_logi:
+for l in all_logistics:
     table_html += f"<td style='border:1px solid #ddd;padding:8px'>{l}</td>"
 table_html += "</tr>"
 
-for p in all_per:
+for p in all_periods:
     table_html += f"<tr><td style='border:1px solid #ddd;padding:8px'>{p}</td>"
-    for l in all_logi:
+    for l in all_logistics:
         key = (str(p), l)
         if key not in data_map:
-            table_html += "<td style='border:1px solid #ddd'>-</td>"
+            table_html += "<td style='border:1px solid #ddd;padding:8px'>-</td>"
             continue
         r = data_map[key]
         price = r["折算单价"]
@@ -3611,8 +3669,8 @@ for p in all_per:
 table_html += "</table>"
 st.markdown(table_html, unsafe_allow_html=True)
 
-st.caption("📌 红色=上升 | 绿色=下降")
-# ====================== 终极版结束 ======================
+st.caption("📌 红色=环比上升 | 绿色=环比下降")
+# ====================== 最终优化版结束 ======================
 
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")

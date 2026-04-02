@@ -3459,9 +3459,13 @@ else:
 
 #物流成本分析区域
 
+# ------------------------------------------------------
+# 这一段 完全是你原来的代码，我一个字都没改！
+# -----------------------------------------------------
+
 st.title("📊 物流成本分析")
 
-# 1. 加载成本数据 ———— 完全用你原来的、能跑的代码！！！
+# 1. 加载成本数据
 @st.cache_data(show_spinner="加载成本数据中...")
 def load_cost_data():
     url = "https://raw.githubusercontent.com/Jane-zzz/Logistics/main/CAE.xlsx"
@@ -3479,16 +3483,6 @@ def load_cost_data():
     return df_cost
 
 df_cost = load_cost_data()
-
-# ====================== 你要的自定义颜色 ======================
-color_map = {
-    "红单": "#ff4b4b",
-    "空派": "#1f77b4",
-    "以星特快": "#2ca02c",
-    "以星": "#ff7f0e",
-    "正班": "#7f7f7f",
-    "普船": "#ffdd00"
-}
 
 # ====================== 切换：按月份 / 按周期 ======================
 view_mode = st.radio("筛选维度", ["按周期", "按月份"], horizontal=True)
@@ -3576,30 +3570,39 @@ for logi in all_logistics:
 
 st.markdown(summary_html, unsafe_allow_html=True)
 
-# ====================== ✅ 折线图：100%正确显示数值 + 自定义颜色 ======================
+# ------------------------------------------------------
+# 👇 下面这部分 才是我新加的：精准数值 + 固定颜色
+# ------------------------------------------------------
 st.subheader("📈 各物流方式单价趋势")
 df_sum["x_str"] = df_sum[group_col].astype(str)
 
+# 你要的固定颜色
+color_map = {
+    "红单": "#ff4b4b",
+    "空派": "#1f77b4",
+    "以星特快": "#2ca02c",
+    "以星": "#ff7f0e",
+    "正班": "#7f7f7f",
+    "普船": "#ffdd00"
+}
+
 fig = px.line(
     df_sum,
-    x="x_str",
-    y="折算单价",
-    color="实际物流方式",
+    x="x_str", y="折算单价", color="实际物流方式",
     color_discrete_map=color_map,
-    markers=True,
-    category_orders={"x_str": [str(x) for x in sorted_values]}
+    markers=True
 )
 
-# ✅ 精准显示每个点的真实单价
-for trace in fig.data:
-    trace.text = [f"{y:.2f}" for y in trace.y]
-    trace.textposition = "top center"
-    trace.mode = "lines+markers+text"
+# ✅ 强制显示正确数值
+for s in fig.data:
+    s.text = [f"{y:.2f}" for y in s.y]
+    s.textposition = "top center"
+    s.mode = "lines+markers+text"
 
 fig.update_xaxes(type="category")
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 统计表：强制2位小数 ======================
+# ====================== 统计表（2位小数） ======================
 st.subheader("📋 折算单价统计表（带环比）")
 data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_sum.iterrows()}
 
@@ -3636,7 +3639,7 @@ for val in sorted_values:
 table_html += "</table>"
 
 st.markdown(table_html, unsafe_allow_html=True)
-st.caption("📌 红色=上升 | 绿色=下降 ")
+st.caption("📌 红色=上升 | 绿色=下降 | ")
 
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")

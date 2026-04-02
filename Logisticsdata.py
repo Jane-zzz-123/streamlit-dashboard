@@ -3458,6 +3458,11 @@ else:
                                        mime="text/csv")
 
 #物流成本分析区域
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import numpy as np
+
 st.title("📊 物流成本分析")
 
 # 1. 加载成本数据
@@ -3488,8 +3493,6 @@ color_map = {
     "正班": "#7f7f7f",        # 灰色
     "普船": "#ffdd00"         # 黄色
 }
-
-# 把不在映射里的物流方式默认用一个颜色
 default_color = "#9467bd"
 
 # ====================== 切换：按月份 / 按周期 ======================
@@ -3579,7 +3582,7 @@ for logi in all_logistics:
 
 st.markdown(summary_html, unsafe_allow_html=True)
 
-# ====================== 折线图（显示折点数值+自定义颜色） ======================
+# ====================== 折线图（关键修改：强制显示数值标签） ======================
 st.subheader("📈 各物流方式单价趋势")
 df_sum["x_str"] = df_sum[group_col].astype(str)
 
@@ -3598,10 +3601,11 @@ fig = px.line(
     category_orders={"x_str": [str(x) for x in sorted_values]}
 )
 
-# 关键：折点上直接显示数值（+物流方式可以加在hover里，也可以不加）
+# 👇 关键修改：强制显示数值标签
 fig.update_traces(
-    text=df_sum["折算单价"].round(2),  # 折点直接显示数值
+    text=df_sum["折算单价"].round(2).astype(str),
     textposition="top center",
+    mode="lines+markers+text",  # 强制开启文字标签显示
     hovertemplate=f"{group_col}：%{{x}}<br>物流方式：%{{fullData.name}}<br>单价：%{{y:.2f}}<extra></extra>"
 )
 fig.update_xaxes(type="category")

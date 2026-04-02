@@ -3456,11 +3456,8 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import numpy as np
 
+#物流成本分析区域
 st.title("📊 物流成本分析")
 
 # 1. 加载成本数据
@@ -3481,6 +3478,19 @@ def load_cost_data():
     return df_cost
 
 df_cost = load_cost_data()
+
+# ====================== 自定义颜色映射 ======================
+color_map = {
+    "红单": "#ff4b4b",        # 红色
+    "空派": "#1f77b4",        # 蓝色
+    "以星特快": "#2ca02c",    # 绿色
+    "以星": "#ff7f0e",        # 橙色
+    "正班": "#7f7f7f",        # 灰色
+    "普船": "#ffdd00"         # 黄色
+}
+
+# 把不在映射里的物流方式默认用一个颜色
+default_color = "#9467bd"
 
 # ====================== 切换：按月份 / 按周期 ======================
 view_mode = st.radio("筛选维度", ["按周期", "按月份"], horizontal=True)
@@ -3569,21 +3579,28 @@ for logi in all_logistics:
 
 st.markdown(summary_html, unsafe_allow_html=True)
 
-# ====================== 折线图 ======================
+# ====================== 折线图（显示折点数值+自定义颜色） ======================
 st.subheader("📈 各物流方式单价趋势")
 df_sum["x_str"] = df_sum[group_col].astype(str)
+
+# 给不在映射里的物流方式补充颜色
+for logi in all_logistics:
+    if logi not in color_map:
+        color_map[logi] = default_color
 
 fig = px.line(
     df_sum,
     x="x_str",
     y="折算单价",
     color="实际物流方式",
+    color_discrete_map=color_map,
     markers=True,
     category_orders={"x_str": [str(x) for x in sorted_values]}
 )
 
+# 关键：折点上直接显示数值（+物流方式可以加在hover里，也可以不加）
 fig.update_traces(
-    text=df_sum["折算单价"].round(2),
+    text=df_sum["折算单价"].round(2),  # 折点直接显示数值
     textposition="top center",
     hovertemplate=f"{group_col}：%{{x}}<br>物流方式：%{{fullData.name}}<br>单价：%{{y:.2f}}<extra></extra>"
 )
@@ -3591,7 +3608,7 @@ fig.update_xaxes(type="category")
 st.plotly_chart(fig, use_container_width=True)
 
 # ====================== 统计表（单价强制2位小数） ======================
-st.subheader("📋 折算单价统计表（带周环比）")
+st.subheader("📋 折算单价统计表（带环比）")
 data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_sum.iterrows()}
 
 table_html = f"<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px;'>"

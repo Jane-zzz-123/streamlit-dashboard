@@ -3456,7 +3456,152 @@ else:
                     csv_summary = warehouse_category_summary.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button("下载汇总数据", data=csv_summary, file_name="仓库归类汇总.csv",
                                        mime="text/csv")
+# ====================== 【新增】物流成本分析模块 ======================
+st.title("📊 物流成本分析")
 
+
+# 1. 加载成本数据（自动从GitHub读取，带缓存）
+@st.cache_data(show_spinner="加载成本数据中...")
+def load_cost_data():
+    url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
+    df_cost = pd.read_excel(url, sheet_name="数据")
+
+    # 只保留需要的列（避免无关数据干扰）
+    need_cols = ["周期", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "总费用"]
+    df_cost = df_cost[[col for col in need_cols if col in df_cost.columns]]
+
+    # 清洗空值
+    df_cost = df_cost.dropna(subset=["周期", "实际物流方式", "重量", "总费用"])
+    df_cost = df_cost[(df_cost["重量"] > 0) & (df_cost["总费用"] >= 0)]
+
+    # 排序周期（保证图表、表格顺序正确）
+    df_cost["周期排序"] = pd.to_datetime(df_cost["周期"], format="%Y-%W")
+    df_cost = df_cost.sort_values("周期排序").reset_index(drop=True)
+    return df_cost
+
+
+df_cost = load_cost_data()
+
+# 2. 周期筛选器（支持多选）
+period_list = sorted(df_cost["周期"].unique(), key=lambda x: pd.to_datetime(x, format="%Y-%W"))
+selected_periods = st.multiselect(
+    "选择周期（可多选）",
+    options=period_list,
+    default=period_list[-8:] if len(period_list) >= 8 else period_list,  # 默认显示最近8期
+    help="筛选后将自动更新折线图与统计表"
+)
+
+if not selected_periods:
+    st.warning("请至少选择一个周期")
+    st.stop()
+
+# 筛选后数据
+df_filter = df_cost[df_cost["周期"].isin(selected_periods)].copy()
+
+# 3. 计算核心指标：运费+入库配置费折算单价 = 总费用汇总 / 重量汇总
+df_summary = df_filter.groupby(["周期", "实际物流方式"]).agg(
+    总费用=("总费用", "sum"),
+    总重量=("重量", "sum")
+).reset_index()
+
+df_summary["折算单价"] = (df_summary["总费用"] / df_summary["总重量"]).round(4)
+
+# 4. 计算环比（与上周对比：差值 + 百分比）
+df_summary = df_summary.sort_values(["实际物流方式", "周期"]).reset_index(drop=True)
+df_summary["上周单价"] = df_summary.groupby("实际物流方式")["折算单价"].shift(1)
+df_summary["环比差值"] = (df_summary["折算单价"] - df_summary["上周单价"]).round(4)
+df_summary["环比百分比"] = (df_summary["环比差值"] / df_summary["上周单价"] * 100).round(2)
+
+# ====================== 折线图 ======================
+st.subheader("📈 各物流方式 折算单价 趋势图")
+fig_line = px.line(
+    df_summary,
+    x="周期",
+    y="折算单价",
+    color="实际物流方式",
+    markers=True,
+    title="周期 × 折算单价（按实际物流方式）",
+    labels={"折算单价": "运费+入库配置费折算单价"}
+)
+fig_line.update_layout(hovermode="x unified")
+st.plotly_chart(fig_line, use_container_width=True)
+
+# ====================== 统计表（带环比） ======================
+st.subheader("📋 周期 × 物流方式 折算单价统计表（带周环比）")
+
+# 构建透视表
+pivot_price = df_summary.pivot_table(
+    index="周期",
+    columns="实际物流方式",
+    values="折算单价",
+    aggfunc="first"
+).sort_index()
+
+pivot_diff = df_summary.pivot_table(
+    index="周期",
+    columns="实际物流方式",
+    values="环比差值",
+    aggfunc="first"
+)
+
+pivot_pct = df_summary.pivot_table(
+    index="周期",
+    columns="实际物流方式",
+    values="环比百分比",
+    aggfunc="first"
+)
+
+# 生成带样式的HTML表格（核心效果）
+table_html = "<table style='width:100%; border-collapse:collapse; text-align:center; font-size:14px;'>"
+
+# 表头
+table_html += "<thead><tr style='background-color:#f0f2f6; font-weight:bold;'>"
+table_html += "<td style='border:1px solid #ddd; padding:8px;'>周期</td>"
+for col in pivot_price.columns:
+    table_html += f"<td style='border:1px solid #ddd; padding:8px;'>{col}</td>"
+table_html += "</tr></thead>"
+
+# 表体
+table_html += "<tbody>"
+for period in pivot_price.index:
+    table_html += "<tr>"
+    table_html += f"<td style='border:1px solid #ddd; padding:8px; font-weight:bold;'>{period}</td>"
+
+    for logi in pivot_price.columns:
+        price = pivot_price.loc[period, logi]
+        diff = pivot_diff.loc[period, logi]
+        pct = pivot_pct.loc[period, logi]
+
+        # 空值显示 -
+        if pd.isna(price):
+            table_html += "<td style='border:1px solid #ddd; padding:8px;'>-</td>"
+            continue
+
+        # 环比文字与颜色
+        if pd.isna(diff):
+            diff_text = "首期"
+            color = "#888888"
+        else:
+            sign = "+" if diff > 0 else ""
+            diff_text = f"{sign}{diff:.4f} ({sign}{pct:.2f}%)"
+            color = "#ff4b4b" if diff > 0 else "#00b578"  # 上升红 下降绿
+
+        # 单元格内容（单价大字 + 环比小字）
+        cell = f"""
+            <div>{price:.4f}</div>
+            <div style='font-size:12px; color:{color}; margin-top:3px;'>{diff_text}</div>
+        """
+        table_html += f"<td style='border:1px solid #ddd; padding:8px;'>{cell}</td>"
+    table_html += "</tr>"
+
+table_html += "</tbody></table>"
+
+# 渲染表格
+st.markdown(table_html, unsafe_allow_html=True)
+
+st.markdown("---")
+st.caption("📌 说明：折算单价 = 当周该物流方式总费用 / 当周该物流方式总重量；红色=环比上升，绿色=环比下降")
+# ====================== 【新增模块结束】 ======================
 
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")

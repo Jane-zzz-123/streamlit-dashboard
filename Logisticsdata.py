@@ -3458,14 +3458,10 @@ else:
                                        mime="text/csv")
 
 #物流成本分析区域
-import streamlit as st
-import pandas as pd
-import plotly.express as px
-import numpy as np
 
 st.title("📊 物流成本分析")
 
-# 1. 加载成本数据 —— 完全用你原来的代码！
+# 1. 加载成本数据 ———— 完全用你原来的、能跑的代码！！！
 @st.cache_data(show_spinner="加载成本数据中...")
 def load_cost_data():
     url = "https://raw.githubusercontent.com/Jane-zzz/Logistics/main/CAE.xlsx"
@@ -3594,7 +3590,7 @@ fig = px.line(
     category_orders={"x_str": [str(x) for x in sorted_values]}
 )
 
-# ✅ 修复：每个点显示【真实、精准单价】
+# ✅ 精准显示每个点的真实单价
 for trace in fig.data:
     trace.text = [f"{y:.2f}" for y in trace.y]
     trace.textposition = "top center"

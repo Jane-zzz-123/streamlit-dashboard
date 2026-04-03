@@ -74,7 +74,7 @@ def get_table_download_link(df, filename, text):
 # ---------------------- 数据加载函数（两份数据逻辑） ----------------------
 @st.cache_data
 def load_data():
-    url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdata.xlsx"
+    url = "https://github.com/Jane-zzz-123/Logistics/raw/main/Logisticsdatanew.xlsx"
     try:
         df_all = pd.read_excel(url, sheet_name="上架完成-海运（FBA号）")  # 全部数据
     except Exception as e:

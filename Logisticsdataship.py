@@ -3651,6 +3651,195 @@ st.download_button(
     mime="text/csv"
 )
 
+st.title("📊 物流成本分析")
+
+# 1. 加载成本数据
+@st.cache_data(show_spinner="加载成本数据中...")
+def load_cost_data():
+    url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
+    df_cost = pd.read_excel(url, sheet_name="数据")
+
+    need_cols = ["周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "总费用"]
+    df_cost = df_cost[[col for col in need_cols if col in df_cost.columns]]
+
+    df_cost = df_cost.dropna(subset=["周期", "实际物流方式", "重量", "总费用"])
+    df_cost = df_cost[(df_cost["重量"] > 0) & (df_cost["总费用"] >= 0)]
+
+    df_cost["周期"] = pd.to_numeric(df_cost["周期"], errors="coerce").astype(int)
+    df_cost["月份"] = pd.to_numeric(df_cost["月份"], errors="coerce").astype(int)
+    df_cost = df_cost.sort_values("周期").reset_index(drop=True)
+    return df_cost
+
+df_cost = load_cost_data()
+
+# ====================== 自定义颜色映射 ======================
+color_map = {
+    "空派": "#ff4b4b",        # 红色
+    "空派": "#1f77b4",        # 蓝色
+    "以星特快": "#2ca02c",    # 绿色
+    "以星": "#ff7f0e",        # 橙色
+    "正班": "#7f7f7f",        # 灰色
+    "普船": "#ffdd00"         # 黄色
+}
+
+# 把不在映射里的物流方式默认用一个颜色
+default_color = "#9467bd"
+
+# ====================== 切换：按月份 / 按周期 ======================
+view_mode = st.radio("筛选维度", ["按周期", "按月份"], horizontal=True)
+
+# ====================== 筛选面板 ======================
+with st.expander("🔎 筛选条件", expanded=True):
+    col1, col2 = st.columns(2)
+    with col1:
+        if view_mode == "按周期":
+            period_list = sorted(df_cost["周期"].unique())
+            max_p = max(period_list)
+            default_val = [p for p in period_list if p >= max_p - 3]
+            selected = st.multiselect("周期", period_list, default=default_val)
+        else:
+            month_list = sorted(df_cost["月份"].dropna().unique())
+            default_val = month_list[-3:] if len(month_list) >= 3 else month_list
+            selected = st.multiselect("月份", month_list, default=default_val)
+
+    with col2:
+        area_list = ["全部"] + sorted(df_cost["区域"].dropna().unique())
+        selected_area = st.selectbox("区域", area_list)
+
+# ====================== 数据筛选 ======================
+df = df_cost.copy()
+if view_mode == "按周期":
+    df = df[df["周期"].isin(selected)]
+else:
+    df = df[df["月份"].isin(selected)]
+
+if selected_area != "全部":
+    df = df[df["区域"] == selected_area]
+
+if df.empty:
+    st.warning("无数据")
+    st.stop()
+
+# ====================== 核心计算 ======================
+group_col = "周期" if view_mode == "按周期" else "月份"
+
+df_sum = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
+    总重量=("重量", "sum"),
+    总费用=("总费用", "sum")
+)
+df_sum["折算单价"] = (df_sum["总费用"] / df_sum["总重量"]).round(4)
+df_sum = df_sum.sort_values(["实际物流方式", group_col]).reset_index(drop=True)
+
+# 环比
+df_sum["上周单价"] = df_sum.groupby("实际物流方式")["折算单价"].shift(1)
+df_sum["环比差值"] = (df_sum["折算单价"] - df_sum["上周单价"]).round(2)
+df_sum["环比幅度"] = np.where(
+    df_sum["上周单价"] > 0,
+    (df_sum["环比差值"] / df_sum["上周单价"] * 100).round(2),
+    0
+)
+
+all_logistics = sorted(df_cost["实际物流方式"].unique())
+sorted_values = sorted(df_sum[group_col].unique())
+
+# 最新周期/月份
+if selected:
+    latest = max(selected)
+else:
+    latest = sorted_values[-1]
+
+latest_data = df_sum[df_sum[group_col] == latest].copy()
+
+# ====================== 智能总结 ======================
+st.subheader("📝 成本变化总结")
+summary_html = ""
+for logi in all_logistics:
+    row = latest_data[latest_data["实际物流方式"] == logi]
+    if row.empty:
+        summary_html += f"<div>• <b>{logi}</b>：<span style='color:#888'>当前维度无数据</span></div>"
+        continue
+
+    price = row["折算单价"].iloc[0]
+    diff = row["环比差值"].iloc[0]
+    pct = row["环比幅度"].iloc[0]
+
+    if pd.isna(diff):
+        summary_html += f"<div>• <b>{logi}</b>：单价 ¥{price:.2f}（首期）</div>"
+    elif diff > 0:
+        summary_html += f"<div style='color:#ff4b4b'>• <b>{logi}</b>：↑ 上升 ¥{diff:.2f}（+{pct:.2f}%）单价 ¥{price:.2f}</div>"
+    else:
+        summary_html += f"<div style='color:#00b578'>• <b>{logi}</b>：↓ 下降 ¥{abs(diff):.2f}（{pct:.2f}%）单价 ¥{price:.2f}</div>"
+
+st.markdown(summary_html, unsafe_allow_html=True)
+
+# ====================== 折线图（显示折点数值+自定义颜色） ======================
+st.subheader("📈 各物流方式单价趋势")
+df_sum["x_str"] = df_sum[group_col].astype(str)
+
+# 给不在映射里的物流方式补充颜色
+for logi in all_logistics:
+    if logi not in color_map:
+        color_map[logi] = default_color
+
+fig = px.line(
+    df_sum,
+    x="x_str",
+    y="折算单价",
+    color="实际物流方式",
+    color_discrete_map=color_map,
+    markers=True,
+    category_orders={"x_str": [str(x) for x in sorted_values]}
+)
+
+# 关键：折点上直接显示数值（+物流方式可以加在hover里，也可以不加）
+fig.update_traces(
+    text=df_sum["折算单价"].round(2),  # 折点直接显示数值
+    textposition="top center",
+    hovertemplate=f"{group_col}：%{{x}}<br>物流方式：%{{fullData.name}}<br>单价：%{{y:.2f}}<extra></extra>"
+)
+fig.update_xaxes(type="category")
+st.plotly_chart(fig, use_container_width=True)
+
+# ====================== 统计表（单价强制2位小数） ======================
+st.subheader("📋 折算单价统计表（带环比）")
+data_map = {(str(r[group_col]), r["实际物流方式"]): r for _, r in df_sum.iterrows()}
+
+table_html = f"<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px;'>"
+table_html += f"<tr style='background:#f0f2f6;font-weight:bold'><td>{group_col}</td>"
+for l in all_logistics:
+    table_html += f"<td style='border:1px solid #ddd;padding:8px'>{l}</td>"
+table_html += "</tr>"
+
+for val in sorted_values:
+    table_html += f"<tr><td style='border:1px solid #ddd;padding:8px'>{val}</td>"
+    for logi in all_logistics:
+        key = (str(val), logi)
+        if key not in data_map:
+            table_html += "<td style='border:1px solid #ddd'>-</td>"
+            continue
+
+        r = data_map[key]
+        price = r["折算单价"]
+        diff = r["环比差值"]
+        pct = r["环比幅度"]
+
+        if pd.isna(diff):
+            txt = "首期"
+            color = "#888"
+        else:
+            sign = "+" if diff > 0 else ""
+            txt = f"{sign}{diff:.2f} ({sign}{pct:.2f}%)"
+            color = "#ff4b4b" if diff > 0 else "#00b578"
+
+        # 强制两位小数
+        cell = f"<div>{price:.2f}</div><div style='font-size:12px;color:{color}'>{txt}</div>"
+        table_html += f"<td style='border:1px solid #ddd;padding:8px'>{cell}</td>"
+    table_html += "</tr>"
+table_html += "</table>"
+
+st.markdown(table_html, unsafe_allow_html=True)
+st.caption("📌 红色=上升 | 绿色=下降 ")
+
 # ===================== 数据源链接展示（直接打开/下载） =====================
 st.subheader("📋 原始数据源（点击链接直接访问）")
 

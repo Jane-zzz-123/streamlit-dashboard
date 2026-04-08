@@ -1971,6 +1971,8 @@ missing_cols = [col for col in required_cols if col not in df_selected.columns]
 if missing_cols:
     st.error(f"缺少月度分析必要列：{missing_cols}，请检查数据列名！")
 else:
+    # ---------------------- 【新增：剔除异常数据】 ✅ 修复这里 ----------------------
+    df_selected_clean = df_selected[df_selected["是否异常数据"] != "是"].copy()
     # ---------------------- 【新增1】：物流方式筛选器（核心新增） ----------------------
     st.markdown("### 筛选条件")  # 保留原标题，位置提前
     # 新增：控制筛选器列宽，界面更美观

@@ -1,4 +1,3 @@
--i https://pypi.tuna.tsinghua.edu.cn/simple
 streamlit==1.38.0
 pandas==2.3.3
 numpy==1.26.4

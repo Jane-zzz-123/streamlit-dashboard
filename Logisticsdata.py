@@ -2121,29 +2121,40 @@ else:
             avg_on_time_rate = df_filtered["准时率(%)"].mean()
             # ===== 4. 双轴趋势图（中文X轴+平均准时率虚线）=====
             st.markdown("### 月度订单数&准时率趋势")
+
+            # ===================== 新增功能：筛选开关 =====================
+            show_filtered = st.checkbox("✅ 剔除订单数＜4的月份", value=False)
+
+            # 根据开关筛选数据
+            if show_filtered:
+                df_trend = df_filtered[df_filtered["总订单数"] >= 4].copy()
+            else:
+                df_trend = df_filtered.copy()
+            # ==============================================================
+
             import plotly.graph_objects as go
 
             fig = go.Figure()
             # 左轴：柱状图（总订单数、提前准时订单数、延期订单数）
             fig.add_trace(go.Bar(
-                x=df_filtered["中文月份"],
-                y=df_filtered["总订单数"],
+                x=df_trend["中文月份"],
+                y=df_trend["总订单数"],
                 name="总订单数",
                 yaxis="y1",
                 marker_color="#4299e1",
                 opacity=0.8
             ))
             fig.add_trace(go.Bar(
-                x=df_filtered["中文月份"],
-                y=df_filtered["提前准时订单数"],
+                x=df_trend["中文月份"],
+                y=df_trend["提前准时订单数"],
                 name="提前/准时订单数",
                 yaxis="y1",
                 marker_color="#48bb78",
                 opacity=0.8
             ))
             fig.add_trace(go.Bar(
-                x=df_filtered["中文月份"],
-                y=df_filtered["延期订单数"],
+                x=df_trend["中文月份"],
+                y=df_trend["延期订单数"],
                 name="延期订单数",
                 yaxis="y1",
                 marker_color="#e53e3e",
@@ -2151,31 +2162,37 @@ else:
             ))
             # 右轴：折线图（准时率）
             fig.add_trace(go.Scatter(
-                x=df_filtered["中文月份"],
-                y=df_filtered["准时率(%)"],
+                x=df_trend["中文月份"],
+                y=df_trend["准时率(%)"],
                 name="准时率(%)",
                 yaxis="y2",
                 marker_color="#9f7aea",
                 mode="lines+markers+text",
                 line=dict(width=3),
                 marker=dict(size=8),
-                text=df_filtered["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
+                text=df_trend["准时率(%)"].apply(lambda x: f"{x:.2f}%"),
                 textposition="top center"
             ))
+
+            # 重新计算平均准时率（基于筛选后的数据）
+            avg_on_time_rate = df_trend["准时率(%)"].mean()
+
             # 新增：平均准时率红色虚线
             fig.add_trace(go.Scatter(
-                x=df_filtered["中文月份"],
-                y=[avg_on_time_rate] * len(df_filtered),
+                x=df_trend["中文月份"],
+                y=[avg_on_time_rate] * len(df_trend),
                 name=f"平均准时率: {avg_on_time_rate:.2f}%",
                 yaxis="y2",
                 mode="lines",
                 line=dict(color="#ff0000", dash="dash", width=2),
                 hoverinfo="name+y"
             ))
+
             # 图表配置
             fig.update_layout(
                 title="月度总订单数/提前准时订单数/延期订单数 & 准时率趋势",
-                yaxis=dict(title="订单数", side="left", range=[0, max(df_filtered["总订单数"]) * 1.2]),
+                yaxis=dict(title="订单数", side="left",
+                           range=[0, max(df_trend["总订单数"]) * 1.2] if len(df_trend) > 0 else [0, 10]),
                 yaxis2=dict(title="准时率(%)", side="right", overlaying="y", range=[0, 100]),
                 xaxis=dict(title="到货年月", tickangle=45),
                 legend=dict(x=0.02, y=0.98, bordercolor="#eee", borderwidth=1),

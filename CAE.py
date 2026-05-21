@@ -472,15 +472,21 @@ st.caption("🔴 上涨｜🟢 下降｜单价 = 总金额 ÷ 总重量｜总金
 
 st.markdown("## 📊占比对比柱形图")
 
-# 1. 数据准备
+# 1. 数据准备（新增单价计算）
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum"),
     总重量=("重量", "sum")
 )
+# 新增单价 = 总费用 / 总重量，避免除以0
+df_pie["单价"] = df_pie.apply(lambda x: x["总费用"] / x["总重量"] if x["总重量"] > 0 else 0, axis=1)
+
+# 计算各维度占比
 df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
 df_pie["费用占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 df_pie["周期总重量"] = df_pie.groupby(group_col)["总重量"].transform("sum")
 df_pie["重量占比"] = (df_pie["总重量"] / df_pie["周期总重量"] * 100).round(2)
+df_pie["周期总单价"] = df_pie.groupby(group_col)["单价"].transform("mean")
+df_pie["单价占比"] = (df_pie["单价"] / df_pie["周期总单价"] * 100).round(2)
 
 # 动态判断 周期 / 月份
 dim_label = "周" if group_col == "周期" else "月"
@@ -540,59 +546,81 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 第二部分：智能压缩版明细表格 ======================
+# ====================== 第二部分：双层表头明细表格 ======================
 st.markdown("### 📋 全维度明细")
 
-# 1. 构建表格数据：行=实际物流渠道，列=各月份指标
+# 1. 构建表格数据，1:1复刻Excel结构
 table_data = []
 for logi in final_order:
-    row = {"实际物流方式": logi}
-
-    # 循环每个月份，填充对应指标
     for period in period_list:
+        row = {
+            "实际物流方式": logi,
+            "周期/月份": f"{period}{dim_label}"
+        }
+
         # 获取本期数据
         current_data = df_pie[(df_pie[group_col] == period) & (df_pie["实际物流方式"] == logi)]
         current_amount = current_data["总费用"].values[0] if len(current_data) > 0 else 0
         current_weight = current_data["总重量"].values[0] if len(current_data) > 0 else 0
+        current_price = current_data["单价"].values[0] if len(current_data) > 0 else 0
         current_amount_ratio = current_data["费用占比"].values[0] if len(current_data) > 0 else 0
         current_weight_ratio = current_data["重量占比"].values[0] if len(current_data) > 0 else 0
+        current_price_ratio = current_data["单价占比"].values[0] if len(current_data) > 0 else 0
 
-        # 计算环比变化
+        # 计算环比差值
         period_idx = period_list.index(period)
         if period_idx == 0:
-            amount_change = "→ 0.00"
-            amount_ratio_change = "→ 0.00%"
-            weight_change = "→ 0.00"
-            weight_ratio_change = "→ 0.00%"
+            amount_diff = "→ 0.00"
+            amount_ratio_diff = "→ 0.00%"
+            weight_diff = "→ 0.00"
+            weight_ratio_diff = "→ 0.00%"
+            price_diff = "→ 0.00"
+            price_ratio_diff = "→ 0.00%"
         else:
             prev_period = period_list[period_idx - 1]
             prev_data = df_pie[(df_pie[group_col] == prev_period) & (df_pie["实际物流方式"] == logi)]
             prev_amount = prev_data["总费用"].values[0] if len(prev_data) > 0 else 0
             prev_weight = prev_data["总重量"].values[0] if len(prev_data) > 0 else 0
+            prev_price = prev_data["单价"].values[0] if len(prev_data) > 0 else 0
             prev_amount_ratio = prev_data["费用占比"].values[0] if len(prev_data) > 0 else 0
             prev_weight_ratio = prev_data["重量占比"].values[0] if len(prev_data) > 0 else 0
+            prev_price_ratio = prev_data["单价占比"].values[0] if len(prev_data) > 0 else 0
 
-            amount_diff = current_amount - prev_amount
-            amount_ratio_diff = current_amount_ratio - prev_amount_ratio
-            weight_diff = current_weight - prev_weight
-            weight_ratio_diff = current_weight_ratio - prev_weight_ratio
+            # 计算差值
+            amount_diff_val = current_amount - prev_amount
+            amount_ratio_diff_val = current_amount_ratio - prev_amount_ratio
+            weight_diff_val = current_weight - prev_weight
+            weight_ratio_diff_val = current_weight_ratio - prev_weight_ratio
+            price_diff_val = current_price - prev_price
+            price_ratio_diff_val = current_price_ratio - prev_price_ratio
 
-            amount_change = f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}"
-            amount_ratio_change = f"{'↑' if amount_ratio_diff > 0 else '↓' if amount_ratio_diff < 0 else '→'} {amount_ratio_diff:.2f}%"
-            weight_change = f"{'↑' if weight_diff > 0 else '↓' if weight_diff < 0 else '→'} {weight_diff:,.2f}"
-            weight_ratio_change = f"{'↑' if weight_ratio_diff > 0 else '↓' if weight_ratio_diff < 0 else '→'} {weight_ratio_diff:.2f}%"
+            # 格式化差值
+            amount_diff = f"{'↑' if amount_diff_val > 0 else '↓' if amount_diff_val < 0 else '→'} {amount_diff_val:,.2f}"
+            amount_ratio_diff = f"{'↑' if amount_ratio_diff_val > 0 else '↓' if amount_ratio_diff_val < 0 else '→'} {amount_ratio_diff_val:.2f}%"
+            weight_diff = f"{'↑' if weight_diff_val > 0 else '↓' if weight_diff_val < 0 else '→'} {weight_diff_val:,.2f}"
+            weight_ratio_diff = f"{'↑' if weight_ratio_diff_val > 0 else '↓' if weight_ratio_diff_val < 0 else '→'} {weight_ratio_diff_val:.2f}%"
+            price_diff = f"{'↑' if price_diff_val > 0 else '↓' if price_diff_val < 0 else '→'} {price_diff_val:,.2f}"
+            price_ratio_diff = f"{'↑' if price_ratio_diff_val > 0 else '↓' if price_ratio_diff_val < 0 else '→'} {price_ratio_diff_val:.2f}%"
 
-        # 填充指标，列名精简，减少宽度占用
-        row[f"{period}{dim_label} 金额"] = f"{current_amount:,.2f}"
-        row[f"{period}{dim_label} 金额变化"] = amount_change
-        row[f"{period}{dim_label} 金额占比"] = f"{current_amount_ratio:.2f}%"
-        row[f"{period}{dim_label} 占比变化"] = amount_ratio_change
-        row[f"{period}{dim_label} 重量"] = f"{current_weight:,.2f}"
-        row[f"{period}{dim_label} 重量变化"] = weight_change
-        row[f"{period}{dim_label} 重量占比"] = f"{current_weight_ratio:.2f}%"
-        row[f"{period}{dim_label} 占比变化"] = weight_ratio_change
+        # 填充总费用维度
+        row["总费用_金额"] = f"{current_amount:,.2f}"
+        row["总费用_金额差值"] = amount_diff
+        row["总费用_占比"] = f"{current_amount_ratio:.2f}%"
+        row["总费用_占比差值"] = amount_ratio_diff
 
-    table_data.append(row)
+        # 填充总重量维度
+        row["总重量_重量"] = f"{current_weight:,.2f}"
+        row["总重量_重量差值"] = weight_diff
+        row["总重量_占比"] = f"{current_weight_ratio:.2f}%"
+        row["总重量_占比差值"] = weight_ratio_diff
+
+        # 填充单价维度
+        row["单价_金额"] = f"{current_price:,.2f}"
+        row["单价_金额差值"] = price_diff
+        row["单价_占比"] = f"{current_price_ratio:.2f}%"
+        row["单价_占比差值"] = price_ratio_diff
+
+        table_data.append(row)
 
 # 2. 转成DataFrame
 pv_display = pd.DataFrame(table_data)
@@ -610,61 +638,32 @@ def highlight_changes(val):
     return ""
 
 
-change_cols = [c for c in pv_display.columns if "变化" in c]
+change_cols = [c for c in pv_display.columns if "差值" in c]
 pv_styled = pv_display.style.applymap(highlight_changes, subset=change_cols)
 
-# 4. 【核心：智能列宽配置 + 冻结首列】
-column_config = {
-    "实际物流方式": st.column_config.TextColumn(
-        "实际物流方式",
-        width="medium",  # 首列固定中等宽度
-        required=True
-    )
-}
-
-# 给其他列分配最优宽度
-for col in pv_display.columns:
-    if col == "实际物流方式":
-        continue
-    if "金额" in col or "重量" in col:
-        column_config[col] = st.column_config.TextColumn(
-            col,
-            width="small"  # 数值列用小宽度
-        )
-    elif "占比" in col:
-        column_config[col] = st.column_config.TextColumn(
-            col,
-            width="small"  # 占比列用小宽度
-        )
-    elif "变化" in col:
-        column_config[col] = st.column_config.TextColumn(
-            col,
-            width="small"  # 变化列用最小宽度
-        )
-
-# 5. 渲染表格：冻结首列 + 动态高度 + 自适应宽度
+# 4. 渲染表格，冻结首列，动态高度
 st.dataframe(
     pv_styled,
     use_container_width=True,
-    height=min(650, len(pv_display) * 35 + 50),  # 动态高度，无多余空白
-    hide_index=True,
-    column_config=column_config,
-    column_order=["实际物流方式"] + [col for col in pv_display.columns if col != "实际物流方式"]
+    height=min(800, len(pv_display) * 35 + 50),
+    hide_index=True
 )
 
-# 6. 【可选：CSS优化，进一步压缩宽度】
+# 5. CSS优化：冻结首列，压缩内边距
 st.markdown("""
 <style>
-    /* 压缩表格内边距，减少宽度占用 */
+    /* 压缩内边距，减少宽度占用 */
     [data-testid="stDataFrame"] div[role="cell"] {
-        padding: 4px 8px !important;
+        padding: 4px 6px !important;
         font-size: 13px !important;
     }
-    /* 冻结首列，滚动时不消失 */
+    /* 冻结前两列，滚动时不消失 */
     [data-testid="stDataFrame"] div[role="columnheader"][data-colindex="0"],
-    [data-testid="stDataFrame"] div[role="cell"][data-colindex="0"] {
+    [data-testid="stDataFrame"] div[role="cell"][data-colindex="0"],
+    [data-testid="stDataFrame"] div[role="columnheader"][data-colindex="1"],
+    [data-testid="stDataFrame"] div[role="cell"][data-colindex="1"] {
         position: sticky !important;
-        left: 0 !important;
+        left: calc(120px * var(--colindex)) !important;
         z-index: 999 !important;
         background-color: white !important;
         border-right: 2px solid #e0e0e0 !important;

@@ -560,7 +560,7 @@ for period in period_list:
         key = (period, logi)
         if key in data_dict:
             amount = data_dict[key]["总费用"]
-            weight = data_dict[key]["总重量"]
+            weight = data_dict[key]["重量"]
             ratio = data_dict[key]["占比"]
         else:
             amount = 0
@@ -581,7 +581,7 @@ for period in period_list:
             prev_key = (prev_period, logi)
 
             prev_amount = data_dict[prev_key]["总费用"] if prev_key in data_dict else 0
-            prev_weight = data_dict[prev_key]["总重量"] if prev_key in data_dict else 0
+            prev_weight = data_dict[prev_key]["重量"] if prev_key in data_dict else 0
             prev_ratio = data_dict[prev_key]["占比"] if prev_key in data_dict else 0
 
             amount_diff = amount - prev_amount
@@ -599,7 +599,7 @@ for period in period_list:
     # 每周期展示：金额、金额变化、重量、重量变化、占比、占比变化
     pv_display[f"{period}{dim_label} 金额(元)"] = amount_col
     pv_display[f"{period}{dim_label} 金额变化"] = amount_change_col
-    pv_display[f"{period}{dim_label} 重量(kg)"] = weight_col
+    pv_display[f"{period}{dim_label} 重量"] = weight_col
     pv_display[f"{period}{dim_label} 重量变化"] = weight_change_col
     pv_display[f"{period}{dim_label} 占比(%)"] = ratio_col
     pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col

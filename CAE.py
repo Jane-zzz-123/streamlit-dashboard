@@ -472,13 +472,15 @@ st.caption("🔴 上涨｜🟢 下降｜单价 = 总金额 ÷ 总重量｜总金
 
 st.markdown("## 📊占比对比柱形图")
 
-# 1. 数据准备（重量 列名 100% 匹配你的数据）
+# 1. 数据准备
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum"),
-    总重量=("重量", "sum")  # 已改成：重量
+    总重量=("重量", "sum")
 )
 df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
-df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
+df_pie["费用占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
+df_pie["周期总重量"] = df_pie.groupby(group_col)["总重量"].transform("sum")
+df_pie["重量占比"] = (df_pie["总重量"] / df_pie["周期总重量"] * 100).round(2)
 
 # 动态判断 周期 / 月份
 dim_label = "周" if group_col == "周期" else "月"
@@ -491,7 +493,7 @@ logi_gradient_map = {
     "以星": ["#ffd9b3", "#ff9933", "#cc6600"],
     "以星特快": ["#fff0b3", "#ffdd66", "#cc9900"],
 }
-default_gradient = ["#f0e6ff", "#c8ffc8", "#8822cc"]
+default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]
 
 # 3. 强制X轴渠道顺序
 fixed_order = ["红单", "空派", "普船", "以星", "以星特快"]
@@ -507,128 +509,134 @@ df_pie["实际物流方式"] = pd.Categorical(
 period_list = sorted(df_pie[group_col].unique())
 num_periods = len(period_list)
 
-# ====================== 第一部分：全宽图表 ======================
-st.markdown("### 🔁 占比变化对比")
-fig = go.Figure()
+# ====================== 一行两列黄金布局 ======================
+bar_col, tbl_col = st.columns([1.3, 1.2])
 
-for i, period in enumerate(period_list):
-    df_period = df_pie[df_pie[group_col] == period].copy()
-    bar_colors = [logi_gradient_map.get(logi, default_gradient)[min(i, 2)] for logi in df_period["实际物流方式"]]
+with bar_col:
+    st.markdown("### 🔁 占比变化对比")
+    fig = go.Figure()
+    for i, period in enumerate(period_list):
+        df_period = df_pie[df_pie[group_col] == period].copy()
+        bar_colors = [logi_gradient_map.get(logi, default_gradient)[min(i, 2)] for logi in df_period["实际物流方式"]]
+        fig.add_trace(go.Bar(
+            x=df_period["实际物流方式"],
+            y=df_period["费用占比"],
+            name=f"{period}",
+            marker_color=bar_colors,
+            text=df_period.apply(lambda row: f"{row[group_col]}{dim_label}<br>{row['费用占比']:.2f}%", axis=1),
+            textposition="outside",
+            textfont=dict(size=10),
+            width=0.7 / num_periods
+        ))
+    fig.update_layout(
+        height=650,
+        barmode="group",
+        yaxis_title="占比 (%)",
+        xaxis_title="实际物流方式",
+        xaxis=dict(categoryorder="array", categoryarray=final_order),
+        showlegend=False,
+        margin=dict(l=20, r=20, t=40, b=60),
+        title=f"各物流方式{group_col}占比变化",
+        title_x=0.5,
+        bargap=0.3,
+        bargroupgap=0.1
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
-    fig.add_trace(go.Bar(
-        x=df_period["实际物流方式"],
-        y=df_period["占比"],
-        name=f"{period}",
-        marker_color=bar_colors,
-        text=df_period.apply(lambda row: f"{row[group_col]}{dim_label}<br>{row['占比']:.2f}%", axis=1),
-        textposition="outside",
-        textfont=dict(size=10),
-        width=0.7 / num_periods
-    ))
+with tbl_col:
+    st.markdown("### 📋 全维度明细")
 
-fig.update_layout(
-    height=550,
-    barmode="group",
-    yaxis_title="占比 (%)",
-    xaxis_title="实际物流方式",
-    xaxis=dict(categoryorder="array", categoryarray=final_order),
-    showlegend=False,
-    margin=dict(l=20, r=20, t=40, b=60),
-    title=f"各物流方式{group_col}占比变化",
-    title_x=0.5,
-    bargap=0.3,
-    bargroupgap=0.1
-)
-st.plotly_chart(fig, use_container_width=True)
-
-# ====================== 第二部分：明细表格（金额+重量+占比） ======================
-st.markdown("### 📋 占比明细（%）")
-
-data_dict = df_pie.set_index([group_col, "实际物流方式"]).to_dict("index")
-pv_display = pd.DataFrame()
-pv_display["实际物流方式"] = final_order
-
-for period in period_list:
-    amount_col = []
-    amount_change_col = []
-    weight_col = []
-    weight_change_col = []
-    ratio_col = []
-    ratio_change_col = []
-
+    # 1. 构建明细表格：列=实际物流渠道，行=月份+明细项
+    detail_rows = []
+    # 先加表头行
+    header_row = {"明细项": "实际物流方式"}
     for logi in final_order:
-        key = (period, logi)
-        if key in data_dict:
-            amount = data_dict[key]["总费用"]
-            weight = data_dict[key]["总重量"]
-            ratio = data_dict[key]["占比"]
-        else:
-            amount = 0
-            weight = 0
-            ratio = 0
+        header_row[logi] = logi
+    detail_rows.append(header_row)
 
-        amount_col.append(f"{amount:,.2f}")
-        weight_col.append(f"{weight:,.2f}")
-        ratio_col.append(f"{ratio:.2f}%")
+    # 2. 循环每个月份，生成对应明细行
+    for period in period_list:
+        # 先加月份标题行，合并列突出显示
+        detail_rows.append({"明细项": f"📅 {period}{dim_label}", **{logi: "" for logi in final_order}})
 
+        # 计算上月数据，用于环比
         period_idx = period_list.index(period)
         if period_idx == 0:
-            ac = "→ 0.00"
-            wc = "→ 0.00"
-            rc = "→ 0.00%"
+            prev_period = None
         else:
             prev_period = period_list[period_idx - 1]
-            prev_key = (prev_period, logi)
 
-            prev_amount = data_dict[prev_key]["总费用"] if prev_key in data_dict else 0
-            prev_weight = data_dict[prev_key]["总重量"] if prev_key in data_dict else 0
-            prev_ratio = data_dict[prev_key]["占比"] if prev_key in data_dict else 0
+        # 循环每个明细项，生成行
+        metrics = [
+            ("金额(元)", "总费用"),
+            ("金额变化", "总费用"),
+            ("金额占比(%)", "费用占比"),
+            ("占比变化", "费用占比"),
+            ("重量(kg)", "总重量"),
+            ("重量变化", "总重量"),
+            ("重量占比(%)", "重量占比"),
+            ("占比变化", "重量占比")
+        ]
 
-            amount_diff = amount - prev_amount
-            weight_diff = weight - prev_weight
-            ratio_diff = ratio - prev_ratio
+        for metric_name, col_name in metrics:
+            row = {"明细项": metric_name}
+            for logi in final_order:
+                # 获取本期值
+                current_val = df_pie[(df_pie[group_col] == period) & (df_pie["实际物流方式"] == logi)][col_name].values[
+                    0] if len(df_pie[(df_pie[group_col] == period) & (df_pie["实际物流方式"] == logi)]) > 0 else 0
 
-            ac = f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}"
-            wc = f"{'↑' if weight_diff > 0 else '↓' if weight_diff < 0 else '→'} {weight_diff:,.2f}"
-            rc = f"{'↑' if ratio_diff > 0 else '↓' if ratio_diff < 0 else '→'} {ratio_diff:.2f}%"
+                # 计算变化值
+                if "变化" in metric_name:
+                    if prev_period is None:
+                        val = "→ 0.00"
+                    else:
+                        prev_val = \
+                        df_pie[(df_pie[group_col] == prev_period) & (df_pie["实际物流方式"] == logi)][col_name].values[
+                            0] if len(
+                            df_pie[(df_pie[group_col] == prev_period) & (df_pie["实际物流方式"] == logi)]) > 0 else 0
+                        diff = current_val - prev_val
+                        if "金额" in metric_name or "重量" in metric_name:
+                            val = f"{'↑' if diff > 0 else '↓' if diff < 0 else '→'} {diff:,.2f}"
+                        else:
+                            val = f"{'↑' if diff > 0 else '↓' if diff < 0 else '→'} {diff:.2f}%"
+                else:
+                    # 格式化数值
+                    if "金额" in metric_name:
+                        val = f"{current_val:,.2f}"
+                    elif "重量" in metric_name:
+                        val = f"{current_val:,.2f}"
+                    elif "占比" in metric_name:
+                        val = f"{current_val:.2f}%"
+                    else:
+                        val = current_val
+                row[logi] = val
+            detail_rows.append(row)
 
-        amount_change_col.append(ac)
-        weight_change_col.append(wc)
-        ratio_change_col.append(rc)
-
-    # 每周期 6 列：金额、金额变化、重量、重量变化、占比、占比变化
-    pv_display[f"{period}{dim_label} 金额(元)"] = amount_col
-    pv_display[f"{period}{dim_label} 金额变化"] = amount_change_col
-    pv_display[f"{period}{dim_label} 重量"] = weight_col
-    pv_display[f"{period}{dim_label} 重量变化"] = weight_change_col
-    pv_display[f"{period}{dim_label} 占比(%)"] = ratio_col
-    pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col
-
-# 动态高度，无多余空白
-table_height = min(700, len(pv_display) * 36 + 40)
+    # 3. 转成DataFrame
+    pv_display = pd.DataFrame(detail_rows)
 
 
-# 高亮：上涨红，下跌绿
-def highlight_changes(val):
-    val_str = str(val)
-    if "↑" in val_str:
-        return "color: #e63946; font-weight: bold;"
-    elif "↓" in val_str:
-        return "color: #2a9d8f; font-weight: bold;"
-    elif "→" in val_str:
-        return "color: #666;"
-    return ""
+    # 4. 高亮：上涨红，下跌绿
+    def highlight_changes(val):
+        val_str = str(val)
+        if "↑" in val_str:
+            return "color: #e63946; font-weight: bold;"
+        elif "↓" in val_str:
+            return "color: #2a9d8f; font-weight: bold;"
+        elif "→" in val_str:
+            return "color: #666;"
+        return ""
 
 
-change_cols = [c for c in pv_display.columns if "变化" in c]
-pv_styled = pv_display.style.applymap(highlight_changes, subset=change_cols)
+    change_cols = [c for c in pv_display.columns if c in final_order]
+    pv_styled = pv_display.style.applymap(highlight_changes, subset=change_cols)
 
-# 展示表格
-st.dataframe(
-    pv_styled,
-    use_container_width=True,
-    height=table_height,
-    hide_index=True
-)
+    # 5. 渲染表格
+    st.dataframe(
+        pv_styled,
+        use_container_width=True,
+        height=650,
+        hide_index=True
+    )
 
 st.markdown("---")

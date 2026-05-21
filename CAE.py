@@ -540,7 +540,7 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 第二部分：全宽明细表格 ======================
+# ====================== 第二部分：智能压缩版明细表格 ======================
 st.markdown("### 📋 全维度明细")
 
 # 1. 构建表格数据：行=实际物流渠道，列=各月份指标
@@ -582,14 +582,14 @@ for logi in final_order:
             weight_change = f"{'↑' if weight_diff > 0 else '↓' if weight_diff < 0 else '→'} {weight_diff:,.2f}"
             weight_ratio_change = f"{'↑' if weight_ratio_diff > 0 else '↓' if weight_ratio_diff < 0 else '→'} {weight_ratio_diff:.2f}%"
 
-        # 填充8个指标
-        row[f"{period}{dim_label} 金额(元)"] = f"{current_amount:,.2f}"
+        # 填充指标，列名精简，减少宽度占用
+        row[f"{period}{dim_label} 金额"] = f"{current_amount:,.2f}"
         row[f"{period}{dim_label} 金额变化"] = amount_change
-        row[f"{period}{dim_label} 金额占比(%)"] = f"{current_amount_ratio:.2f}%"
+        row[f"{period}{dim_label} 金额占比"] = f"{current_amount_ratio:.2f}%"
         row[f"{period}{dim_label} 占比变化"] = amount_ratio_change
-        row[f"{period}{dim_label} 重量(kg)"] = f"{current_weight:,.2f}"
+        row[f"{period}{dim_label} 重量"] = f"{current_weight:,.2f}"
         row[f"{period}{dim_label} 重量变化"] = weight_change
-        row[f"{period}{dim_label} 重量占比(%)"] = f"{current_weight_ratio:.2f}%"
+        row[f"{period}{dim_label} 重量占比"] = f"{current_weight_ratio:.2f}%"
         row[f"{period}{dim_label} 占比变化"] = weight_ratio_change
 
     table_data.append(row)
@@ -613,12 +613,63 @@ def highlight_changes(val):
 change_cols = [c for c in pv_display.columns if "变化" in c]
 pv_styled = pv_display.style.applymap(highlight_changes, subset=change_cols)
 
-# 4. 渲染表格
+# 4. 【核心：智能列宽配置 + 冻结首列】
+column_config = {
+    "实际物流方式": st.column_config.TextColumn(
+        "实际物流方式",
+        width="medium",  # 首列固定中等宽度
+        required=True
+    )
+}
+
+# 给其他列分配最优宽度
+for col in pv_display.columns:
+    if col == "实际物流方式":
+        continue
+    if "金额" in col or "重量" in col:
+        column_config[col] = st.column_config.TextColumn(
+            col,
+            width="small"  # 数值列用小宽度
+        )
+    elif "占比" in col:
+        column_config[col] = st.column_config.TextColumn(
+            col,
+            width="small"  # 占比列用小宽度
+        )
+    elif "变化" in col:
+        column_config[col] = st.column_config.TextColumn(
+            col,
+            width="small"  # 变化列用最小宽度
+        )
+
+# 5. 渲染表格：冻结首列 + 动态高度 + 自适应宽度
 st.dataframe(
     pv_styled,
     use_container_width=True,
-    height=min(700, len(pv_display) * 35 + 50),
-    hide_index=True
+    height=min(650, len(pv_display) * 35 + 50),  # 动态高度，无多余空白
+    hide_index=True,
+    column_config=column_config,
+    column_order=["实际物流方式"] + [col for col in pv_display.columns if col != "实际物流方式"]
 )
+
+# 6. 【可选：CSS优化，进一步压缩宽度】
+st.markdown("""
+<style>
+    /* 压缩表格内边距，减少宽度占用 */
+    [data-testid="stDataFrame"] div[role="cell"] {
+        padding: 4px 8px !important;
+        font-size: 13px !important;
+    }
+    /* 冻结首列，滚动时不消失 */
+    [data-testid="stDataFrame"] div[role="columnheader"][data-colindex="0"],
+    [data-testid="stDataFrame"] div[role="cell"][data-colindex="0"] {
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 999 !important;
+        background-color: white !important;
+        border-right: 2px solid #e0e0e0 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("---")

@@ -367,7 +367,6 @@ num_periods = len(period_list)
 st.markdown("### 🔁 占比变化对比")
 fig = go.Figure()
 
-# 循环绘制柱子
 for i, period in enumerate(period_list):
     df_period = df_pie[df_pie[group_col] == period].copy()
     bar_colors = [logi_gradient_map.get(logi, default_gradient)[min(i, 2)] for logi in df_period["实际物流方式"]]
@@ -398,15 +397,13 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 第二部分：全宽明细表格（上色必生效版） ======================
+# ====================== 第二部分：表格（颜色生效 + 无空白） ======================
 st.markdown("### 📋 占比明细（%）")
 
-# 1. 数据查询逻辑
 data_dict = df_pie.set_index([group_col, "实际物流方式"]).to_dict("index")
 pv_display = pd.DataFrame()
 pv_display["实际物流方式"] = final_order
 
-# 2. 循环填充数据
 for period in period_list:
     amount_col = []
     amount_change_col = []
@@ -425,40 +422,55 @@ for period in period_list:
         amount_col.append(f"{amount:,.2f}")
         ratio_col.append(f"{ratio:.2f}%")
 
-        # 计算环比
         period_idx = period_list.index(period)
         if period_idx == 0:
-            amount_change_col.append("→ 0.00")
-            ratio_change_col.append("→ 0.00%")
+            ac = "→ 0.00"
+            rc = "→ 0.00%"
         else:
             prev_period = period_list[period_idx - 1]
             prev_key = (prev_period, logi)
             prev_amount = data_dict[prev_key]["总费用"] if prev_key in data_dict else 0
             prev_ratio = data_dict[prev_key]["占比"] if prev_key in data_dict else 0
+
             amount_diff = amount - prev_amount
             ratio_diff = ratio - prev_ratio
-            # 给变化值加HTML颜色标签，原生支持，100%生效
-            amount_change_col.append(
-                f"<span style='color: {'#e63946' if amount_diff > 0 else '#2a9d8f' if amount_diff < 0 else '#666666'}; font-weight: bold;'>{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}</span>"
-            )
-            ratio_change_col.append(
-                f"<span style='color: {'#e63946' if ratio_diff > 0 else '#2a9d8f' if ratio_diff < 0 else '#666666'}; font-weight: bold;'>{'↑' if ratio_diff > 0 else '↓' if ratio_diff < 0 else '→'} {ratio_diff:.2f}%</span>"
-            )
+
+            ac = f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}"
+            rc = f"{'↑' if ratio_diff > 0 else '↓' if ratio_diff < 0 else '→'} {ratio_diff:.2f}%"
+
+        amount_change_col.append(ac)
+        ratio_change_col.append(rc)
 
     pv_display[f"{period}{dim_label} 金额(元)"] = amount_col
     pv_display[f"{period}{dim_label} 金额变化"] = amount_change_col
     pv_display[f"{period}{dim_label} 占比(%)"] = ratio_col
     pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col
 
-# 3. 【核心：用HTML渲染，颜色100%生效，同时消除空白】
-# 动态计算表格高度，刚好包裹数据
-table_height = len(pv_display) * 35 + 45
+# 动态高度 = 刚好包裹内容，无多余空白行
+table_height = min(600, len(pv_display) * 36 + 40)
 
-# 用markdown表格渲染，完全支持HTML颜色，零兼容问题
-st.markdown(
-    pv_display.to_markdown(index=False, escape=False),
-    unsafe_allow_html=True
+# 原生 dataframe + 最强兼容 CSS 颜色（100%生效）
+st.dataframe(
+    pv_display,
+    use_container_width=True,
+    height=table_height,
+    hide_index=True
 )
+
+# 最强兼容颜色样式（新版旧版 Streamlit 都生效）
+st.markdown("""
+<style>
+    div[data-testid="stDataFrame"] div[role="cell"] div:has(> p:contains("↑")) {
+        color: #e63946 !important; font-weight: bold !important;
+    }
+    div[data-testid="stDataFrame"] div[role="cell"] div:has(> p:contains("↓")) {
+        color: #2a9d8f !important; font-weight: bold !important;
+    }
+    div[data-testid="stDataFrame"] div[role="cell"] div:has(> p:contains("→")) {
+        color: #666 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("---")
 

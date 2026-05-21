@@ -327,48 +327,13 @@ with t5:
 
 st.markdown("---")
 
-st.markdown("## 📊占比对比柱形图")
+# 把原来的一行两列布局，换成Tab切换
+tab1, tab2 = st.tabs(["📊 占比变化图表", "📋 占比明细表格"])
 
-# 1. 数据准备（全程中文列名，100%匹配你的原始数据）
-df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
-    总费用=("总费用", "sum")
-)
-df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
-df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
-
-# 动态判断 周期 / 月份
-dim_label = "周" if group_col == "周期" else "月"
-
-# 2. 渠道专属渐变配色
-logi_gradient_map = {
-    "红单": ["#ff9999", "#ff6666", "#cc0000"],
-    "空派": ["#b3d9ff", "#66a3ff", "#0066cc"],
-    "普船": ["#b3f0c6", "#66cc88", "#009944"],
-    "以星": ["#ffd9b3", "#ff9933", "#cc6600"],
-    "以星特快": ["#fff0b3", "#ffdd66", "#cc9900"],
-}
-default_gradient = ["#f0e6ff", "#c488ff", "#8822cc"]
-
-# 3. 强制X轴渠道顺序（和图表完全对齐）
-fixed_order = ["红单", "空派", "普船", "以星", "以星特快"]
-other_logi = [logi for logi in df_pie["实际物流方式"].unique() if logi not in fixed_order]
-final_order = fixed_order + sorted(other_logi)
-df_pie["实际物流方式"] = pd.Categorical(
-    df_pie["实际物流方式"],
-    categories=final_order,
-    ordered=True
-)
-
-# 4. 自动获取周期顺序（旧→新）
-period_list = sorted(df_pie[group_col].unique())
-num_periods = len(period_list)
-
-# 5. 一行两列布局
-bar_col, tbl_col = st.columns([1.4, 1])
-
-with bar_col:
+with tab1:
     st.markdown("### 🔁 占比变化对比")
     fig = go.Figure()
+    # 【图表代码完全不变，直接复制原来的即可】
     for i, period in enumerate(period_list):
         df_period = df_pie[df_pie[group_col] == period].copy()
         bar_colors = [logi_gradient_map.get(logi, default_gradient)[min(i, 2)] for logi in df_period["实际物流方式"]]
@@ -383,37 +348,26 @@ with bar_col:
             width=0.7 / num_periods
         ))
     fig.update_layout(
-        height=550, barmode="group", yaxis_title="占比 (%)", xaxis_title="实际物流方式",
+        height=650,  # 图表高度加高，更舒展
+        barmode="group", yaxis_title="占比 (%)", xaxis_title="实际物流方式",
         xaxis=dict(categoryorder="array", categoryarray=final_order),
         showlegend=False, margin=dict(l=20, r=20, t=40, b=60),
         title=f"各物流方式{group_col}占比变化", title_x=0.5, bargap=0.3, bargroupgap=0.1
     )
     st.plotly_chart(fig, use_container_width=True)
 
-with tbl_col:
+with tab2:
     st.markdown("### 📋 占比明细（%）")
-
-    # --------------------------
-    # 【终极修复：彻底绕开透视表，数据100%出来】
-    # --------------------------
-    # 1. 先把数据转成字典，快速查询，绝对不会找不到值
+    # 【表格代码完全不变，直接复制原来的即可】
     data_dict = df_pie.set_index([group_col, "实际物流方式"]).to_dict("index")
-
-    # 2. 初始化表格，第一列是实际物流方式
     pv_display = pd.DataFrame()
-    pv_display["实际物流方式"] = final_order  # 顺序和图表完全一致！
-
-    # 3. 循环每个周期，逐行填数据，绝对不会出现None
+    pv_display["实际物流方式"] = final_order
     for period in period_list:
-        # 初始化当前周期的列
         amount_col = []
         amount_change_col = []
         ratio_col = []
         ratio_change_col = []
-
-        # 循环每个物流方式，从字典里取数
         for logi in final_order:
-            # 取当前周期当前物流方式的金额和占比，没有数据就填0
             key = (period, logi)
             if key in data_dict:
                 amount = data_dict[key]["总费用"]
@@ -421,54 +375,31 @@ with tbl_col:
             else:
                 amount = 0
                 ratio = 0
-
-            # 格式化金额
             amount_col.append(f"{amount:,.2f}")
-            # 格式化占比
             ratio_col.append(f"{ratio:.2f}%")
-
-            # 计算环比变化（和上一个周期比）
             period_idx = period_list.index(period)
             if period_idx == 0:
-                # 第一个周期没有上期，填→ 0
                 amount_change_col.append("→ 0.00")
                 ratio_change_col.append("→ 0.00%")
             else:
-                # 找上一个周期的数
                 prev_period = period_list[period_idx - 1]
                 prev_key = (prev_period, logi)
-                if prev_key in data_dict:
-                    prev_amount = data_dict[prev_key]["总费用"]
-                    prev_ratio = data_dict[prev_key]["占比"]
-                else:
-                    prev_amount = 0
-                    prev_ratio = 0
-
-                # 计算变化值
+                prev_amount = data_dict[prev_key]["总费用"] if prev_key in data_dict else 0
+                prev_ratio = data_dict[prev_key]["占比"] if prev_key in data_dict else 0
                 amount_diff = amount - prev_amount
                 ratio_diff = ratio - prev_ratio
-
-                # 格式化变化
-                amount_change_col.append(
-                    f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}")
-                ratio_change_col.append(
-                    f"{'↑' if ratio_diff > 0 else '↓' if ratio_diff < 0 else '→'} {ratio_diff:.2f}%")
-
-        # 把当前周期的列加到表格里
+                amount_change_col.append(f"{'↑' if amount_diff>0 else '↓' if amount_diff<0 else '→'} {amount_diff:,.2f}")
+                ratio_change_col.append(f"{'↑' if ratio_diff>0 else '↓' if ratio_diff<0 else '→'} {ratio_diff:.2f}%")
         pv_display[f"{period}{dim_label} 金额(元)"] = amount_col
         pv_display[f"{period}{dim_label} 金额变化"] = amount_change_col
         pv_display[f"{period}{dim_label} 占比(%)"] = ratio_col
         pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col
-
-    # 4. 渲染表格，数据100%正常显示
     st.dataframe(
         pv_display,
         use_container_width=True,
-        height=550,
+        height=700,  # 表格高度加高，数据显示更全
         hide_index=True
     )
-
-st.markdown("---")
 
 # ==============================================================================
 # 💰 第四部分：单价 & 总金额明细分析

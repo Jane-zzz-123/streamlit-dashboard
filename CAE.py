@@ -546,66 +546,91 @@ with bar_col:
 with tbl_col:
     st.markdown("### 📋 全维度明细")
 
-    # 1. 构建明细表格：第一列=月份，列=实际物流渠道
-    detail_rows = []
+    # 1. 定义8个指标
+    metrics = [
+        "金额(元)",
+        "金额变化",
+        "金额占比(%)",
+        "占比变化",
+        "重量(kg)",
+        "重量变化",
+        "重量占比(%)",
+        "占比变化"
+    ]
 
-    # 2. 循环每个月份，生成一行数据
+    # 2. 构建表格数据：第一列=月份，第二列=指标，后面=物流渠道
+    table_data = []
     for period in period_list:
-        row = {"月份": f"{period}{dim_label}"}
-
         # 计算上月数据，用于环比
         period_idx = period_list.index(period)
         prev_period = period_list[period_idx - 1] if period_idx > 0 else None
 
-        # 循环每个物流渠道，生成单元格内容
-        for logi in final_order:
-            # 获取本期数据
-            current_data = df_pie[(df_pie[group_col] == period) & (df_pie["实际物流方式"] == logi)]
-            current_amount = current_data["总费用"].values[0] if len(current_data) > 0 else 0
-            current_weight = current_data["总重量"].values[0] if len(current_data) > 0 else 0
-            current_amount_ratio = current_data["费用占比"].values[0] if len(current_data) > 0 else 0
-            current_weight_ratio = current_data["重量占比"].values[0] if len(current_data) > 0 else 0
-
-            # 获取上期数据，计算变化
-            if prev_period is None:
-                amount_change = "→ 0.00"
-                amount_ratio_change = "→ 0.00%"
-                weight_change = "→ 0.00"
-                weight_ratio_change = "→ 0.00%"
+        # 循环8个指标，生成每一行
+        for metric in metrics:
+            row = {}
+            # 第一列：月份（合并单元格效果：第一个指标显示月份，其他指标空着）
+            if metric == metrics[0]:
+                row["月份"] = f"{period}{dim_label}"
             else:
-                prev_data = df_pie[(df_pie[group_col] == prev_period) & (df_pie["实际物流方式"] == logi)]
-                prev_amount = prev_data["总费用"].values[0] if len(prev_data) > 0 else 0
-                prev_weight = prev_data["总重量"].values[0] if len(prev_data) > 0 else 0
-                prev_amount_ratio = prev_data["费用占比"].values[0] if len(prev_data) > 0 else 0
-                prev_weight_ratio = prev_data["重量占比"].values[0] if len(prev_data) > 0 else 0
+                row["月份"] = ""  # 实现合并单元格的视觉效果
 
-                amount_diff = current_amount - prev_amount
-                amount_ratio_diff = current_amount_ratio - prev_amount_ratio
-                weight_diff = current_weight - prev_weight
-                weight_ratio_diff = current_weight_ratio - prev_weight_ratio
+            # 第二列：指标名称
+            row["指标"] = metric
 
-                amount_change = f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}"
-                amount_ratio_change = f"{'↑' if amount_ratio_diff > 0 else '↓' if amount_ratio_diff < 0 else '→'} {amount_ratio_diff:.2f}%"
-                weight_change = f"{'↑' if weight_diff > 0 else '↓' if weight_diff < 0 else '→'} {weight_diff:,.2f}"
-                weight_ratio_change = f"{'↑' if weight_ratio_diff > 0 else '↓' if weight_ratio_diff < 0 else '→'} {weight_ratio_diff:.2f}%"
+            # 循环每个物流渠道，填充数据
+            for logi in final_order:
+                # 获取本期数据
+                current_data = df_pie[(df_pie[group_col] == period) & (df_pie["实际物流方式"] == logi)]
+                current_amount = current_data["总费用"].values[0] if len(current_data) > 0 else 0
+                current_weight = current_data["总重量"].values[0] if len(current_data) > 0 else 0
+                current_amount_ratio = current_data["费用占比"].values[0] if len(current_data) > 0 else 0
+                current_weight_ratio = current_data["重量占比"].values[0] if len(current_data) > 0 else 0
 
-            # 组合单元格内容，换行显示8个维度
-            cell_content = f"""
-            💰 金额：{current_amount:,.2f}
-            📈 金额变化：{amount_change}
-            📊 金额占比：{current_amount_ratio:.2f}%
-            📉 占比变化：{amount_ratio_change}
-            📦 重量：{current_weight:,.2f}
-            ⚖️ 重量变化：{weight_change}
-            📈 重量占比：{current_weight_ratio:.2f}%
-            📉 占比变化：{weight_ratio_change}
-            """
-            row[logi] = cell_content
+                # 计算环比变化
+                if prev_period is None:
+                    amount_change = "→ 0.00"
+                    amount_ratio_change = "→ 0.00%"
+                    weight_change = "→ 0.00"
+                    weight_ratio_change = "→ 0.00%"
+                else:
+                    prev_data = df_pie[(df_pie[group_col] == prev_period) & (df_pie["实际物流方式"] == logi)]
+                    prev_amount = prev_data["总费用"].values[0] if len(prev_data) > 0 else 0
+                    prev_weight = prev_data["总重量"].values[0] if len(prev_data) > 0 else 0
+                    prev_amount_ratio = prev_data["费用占比"].values[0] if len(prev_data) > 0 else 0
+                    prev_weight_ratio = prev_data["重量占比"].values[0] if len(prev_data) > 0 else 0
 
-        detail_rows.append(row)
+                    amount_diff = current_amount - prev_amount
+                    amount_ratio_diff = current_amount_ratio - prev_amount_ratio
+                    weight_diff = current_weight - prev_weight
+                    weight_ratio_diff = current_weight_ratio - prev_weight_ratio
+
+                    amount_change = f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}"
+                    amount_ratio_change = f"{'↑' if amount_ratio_diff > 0 else '↓' if amount_ratio_diff < 0 else '→'} {amount_ratio_diff:.2f}%"
+                    weight_change = f"{'↑' if weight_diff > 0 else '↓' if weight_diff < 0 else '→'} {weight_diff:,.2f}"
+                    weight_ratio_change = f"{'↑' if weight_ratio_diff > 0 else '↓' if weight_ratio_diff < 0 else '→'} {weight_ratio_diff:.2f}%"
+
+                # 根据当前指标，填充对应的值
+                if metric == "金额(元)":
+                    row[logi] = f"{current_amount:,.2f}"
+                elif metric == "金额变化":
+                    row[logi] = amount_change
+                elif metric == "金额占比(%)":
+                    row[logi] = f"{current_amount_ratio:.2f}%"
+                elif metric == "占比变化":
+                    row[logi] = amount_ratio_change
+                elif metric == "重量(kg)":
+                    row[logi] = f"{current_weight:,.2f}"
+                elif metric == "重量变化":
+                    row[logi] = weight_change
+                elif metric == "重量占比(%)":
+                    row[logi] = f"{current_weight_ratio:.2f}%"
+                elif metric == "占比变化":
+                    row[logi] = weight_ratio_change
+
+            table_data.append(row)
 
     # 3. 转成DataFrame
-    pv_display = pd.DataFrame(detail_rows)
+    pv_display = pd.DataFrame(table_data)
 
 
     # 4. 高亮：上涨红，下跌绿

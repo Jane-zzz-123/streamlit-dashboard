@@ -472,10 +472,10 @@ st.caption("🔴 上涨｜🟢 下降｜单价 = 总金额 ÷ 总重量｜总金
 
 st.markdown("## 📊占比对比柱形图")
 
-# 1. 数据准备（增加 重量 求和）
+# 1. 数据准备（重量 列名 100% 匹配你的数据）
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum"),
-    总重量=("重量(kg)", "sum")  # 这里加入重量
+    总重量=("重量", "sum")  # 已改成：重量
 )
 df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("sum")
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
@@ -541,7 +541,7 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 第二部分：占比明细（含重量 + 重量变化） ======================
+# ====================== 第二部分：明细表格（金额+重量+占比） ======================
 st.markdown("### 📋 占比明细（%）")
 
 data_dict = df_pie.set_index([group_col, "实际物流方式"]).to_dict("index")
@@ -560,7 +560,7 @@ for period in period_list:
         key = (period, logi)
         if key in data_dict:
             amount = data_dict[key]["总费用"]
-            weight = data_dict[key]["重量"]
+            weight = data_dict[key]["总重量"]
             ratio = data_dict[key]["占比"]
         else:
             amount = 0
@@ -581,7 +581,7 @@ for period in period_list:
             prev_key = (prev_period, logi)
 
             prev_amount = data_dict[prev_key]["总费用"] if prev_key in data_dict else 0
-            prev_weight = data_dict[prev_key]["重量"] if prev_key in data_dict else 0
+            prev_weight = data_dict[prev_key]["总重量"] if prev_key in data_dict else 0
             prev_ratio = data_dict[prev_key]["占比"] if prev_key in data_dict else 0
 
             amount_diff = amount - prev_amount
@@ -596,7 +596,7 @@ for period in period_list:
         weight_change_col.append(wc)
         ratio_change_col.append(rc)
 
-    # 每周期展示：金额、金额变化、重量、重量变化、占比、占比变化
+    # 每周期 6 列：金额、金额变化、重量、重量变化、占比、占比变化
     pv_display[f"{period}{dim_label} 金额(元)"] = amount_col
     pv_display[f"{period}{dim_label} 金额变化"] = amount_change_col
     pv_display[f"{period}{dim_label} 重量"] = weight_col
@@ -610,11 +610,12 @@ table_height = min(700, len(pv_display) * 36 + 40)
 
 # 高亮：上涨红，下跌绿
 def highlight_changes(val):
-    if "↑" in str(val):
+    val_str = str(val)
+    if "↑" in val_str:
         return "color: #e63946; font-weight: bold;"
-    elif "↓" in str(val):
+    elif "↓" in val_str:
         return "color: #2a9d8f; font-weight: bold;"
-    elif "→" in str(val):
+    elif "→" in val_str:
         return "color: #666;"
     return ""
 
@@ -631,4 +632,3 @@ st.dataframe(
 )
 
 st.markdown("---")
-

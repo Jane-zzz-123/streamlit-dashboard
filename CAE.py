@@ -359,16 +359,15 @@ df_pie["实际物流方式"] = pd.Categorical(
     ordered=True
 )
 
-# 4. 自动获取周期顺序 & 数量（提前定义，避免NameError）
+# 4. 自动获取周期顺序 & 数量
 period_list = sorted(df_pie[group_col].unique())
-num_periods = len(period_list)  # 提前定义，绝对不会报错
+num_periods = len(period_list)
 
-# ====================== 布局升级：上下全宽布局，彻底解决拥挤 ======================
-# 第一部分：全宽图表
+# ====================== 第一部分：全宽图表 ======================
 st.markdown("### 🔁 占比变化对比")
 fig = go.Figure()
 
-# 循环绘制柱子（修复所有语法错误）
+# 循环绘制柱子
 for i, period in enumerate(period_list):
     df_period = df_pie[df_pie[group_col] == period].copy()
     bar_colors = [logi_gradient_map.get(logi, default_gradient)[min(i, 2)] for logi in df_period["实际物流方式"]]
@@ -378,7 +377,6 @@ for i, period in enumerate(period_list):
         y=df_period["占比"],
         name=f"{period}",
         marker_color=bar_colors,
-        # 修复引号闭合问题，语法100%正确
         text=df_period.apply(lambda row: f"{row[group_col]}{dim_label}<br>{row['占比']:.2f}%", axis=1),
         textposition="outside",
         textfont=dict(size=10),
@@ -400,14 +398,15 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# 第二部分：全宽明细表格
+# ====================== 第二部分：全宽明细表格（颜色高亮+无空白） ======================
 st.markdown("### 📋 占比明细（%）")
 
-# 用字典查询，数据100%正常显示
+# 1. 数据查询逻辑
 data_dict = df_pie.set_index([group_col, "实际物流方式"]).to_dict("index")
 pv_display = pd.DataFrame()
 pv_display["实际物流方式"] = final_order
 
+# 2. 循环填充数据
 for period in period_list:
     amount_col = []
     amount_change_col = []
@@ -447,13 +446,63 @@ for period in period_list:
     pv_display[f"{period}{dim_label} 占比(%)"] = ratio_col
     pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col
 
-# 渲染表格
+# 3. 【核心：颜色高亮+列宽配置】
+column_config = {
+    "实际物流方式": st.column_config.TextColumn(
+        "实际物流方式",
+        width="medium",
+        required=True
+    )
+}
+
+# 给变化列单独配置颜色提示，金额/占比列正常显示
+for col in pv_display.columns:
+    if "变化" in col:
+        column_config[col] = st.column_config.TextColumn(
+            col,
+            width="small",
+            help="↑=上涨(红色) ↓=下跌(绿色) →=持平(灰色)",
+            validate="^.*$"
+        )
+    elif "金额" in col or "占比" in col:
+        column_config[col] = st.column_config.TextColumn(
+            col,
+            width="small"
+        )
+
+# 4. 【核心：动态计算表格高度，彻底消除多余空白】
+# 行数 × 行高 + 表头高度，刚好匹配，无多余空白
+table_height = len(pv_display) * 35 + 45
+
+# 5. 渲染表格
 st.dataframe(
     pv_display,
     use_container_width=True,
-    height=600,
-    hide_index=True
+    height=table_height,  # 动态高度，无多余空白
+    hide_index=True,
+    column_config=column_config
 )
+
+# 6. 【额外：用markdown给变化列加颜色，原生支持无报错】
+# 单独渲染变化列的颜色，实现红涨绿跌
+st.markdown("""
+<style>
+    /* 上涨红色 */
+    [data-testid="stDataFrameCell"]:has(div:contains("↑")) {
+        color: #e63946 !important;
+        font-weight: bold !important;
+    }
+    /* 下跌绿色 */
+    [data-testid="stDataFrameCell"]:has(div:contains("↓")) {
+        color: #2a9d8f !important;
+        font-weight: bold !important;
+    }
+    /* 持平灰色 */
+    [data-testid="stDataFrameCell"]:has(div:contains("→")) {
+        color: #666666 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("---")
 

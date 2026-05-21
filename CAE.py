@@ -327,14 +327,9 @@ with t5:
 
 st.markdown("---")
 
-# ==============================================================================
-# 📊 固定位置·占比对比柱形图（渠道顺序锁死·色系严格匹配）
-# 【强制X轴顺序】红单 → 空派 → 普船 → 以星 → 以星特快 → 其余紫色渐变
-# 【专属色系】红=红渐变 | 蓝=蓝渐变 | 绿=绿渐变 | 橙=橙渐变 | 黄=黄渐变 | 其余=紫渐变
-# ==============================================================================
 st.markdown("## 📊占比对比柱形图")
 
-# 1. 数据准备
+# 1. 数据准备（升级：同时保留金额和占比，用于后续环比计算）
 df_pie = df.groupby([group_col, "实际物流方式"], as_index=False).agg(
     总费用=("总费用", "sum")
 )
@@ -391,7 +386,7 @@ with bar_col:
             y=df_period["占比"],
             name=f"{period}",
             marker_color=bar_colors,
-            # ====================== 修复这里：自动显示 周/月 ======================
+            # 自动显示 周/月
             text=df_period.apply(lambda row: f"{row[group_col]}{dim_label}<br>{row['占比']:.2f}%", axis=1),
             textposition="outside",
             textfont=dict(size=10),
@@ -417,21 +412,67 @@ with bar_col:
 
 with tbl_col:
     st.markdown("### 📋 占比明细（%）")
-    # 透视表，空值自动填充0，格式统一
-    pv = df_pie.pivot(
+    # --------------------------
+    # 【修复+升级】：新增金额、环比计算，强制显示物流方式列
+    # --------------------------
+    # 1. 先做金额透视表
+    pv_amount = df_pie.pivot(
+        index="实际物流方式",
+        columns=group_col,
+        values="总费用"
+    ).fillna(0).round(2)
+    # 2. 再做占比透视表
+    pv_ratio = df_pie.pivot(
         index="实际物流方式",
         columns=group_col,
         values="占比"
     ).fillna(0).round(2)
 
-    # ====================== 表格列名也修复：自动加 周/月 ======================
-    pv_display = pv.rename(columns=lambda x: f"{x}{dim_label}")
-    pv_display = pv_display.applymap(lambda x: f"{x:.2f}%")
+    # 3. 计算金额环比变化（本期-上期）
+    pv_amount_change = pv_amount.diff(axis=1)
+    # 4. 计算占比环比变化（本期-上期）
+    pv_ratio_change = pv_ratio.diff(axis=1)
 
+    # 5. 合并成最终明细表格，列名自动加周/月
+    pv_display = pd.DataFrame()
+    pv_display["实际物流方式"] = pv_amount.index  # 强制保留物流方式列
+    for period in period_list:
+        # 金额列
+        pv_display[f"{period}{dim_label} 金额(元)"] = pv_amount[period].apply(lambda x: f"{x:,.2f}")
+        # 金额环比列
+        amount_change = pv_amount_change[period].fillna(0)
+        pv_display[f"{period}{dim_label} 金额变化"] = amount_change.apply(
+            lambda x: f"{'↑' if x>0 else '↓' if x<0 else '→'} {x:,.2f}"
+        )
+        # 占比列
+        pv_display[f"{period}{dim_label} 占比(%)"] = pv_ratio[period].apply(lambda x: f"{x:.2f}%")
+        # 占比环比列
+        ratio_change = pv_ratio_change[period].fillna(0)
+        pv_display[f"{period}{dim_label} 占比变化"] = ratio_change.apply(
+            lambda x: f"{'↑' if x>0 else '↓' if x<0 else '→'} {x:.2f}%"
+        )
+
+    # --------------------------
+    # 【整合】涨跌颜色高亮
+    # --------------------------
+    def highlight_change(val):
+        if '↑' in val:
+            return 'color: #e63946; font-weight:bold'
+        elif '↓' in val:
+            return 'color: #2a9d8f; font-weight:bold'
+        else:
+            return 'color: #666666'
+
+    # 对所有变化列应用颜色样式
+    change_cols = [col for col in pv_display.columns if '变化' in col]
+    pv_display = pv_display.style.applymap(highlight_change, subset=change_cols)
+
+    # 6. 渲染表格
     st.dataframe(
         pv_display,
         use_container_width=True,
-        height=550
+        height=550,
+        hide_index=True
     )
 
 st.markdown("---")

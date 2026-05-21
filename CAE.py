@@ -397,7 +397,7 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 第二部分：表格（颜色生效 + 无空白） ======================
+# ====================== 第二部分：100%必上色表格 ======================
 st.markdown("### 📋 占比明细（%）")
 
 data_dict = df_pie.set_index([group_col, "实际物流方式"]).to_dict("index")
@@ -447,30 +447,35 @@ for period in period_list:
     pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col
 
 # 动态高度 = 刚好包裹内容，无多余空白行
-table_height = min(600, len(pv_display) * 36 + 40)
+table_height = min(650, len(pv_display) * 36 + 40)
 
-# 原生 dataframe + 最强兼容 CSS 颜色（100%生效）
+
+# ====================== 核心：Streamlit官方原生高亮，100%必生效 ======================
+def highlight_changes(val):
+    """
+    原生样式函数，Streamlit 100%支持，零兼容问题
+    """
+    if "↑" in str(val):
+        return "color: #e63946; font-weight: bold;"  # 上涨：红色加粗
+    elif "↓" in str(val):
+        return "color: #2a9d8f; font-weight: bold;"  # 下跌：绿色加粗
+    elif "→" in str(val):
+        return "color: #666666;"  # 持平：灰色
+    else:
+        return ""
+
+
+# 只给「变化」列应用高亮，其他列正常显示
+change_columns = [col for col in pv_display.columns if "变化" in col]
+pv_styled = pv_display.style.applymap(highlight_changes, subset=change_columns)
+
+# 渲染表格
 st.dataframe(
-    pv_display,
+    pv_styled,
     use_container_width=True,
     height=table_height,
     hide_index=True
 )
-
-# 最强兼容颜色样式（新版旧版 Streamlit 都生效）
-st.markdown("""
-<style>
-    div[data-testid="stDataFrame"] div[role="cell"] div:has(> p:contains("↑")) {
-        color: #e63946 !important; font-weight: bold !important;
-    }
-    div[data-testid="stDataFrame"] div[role="cell"] div:has(> p:contains("↓")) {
-        color: #2a9d8f !important; font-weight: bold !important;
-    }
-    div[data-testid="stDataFrame"] div[role="cell"] div:has(> p:contains("→")) {
-        color: #666 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 st.markdown("---")
 

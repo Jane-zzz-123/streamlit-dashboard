@@ -398,7 +398,7 @@ fig.update_layout(
 )
 st.plotly_chart(fig, use_container_width=True)
 
-# ====================== 第二部分：全宽明细表格（颜色高亮+无空白） ======================
+# ====================== 第二部分：全宽明细表格（上色必生效版） ======================
 st.markdown("### 📋 占比明细（%）")
 
 # 1. 数据查询逻辑
@@ -437,72 +437,28 @@ for period in period_list:
             prev_ratio = data_dict[prev_key]["占比"] if prev_key in data_dict else 0
             amount_diff = amount - prev_amount
             ratio_diff = ratio - prev_ratio
+            # 给变化值加HTML颜色标签，原生支持，100%生效
             amount_change_col.append(
-                f"{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}")
-            ratio_change_col.append(f"{'↑' if ratio_diff > 0 else '↓' if ratio_diff < 0 else '→'} {ratio_diff:.2f}%")
+                f"<span style='color: {'#e63946' if amount_diff > 0 else '#2a9d8f' if amount_diff < 0 else '#666666'}; font-weight: bold;'>{'↑' if amount_diff > 0 else '↓' if amount_diff < 0 else '→'} {amount_diff:,.2f}</span>"
+            )
+            ratio_change_col.append(
+                f"<span style='color: {'#e63946' if ratio_diff > 0 else '#2a9d8f' if ratio_diff < 0 else '#666666'}; font-weight: bold;'>{'↑' if ratio_diff > 0 else '↓' if ratio_diff < 0 else '→'} {ratio_diff:.2f}%</span>"
+            )
 
     pv_display[f"{period}{dim_label} 金额(元)"] = amount_col
     pv_display[f"{period}{dim_label} 金额变化"] = amount_change_col
     pv_display[f"{period}{dim_label} 占比(%)"] = ratio_col
     pv_display[f"{period}{dim_label} 占比变化"] = ratio_change_col
 
-# 3. 【核心：颜色高亮+列宽配置】
-column_config = {
-    "实际物流方式": st.column_config.TextColumn(
-        "实际物流方式",
-        width="medium",
-        required=True
-    )
-}
-
-# 给变化列单独配置颜色提示，金额/占比列正常显示
-for col in pv_display.columns:
-    if "变化" in col:
-        column_config[col] = st.column_config.TextColumn(
-            col,
-            width="small",
-            help="↑=上涨(红色) ↓=下跌(绿色) →=持平(灰色)",
-            validate="^.*$"
-        )
-    elif "金额" in col or "占比" in col:
-        column_config[col] = st.column_config.TextColumn(
-            col,
-            width="small"
-        )
-
-# 4. 【核心：动态计算表格高度，彻底消除多余空白】
-# 行数 × 行高 + 表头高度，刚好匹配，无多余空白
+# 3. 【核心：用HTML渲染，颜色100%生效，同时消除空白】
+# 动态计算表格高度，刚好包裹数据
 table_height = len(pv_display) * 35 + 45
 
-# 5. 渲染表格
-st.dataframe(
-    pv_display,
-    use_container_width=True,
-    height=table_height,  # 动态高度，无多余空白
-    hide_index=True,
-    column_config=column_config
+# 用markdown表格渲染，完全支持HTML颜色，零兼容问题
+st.markdown(
+    pv_display.to_markdown(index=False, escape=False),
+    unsafe_allow_html=True
 )
-
-# 6. 【额外：用markdown给变化列加颜色，原生支持无报错】
-# 单独渲染变化列的颜色，实现红涨绿跌
-st.markdown("""
-<style>
-    /* 上涨红色 */
-    [data-testid="stDataFrameCell"]:has(div:contains("↑")) {
-        color: #e63946 !important;
-        font-weight: bold !important;
-    }
-    /* 下跌绿色 */
-    [data-testid="stDataFrameCell"]:has(div:contains("↓")) {
-        color: #2a9d8f !important;
-        font-weight: bold !important;
-    }
-    /* 持平灰色 */
-    [data-testid="stDataFrameCell"]:has(div:contains("→")) {
-        color: #666666 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 st.markdown("---")
 

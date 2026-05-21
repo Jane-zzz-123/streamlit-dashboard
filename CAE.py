@@ -342,6 +342,9 @@ df_pie["周期总费用"] = df_pie.groupby(group_col)["总费用"].transform("su
 df_pie["占比"] = (df_pie["总费用"] / df_pie["周期总费用"] * 100).round(2)
 df_pie[group_col] = df_pie[group_col].astype(str)
 
+# ====================== 【关键：动态判断 周期 / 月份】 ======================
+dim_label = "周" if group_col == "周期" else "月"  # 自动识别显示 周/月
+
 # 2. 【严格按你要求】渠道专属渐变配色
 logi_gradient_map = {
     "红单": ["#ff9999", "#ff6666", "#cc0000"],  # 红系：浅→中→深
@@ -388,8 +391,8 @@ with bar_col:
             y=df_period["占比"],
             name=f"{period}",
             marker_color=bar_colors,
-            # 标签格式：月份+占比，两行显示
-            text=df_period.apply(lambda row: f"{row[group_col]}月<br>{row['占比']:.2f}%", axis=1),
+            # ====================== 修复这里：自动显示 周/月 ======================
+            text=df_period.apply(lambda row: f"{row[group_col]}{dim_label}<br>{row['占比']:.2f}%", axis=1),
             textposition="outside",
             textfont=dict(size=10),
             width=0.7 / num_periods  # 自适应宽度，不重叠
@@ -405,7 +408,7 @@ with bar_col:
         # 隐藏图例，页面更干净
         showlegend=False,
         margin=dict(l=20, r=20, t=40, b=60),
-        title="各物流方式占比变化",
+        title=f"各物流方式{group_col}占比变化",  # 标题也自动适配
         title_x=0.5,
         bargap=0.3,
         bargroupgap=0.1
@@ -420,7 +423,11 @@ with tbl_col:
         columns=group_col,
         values="占比"
     ).fillna(0).round(2)
-    pv_display = pv.applymap(lambda x: f"{x:.2f}%")
+
+    # ====================== 表格列名也修复：自动加 周/月 ======================
+    pv_display = pv.rename(columns=lambda x: f"{x}{dim_label}")
+    pv_display = pv_display.applymap(lambda x: f"{x:.2f}%")
+
     st.dataframe(
         pv_display,
         use_container_width=True,

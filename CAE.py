@@ -546,7 +546,7 @@ with bar_col:
 with tbl_col:
     st.markdown("### 📋 全维度明细")
 
-    # 1. 定义8个指标
+    # 1. 定义8个指标，和Excel完全一致
     metrics = [
         "金额(元)",
         "金额变化",
@@ -558,7 +558,7 @@ with tbl_col:
         "占比变化"
     ]
 
-    # 2. 构建表格数据：第一列=月份，第二列=指标，后面=物流渠道
+    # 2. 构建表格数据，1:1复刻Excel结构
     table_data = []
     for period in period_list:
         # 计算上月数据，用于环比
@@ -566,13 +566,13 @@ with tbl_col:
         prev_period = period_list[period_idx - 1] if period_idx > 0 else None
 
         # 循环8个指标，生成每一行
-        for metric in metrics:
+        for i, metric in enumerate(metrics):
             row = {}
-            # 第一列：月份（合并单元格效果：第一个指标显示月份，其他指标空着）
-            if metric == metrics[0]:
+            # 第一列：月份（合并单元格效果：只有每个月的第一行显示月份，其他行空着）
+            if i == 0:
                 row["月份"] = f"{period}{dim_label}"
             else:
-                row["月份"] = ""  # 实现合并单元格的视觉效果
+                row["月份"] = ""
 
             # 第二列：指标名称
             row["指标"] = metric
@@ -633,7 +633,7 @@ with tbl_col:
     pv_display = pd.DataFrame(table_data)
 
 
-    # 4. 高亮：上涨红，下跌绿
+    # 4. 高亮：上涨红，下跌绿，完全匹配Excel逻辑
     def highlight_changes(val):
         val_str = str(val)
         if "↑" in val_str:
@@ -648,11 +648,11 @@ with tbl_col:
     change_cols = [c for c in pv_display.columns if c in final_order]
     pv_styled = pv_display.style.applymap(highlight_changes, subset=change_cols)
 
-    # 5. 渲染表格
+    # 5. 渲染表格，高度刚好包裹内容，无多余空白
     st.dataframe(
         pv_styled,
         use_container_width=True,
-        height=650,
+        height=min(750, len(pv_display) * 35 + 50),
         hide_index=True
     )
 

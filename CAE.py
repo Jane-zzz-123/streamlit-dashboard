@@ -674,9 +674,8 @@ st.markdown("""
 st.markdown("---")
 
 # ------------------------------------------------------
-# 空运成本深度分析（最终升级版）
-# 新增：总费用占比卡 + 全部指标卡环比对比
-# 风格1:1对齐主看板
+# 空运成本深度分析（最终无报错版）
+# 新增：总费用卡 + 占比 + 全部环比
 # ------------------------------------------------------
 st.markdown("---")
 st.header("📦 空运成本深度分析（红单 + 空派）")
@@ -687,7 +686,6 @@ def load_shipment_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_ship = pd.read_excel(url, sheet_name="货件明细")
 
-    # 清洗数据
     df_ship["开售时间"] = pd.to_datetime(df_ship["开售时间"], errors="coerce")
     df_ship["出货时间"] = pd.to_datetime(df_ship["出货时间"], errors="coerce")
     df_ship["月份"] = df_ship["月份"].astype(str).str.strip()
@@ -695,7 +693,7 @@ def load_shipment_data():
     return df_ship
 
 
-# 2. 读取主数据，计算全量总费用（用于占比计算）
+# 2. 读取主数据
 def load_main_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_main = pd.read_excel(url, sheet_name="数据")
@@ -706,25 +704,23 @@ def load_main_data():
 df_detail = load_shipment_data()
 df_main = load_main_data()
 
-# 3. 只保留空运渠道
+# 3. 只保留空运
 air_list = ["红单", "空派"]
 df_air = df_detail[df_detail["实际物流方式"].isin(air_list)].copy()
 
-# -------------------------- 筛选器（双单选，风格统一） --------------------------
+# -------------------------- 筛选器 --------------------------
 col1, col2 = st.columns(2)
 
 with col1:
-    # 月份单选下拉框，默认最新月份
     month_sorted = sorted(df_air["月份"].dropna().unique())
     default_month = month_sorted[-1] if len(month_sorted) > 0 else None
     selected_month = st.selectbox("选择月份", month_sorted, index=month_sorted.index(default_month))
 
 with col2:
-    # 物流方式单选下拉框，默认「全部」
     logistics_options = ["全部"] + sorted(df_air["实际物流方式"].unique())
     selected_logistics = st.selectbox("实际物流方式", logistics_options, index=0)
 
-# 应用筛选逻辑
+# 应用筛选
 if selected_logistics == "全部":
     df_filtered = df_air[df_air["月份"] == selected_month].copy()
 else:
@@ -737,174 +733,127 @@ if df_filtered.empty:
     st.warning("⚠️ 当前筛选条件下无数据")
     st.stop()
 
-# -------------------------- 核心计算：环比 + 全量占比 --------------------------
-# 1. 计算上月月份
-month_num = int(selected_month)
-last_month = str(month_num - 1) if month_num > 1 else None
-
-# 2. 计算全量总费用（含海运）
-total_all_cost = df_main[df_main["月份"] == selected_month]["总费用"].sum()
-last_total_all_cost = df_main[df_main["月份"] == last_month]["总费用"].sum() if last_month in df_main[
-    "月份"].values else 0
-
-# 3. 计算当月空运各项费用
-current_summary = df_filtered.groupby("成本类型")["分摊总费用"].sum().reset_index()
-current_dict = dict(zip(current_summary["成本类型"], current_summary["分摊总费用"]))
-
-# 4. 计算上月空运各项费用
-if selected_logistics == "全部":
-    last_df = df_air[df_air["月份"] == last_month].copy()
+# -------------------------- 自动获取上月（安全版，不报错） --------------------------
+month_list = sorted(df_air["月份"].dropna().unique())
+if selected_month in month_list:
+    idx = month_list.index(selected_month)
+    last_month = month_list[idx - 1] if idx > 0 else None
 else:
-    last_df = df_air[
-        (df_air["月份"] == last_month) &
-        (df_air["实际物流方式"] == selected_logistics)
-        ].copy()
+    last_month = None
 
-last_summary = last_df.groupby("成本类型")["分摊总费用"].sum().reset_index()
-last_dict = dict(zip(last_summary["成本类型"], last_summary["分摊总费用"]))
-
-# 5. 提取各项数值
-# 当月
+# -------------------------- 计算费用 --------------------------
 current_total = df_filtered["分摊总费用"].sum()
-current_first = current_dict.get("新品首批发货", 0)
-current_replenish = current_dict.get("新品期补货空运", 0)
-current_emergency = current_dict.get("老品应急空运", 0)
 
-# 上月
-last_total = last_df["分摊总费用"].sum() if not last_df.empty else 0
-last_first = last_dict.get("新品首批发货", 0)
-last_replenish = last_dict.get("新品期补货空运", 0)
-last_emergency = last_dict.get("老品应急空运", 0)
+# 上月空运
+if last_month is not None:
+    if selected_logistics == "全部":
+        last_df = df_air[df_air["月份"] == last_month].copy()
+    else:
+        last_df = df_air[(df_air["月份"] == last_month) & (df_air["实际物流方式"] == selected_logistics)].copy()
+    last_total = last_df["分摊总费用"].sum() if not last_df.empty else 0
+else:
+    last_total = 0
 
-# 6. 计算占比
-air_ratio = (current_total / total_all_cost * 100).round(1) if total_all_cost > 0 else 0
-last_air_ratio = (last_total / last_total_all_cost * 100).round(1) if last_total_all_cost > 0 else 0
+# 全平台总费用（含海运）
+total_all_cost = df_main[df_main["月份"] == selected_month]["总费用"].sum()
+last_total_all_cost = df_main[df_main["月份"] == last_month]["总费用"].sum() if (
+            last_month is not None and last_month in df_main["月份"].values) else 0
+
+air_ratio = (current_total / total_all_cost * 100).round(1) if total_all_cost != 0 else 0
+last_air_ratio = (last_total / last_total_all_cost * 100).round(1) if (
+            last_total_all_cost != 0 and last_total != 0) else 0
+
+# 成本类型拆分
+current_detail = df_filtered.groupby("成本类型")["分摊总费用"].sum()
+last_detail = last_df.groupby("成本类型")["分摊总费用"].sum() if last_month is not None else pd.Series(dtype=float)
 
 
-# 7. 计算环比变化
-def calc_change(current, last):
-    diff = current - last
+def get_val(s, key):
+    return s.get(key, 0)
+
+
+current_first = get_val(current_detail, "新品首批发货")
+current_replen = get_val(current_detail, "新品期补货空运")
+current_emergency = get_val(current_detail, "老品应急空运")
+
+last_first = get_val(last_detail, "新品首批发货")
+last_replen = get_val(last_detail, "新品期补货空运")
+last_emergency = get_val(last_detail, "老品应急空运")
+
+
+# -------------------------- 环比文字 --------------------------
+def change(current, last):
     if last == 0:
-        return "↑ 新增" if diff > 0 else "→ 0"
-    pct = (diff / last * 100).round(1)
-    if diff > 0:
-        return f"↑ {diff:,.0f} (上月: ${last:,.0f})"
-    elif diff < 0:
-        return f"↓ {abs(diff):,.0f} (上月: ${last:,.0f})"
-    else:
-        return "→ 0 (上月: ${last:,.0f})"
+        return f"→ 无上月数据"
+    diff = current - last
+    pct = (diff / last) * 100
+    sign = "↑" if diff > 0 else "↓" if diff < 0 else "→"
+    return f"{sign} ${abs(diff):,.0f} (上月 ${last:,.0f})"
 
 
-# -------------------------- 指标卡展示（5张卡，1:1对齐主看板） --------------------------
+# -------------------------- 指标卡（你要的样式 ✅） --------------------------
 st.subheader("🎯 空运成本结构概览")
-col1, col2, col3, col4, col5 = st.columns(5)
 
-# 第1张：空运总费用 + 全量占比
-with col1:
-    change_text = calc_change(current_total, last_total)
+c1, c2, c3, c4 = st.columns(4)
+
+with c1:
+    chg = change(current_total, last_total)
     st.markdown(f"""
-    <div style='background:#f8f9fa; padding:20px; border-radius:12px; text-align:center; border:1px solid #e9ecef'>
-        <div style='font-size:18px; font-weight:500; margin-bottom:10px;'>空运总费用</div>
-        <div style='font-size:28px; font-weight:bold; margin-bottom:8px;'>${current_total:,.0f}</div>
-        <div style='font-size:14px; margin-bottom:5px;'>占总费用 {air_ratio}%</div>
-        <div style='font-size:14px; color:{"#dc3545" if "↑" in change_text else "#28a745"};'>{change_text}</div>
-    </div>
-    """, unsafe_allow_html=True)
+<div style="background:#e9ecef; padding:16px; border-radius:12px; text-align:center">
+    <div style="font-size:15px">空运总费用</div>
+    <div style="font-size:24px; font-weight:bold">${current_total:,.0f}</div>
+    <div style="font-size:13px">占整体 {air_ratio}%</div>
+    <div style="font-size:13px; color:{'#dc3545' if '↑' in chg else '#28a745'}">{chg}</div>
+</div>
+""", unsafe_allow_html=True)
 
-# 第2张：新品首批发货
-with col2:
-    change_text = calc_change(current_first, last_first)
+with c2:
+    chg = change(current_first, last_first)
     st.markdown(f"""
-    <div style='background:#e6f9f4; padding:20px; border-radius:12px; text-align:center; border:1px solid #d1e7dd'>
-        <div style='font-size:18px; font-weight:500; margin-bottom:10px;'>新品首批发货</div>
-        <div style='font-size:28px; font-weight:bold; margin-bottom:8px;'>${current_first:,.0f}</div>
-        <div style='font-size:14px; margin-bottom:5px;'>占空运 {(current_first / current_total * 100).round(1)}%</div>
-        <div style='font-size:14px; color:{"#dc3545" if "↑" in change_text else "#28a745"};'>{change_text}</div>
-    </div>
-    """, unsafe_allow_html=True)
+<div style="background:#2a9d8f; padding:16px; border-radius:12px; text-align:center; color:white">
+    <div style="font-size:15px">新品首批发货</div>
+    <div style="font-size:24px; font-weight:bold">${current_first:,.0f}</div>
+    <div style="font-size:13px">占空运 {(current_first / current_total * 100).round(1)}%</div>
+    <div style="font-size:13px">{chg}</div>
+</div>
+""", unsafe_allow_html=True)
 
-# 第3张：新品期补货空运
-with col3:
-    change_text = calc_change(current_replenish, last_replenish)
+with c3:
+    chg = change(current_replen, last_replen)
     st.markdown(f"""
-    <div style='background:#fff3e0; padding:20px; border-radius:12px; text-align:center; border:1px solid #ffeeba'>
-        <div style='font-size:18px; font-weight:500; margin-bottom:10px;'>新品期补货空运</div>
-        <div style='font-size:28px; font-weight:bold; margin-bottom:8px;'>${current_replenish:,.0f}</div>
-        <div style='font-size:14px; margin-bottom:5px;'>占空运 {(current_replenish / current_total * 100).round(1)}%</div>
-        <div style='font-size:14px; color:{"#dc3545" if "↑" in change_text else "#28a745"};'>{change_text}</div>
-    </div>
-    """, unsafe_allow_html=True)
+<div style="background:#f4a261; padding:16px; border-radius:12px; text-align:center; color:white">
+    <div style="font-size:15px">新品期补货空运</div>
+    <div style="font-size:24px; font-weight:bold">${current_replen:,.0f}</div>
+    <div style="font-size:13px">占空运 {(current_replen / current_total * 100).round(1)}%</div>
+    <div style="font-size:13px">{chg}</div>
+</div>
+""", unsafe_allow_html=True)
 
-# 第4张：老品应急空运
-with col4:
-    change_text = calc_change(current_emergency, last_emergency)
+with c4:
+    chg = change(current_emergency, last_emergency)
     st.markdown(f"""
-    <div style='background:#e3f2fd; padding:20px; border-radius:12px; text-align:center; border:1px solid #cfe2ff'>
-        <div style='font-size:18px; font-weight:500; margin-bottom:10px;'>老品应急空运</div>
-        <div style='font-size:28px; font-weight:bold; margin-bottom:8px;'>${current_emergency:,.0f}</div>
-        <div style='font-size:14px; margin-bottom:5px;'>占空运 {(current_emergency / current_total * 100).round(1)}%</div>
-        <div style='font-size:14px; color:{"#dc3545" if "↑" in change_text else "#28a745"};'>{change_text}</div>
-    </div>
-    """, unsafe_allow_html=True)
+<div style="background:#3498db; padding:16px; border-radius:12px; text-align:center; color:white">
+    <div style="font-size:15px">老品应急空运</div>
+    <div style="font-size:24px; font-weight:bold">${current_emergency:,.0f}</div>
+    <div style="font-size:13px">占空运 {(current_emergency / current_total * 100).round(1)}%</div>
+    <div style="font-size:13px">{chg}</div>
+</div>
+""", unsafe_allow_html=True)
 
-# 第5张：空运占比环比
-with col5:
-    ratio_diff = air_ratio - last_air_ratio
-    if ratio_diff > 0:
-        ratio_text = f"↑ {ratio_diff}pct (上月: {last_air_ratio}%)"
-        color = "#dc3545"
-    elif ratio_diff < 0:
-        ratio_text = f"↓ {abs(ratio_diff)}pct (上月: {last_air_ratio}%)"
-        color = "#28a745"
-    else:
-        ratio_text = "→ 0pct (上月: {last_air_ratio}%)"
-        color = "#6c757d"
-
-    st.markdown(f"""
-    <div style='background:#f3e5f5; padding:20px; border-radius:12px; text-align:center; border:1px solid #e1bee7'>
-        <div style='font-size:18px; font-weight:500; margin-bottom:10px;'>空运占比环比</div>
-        <div style='font-size:28px; font-weight:bold; margin-bottom:8px;'>{air_ratio}%</div>
-        <div style='font-size:14px; color:{color};'>{ratio_text}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# -------------------------- 月度趋势图 --------------------------
+# -------------------------- 图表 --------------------------
 st.subheader("📈 月度成本趋势")
-# 趋势图默认展示全量数据，不受物流方式筛选影响，方便看整体变化
-trend_data = df_air[df_air["月份"] <= selected_month]
-trend_data = trend_data.groupby(["月份", "成本类型"])["分摊总费用"].sum().reset_index()
+trend = df_air.groupby(["月份", "成本类型"])["分摊总费用"].sum().reset_index()
+color_map = {"新品首批发货": "#2a9d8f", "新品期补货空运": "#f4a261", "老品应急空运": "#3498db"}
+fig = px.bar(trend, x="月份", y="分摊总费用", color="成本类型", color_discrete_map=color_map)
+st.plotly_chart(fig, use_container_width=True)
 
-color_map = {
-    "新品首批发货": "#2a9d8f",
-    "新品期补货空运": "#f4a261",
-    "老品应急空运": "#3498db"
-}
+st.subheader("🥧 成本结构占比")
+pie_data = df_filtered.groupby("成本类型")["分摊总费用"].sum().reset_index()
+fig2 = px.pie(pie_data, values="分摊总费用", names="成本类型", color_discrete_map=color_map, hole=0.4)
+st.plotly_chart(fig2, use_container_width=True)
 
-fig_trend = px.bar(trend_data, x="月份", y="分摊总费用", color="成本类型",
-                   color_discrete_map=color_map, barmode="stack")
-st.plotly_chart(fig_trend, use_container_width=True)
-
-# -------------------------- 成本结构饼图 --------------------------
-st.subheader("🥧 成本类型占比")
-cost_summary = df_filtered.groupby("成本类型").agg(
-    总费用=("分摊总费用", "sum"),
-    总重量=("总重量", "sum"),
-    总申报量=("申报量", "sum")
-).reset_index()
-
-fig_pie = px.pie(cost_summary, values="总费用", names="成本类型",
-                 color_discrete_map=color_map, hole=0.4)
-st.plotly_chart(fig_pie, use_container_width=True)
-
-# -------------------------- 明细表格 --------------------------
 st.subheader("📋 空运成本明细")
-table_df = df_filtered.groupby(["月份", "实际物流方式", "成本类型"]).agg(
-    总费用=("分摊总费用", "sum"),
-    总重量=("总重量", "sum"),
-    总申报量=("申报量", "sum")
+table = df_filtered.groupby(["月份", "实际物流方式", "成本类型"]).agg(
+    总费用=("分摊总费用", "sum"), 总重量=("总重量", "sum")
 ).reset_index()
-
-table_df["总费用"] = table_df["总费用"].round(2)
-table_df["总重量"] = table_df["总重量"].round(2)
-
-st.dataframe(table_df, use_container_width=True, height=400)
+st.dataframe(table.round(2), use_container_width=True)

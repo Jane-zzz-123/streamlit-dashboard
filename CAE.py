@@ -674,9 +674,8 @@ st.markdown("""
 st.markdown("---")
 
 # ------------------------------------------------------
-# 空运成本深度分析（口径标准最终版）
-# 占比分母：取自 数据 sheet 当月全部总费用
-# 空运分子：取自 货件明细 当月红单+空派分摊总费用
+# 空运成本深度分析（占比最终修复版）
+# 修复：月份字段类型不匹配导致占比为0的问题
 # ------------------------------------------------------
 st.markdown("---")
 st.header("📦 空运成本深度分析（红单 + 空派）")
@@ -689,17 +688,18 @@ def load_shipment_data():
 
     df_ship["开售时间"] = pd.to_datetime(df_ship["开售时间"], errors="coerce")
     df_ship["出货时间"] = pd.to_datetime(df_ship["出货时间"], errors="coerce")
-    df_ship["月份"] = df_ship["月份"].astype(str).str.strip()
+    # 月份统一处理为【数字】，和主数据对齐
+    df_ship["月份"] = pd.to_numeric(df_ship["月份"], errors="coerce")
 
     return df_ship
 
 
-# 2. 读取主数据【数据sheet】用于拿整体全月总费用
+# 2. 读取主数据【数据sheet】
 def load_main_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_main = pd.read_excel(url, sheet_name="数据")
-    df_main["月份"] = df_main["月份"].astype(str).str.strip()
-    # 费用转为数值
+    # 月份统一处理为【数字】，和货件明细对齐
+    df_main["月份"] = pd.to_numeric(df_main["月份"], errors="coerce")
     df_main["总费用"] = pd.to_numeric(df_main["总费用"], errors="coerce").fillna(0)
     return df_main
 
@@ -707,7 +707,7 @@ def load_main_data():
 df_detail = load_shipment_data()
 df_main = load_main_data()
 
-# 只保留红单、空派
+# 3. 只保留空运
 air_list = ["红单", "空派"]
 df_air = df_detail[df_detail["实际物流方式"].isin(air_list)].copy()
 
@@ -723,7 +723,7 @@ with col2:
     logistics_options = ["全部"] + sorted(df_air["实际物流方式"].unique())
     selected_logistics = st.selectbox("实际物流方式", logistics_options, index=0)
 
-# 筛选货件明细空运数据
+# 应用筛选
 if selected_logistics == "全部":
     df_filtered = df_air[df_air["月份"] == selected_month].copy()
 else:
@@ -736,19 +736,19 @@ if df_filtered.empty:
     st.warning("⚠️ 当前筛选条件下无数据")
     st.stop()
 
-# -------------------------- 取上月（按已有月份列表顺序，不转数字防报错） --------------------------
+# -------------------------- 自动获取上月 --------------------------
 month_list = sorted(df_air["月份"].dropna().unique())
 idx = month_list.index(selected_month)
 last_month = month_list[idx - 1] if idx > 0 else None
 
-# ====================== 核心口径【固定】======================
-# 分子：当月空运总费用（货件明细）
+# ====================== 核心计算（类型对齐，占比100%正确）======================
+# 1. 当月空运总费用（货件明细）
 current_air_total = df_filtered["分摊总费用"].sum()
 
-# 分母：当月整体全部物流费用（从 数据sheet 取）
+# 2. 当月整体总费用（数据sheet，类型完全匹配）
 current_all_total = df_main[df_main["月份"] == selected_month]["总费用"].sum()
 
-# 上月空运、上月整体
+# 3. 上月数据
 last_air_total = 0
 last_all_total = 0
 if last_month is not None:
@@ -759,12 +759,12 @@ if last_month is not None:
     last_air_total = last_df["分摊总费用"].sum()
     last_all_total = df_main[df_main["月份"] == last_month]["总费用"].sum()
 
-# 计算空运占整体比例
+# 4. 计算占比（现在类型完全匹配，不会再是0）
 air_ratio = 0
 if current_all_total > 0:
     air_ratio = round(current_air_total / current_all_total * 100, 1)
 
-# 各成本类型拆分
+# 5. 成本类型拆分
 current_gb = df_filtered.groupby("成本类型")["分摊总费用"].sum()
 last_gb = last_df.groupby("成本类型")["分摊总费用"].sum() if last_month else pd.Series(dtype=float)
 

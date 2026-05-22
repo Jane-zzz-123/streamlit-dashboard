@@ -778,15 +778,48 @@ with c4:
     st.markdown(f"""<div style='background:#3498db;color:white;padding:20px;border-radius:12px;text-align:center'><h4>老品应急</h4><h2>¥{curr3:,.0f}</h2><p>{round(curr3/current_air_total*100,1) if current_air_total else 0}%</p><p>{chg}</p></div>""", unsafe_allow_html=True)
 
 # -------------------------- 一行两列图表 --------------------------
+# -------------------------- 一行两列图表（受物流方式筛选器联动） --------------------------
 st.subheader("📊 成本趋势 & 占比")
-color_map = {"新品首批发货":"#2a9d8f","新品期补货空运":"#f4a261","老品应急空运":"#3498db"}
-left, right = st.columns(2)
-with left:
-    trend = df_air.groupby(["月份","成本类型"])["分摊总费用"].sum().reset_index()
-    st.plotly_chart(px.bar(trend,x="月份",y="分摊总费用",color="成本类型",color_discrete_map=color_map), use_container_width=True)
-with right:
-    pie = df_filtered.groupby("成本类型")["分摊总费用"].sum().reset_index()
-    st.plotly_chart(px.pie(pie,values="分摊总费用",names="成本类型",color_discrete_map=color_map,hole=0.4), use_container_width=True)
+chart_col1, chart_col2 = st.columns(2)
+color_map = {
+    "新品首批发货": "#2a9d8f",
+    "新品期补货空运": "#f4a261",
+    "老品应急空运": "#3498db"
+}
+
+# 左图：月度成本趋势（受物流方式筛选器控制）
+with chart_col1:
+    st.markdown("**月度成本趋势**")
+    # 联动筛选：选了全部就看全部，选了单渠道就只看该渠道
+    if selected_logistics == "全部":
+        trend_df = df_air.groupby(["月份", "成本类型"])["分摊总费用"].sum().reset_index()
+    else:
+        trend_df = df_air[df_air["实际物流方式"] == selected_logistics].groupby(["月份", "成本类型"])[
+            "分摊总费用"].sum().reset_index()
+
+    fig_trend = px.bar(
+        trend_df,
+        x="月份",
+        y="分摊总费用",
+        color="成本类型",
+        color_discrete_map=color_map,
+        barmode="stack"
+    )
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+# 右图：成本结构占比（受物流方式筛选器控制）
+with chart_col2:
+    st.markdown("**成本结构占比**")
+    # 占比图直接用筛选后的df_filtered，已经受筛选器控制
+    pie_df = df_filtered.groupby("成本类型")["分摊总费用"].sum().reset_index()
+    fig_pie = px.pie(
+        pie_df,
+        values="分摊总费用",
+        names="成本类型",
+        color_discrete_map=color_map,
+        hole=0.4
+    )
+    st.plotly_chart(fig_pie, use_container_width=True)
 
 # -------------------------- 完整明细表 --------------------------
 st.subheader("📋 货件明细列表")

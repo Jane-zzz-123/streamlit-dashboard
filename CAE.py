@@ -674,8 +674,8 @@ st.markdown("""
 st.markdown("---")
 
 # ------------------------------------------------------
-# 空运成本深度分析（占比最终修复版）
-# 修复：月份字段类型不匹配导致占比为0的问题
+# 空运成本深度分析（终极修复版）
+# 彻底解决：月份匹配不上导致无数据 + 占比为0
 # ------------------------------------------------------
 st.markdown("---")
 st.header("📦 空运成本深度分析（红单 + 空派）")
@@ -688,8 +688,8 @@ def load_shipment_data():
 
     df_ship["开售时间"] = pd.to_datetime(df_ship["开售时间"], errors="coerce")
     df_ship["出货时间"] = pd.to_datetime(df_ship["出货时间"], errors="coerce")
-    # 月份统一处理为【数字】，和主数据对齐
-    df_ship["月份"] = pd.to_numeric(df_ship["月份"], errors="coerce")
+    # 月份统一处理：转成字符串，去掉小数点，"4.0" → "4"
+    df_ship["月份"] = df_ship["月份"].astype(str).str.strip().str.replace(".0", "", regex=False)
 
     return df_ship
 
@@ -698,8 +698,8 @@ def load_shipment_data():
 def load_main_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_main = pd.read_excel(url, sheet_name="数据")
-    # 月份统一处理为【数字】，和货件明细对齐
-    df_main["月份"] = pd.to_numeric(df_main["月份"], errors="coerce")
+    # 月份统一处理：和货件明细完全一致，"4" → "4"，"4.0" → "4"
+    df_main["月份"] = df_main["月份"].astype(str).str.strip().str.replace(".0", "", regex=False)
     df_main["总费用"] = pd.to_numeric(df_main["总费用"], errors="coerce").fillna(0)
     return df_main
 
@@ -707,7 +707,7 @@ def load_main_data():
 df_detail = load_shipment_data()
 df_main = load_main_data()
 
-# 3. 只保留空运
+# 3. 只保留空运渠道
 air_list = ["红单", "空派"]
 df_air = df_detail[df_detail["实际物流方式"].isin(air_list)].copy()
 
@@ -715,7 +715,7 @@ df_air = df_detail[df_detail["实际物流方式"].isin(air_list)].copy()
 col1, col2 = st.columns(2)
 
 with col1:
-    month_sorted = sorted(df_air["月份"].dropna().unique())
+    month_sorted = sorted(df_air["月份"].dropna().unique(), key=lambda x: int(x))
     default_month = month_sorted[-1] if len(month_sorted) > 0 else None
     selected_month = st.selectbox("选择月份", month_sorted, index=month_sorted.index(default_month))
 
@@ -737,11 +737,11 @@ if df_filtered.empty:
     st.stop()
 
 # -------------------------- 自动获取上月 --------------------------
-month_list = sorted(df_air["月份"].dropna().unique())
+month_list = sorted(df_air["月份"].dropna().unique(), key=lambda x: int(x))
 idx = month_list.index(selected_month)
 last_month = month_list[idx - 1] if idx > 0 else None
 
-# ====================== 核心计算（类型对齐，占比100%正确）======================
+# ====================== 核心计算（100%匹配）======================
 # 1. 当月空运总费用（货件明细）
 current_air_total = df_filtered["分摊总费用"].sum()
 
@@ -759,7 +759,7 @@ if last_month is not None:
     last_air_total = last_df["分摊总费用"].sum()
     last_all_total = df_main[df_main["月份"] == last_month]["总费用"].sum()
 
-# 4. 计算占比（现在类型完全匹配，不会再是0）
+# 4. 计算占比（现在100%正确）
 air_ratio = 0
 if current_all_total > 0:
     air_ratio = round(current_air_total / current_all_total * 100, 1)

@@ -672,3 +672,101 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown("---")
+
+# ------------------------------------------------------
+# 【新增：空运成本深度分析（红单+空派）】
+# ------------------------------------------------------
+st.markdown("---")
+st.header("📦 空运成本深度分析（红单 + 空派）")
+
+# 读取 货件明细 数据（和你原有代码风格完全一致）
+def load_shipment_data():
+    url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
+    df_ship = pd.read_excel(url, sheet_name="货件明细")  # 读取你新增的sheet
+    return df_ship
+
+# 加载数据
+df_detail = load_shipment_data()
+
+# 时间清洗（统一格式，防止报错）
+df_detail["开售时间"] = pd.to_datetime(df_detail["开售时间"], errors="coerce")
+df_detail["出货时间"] = pd.to_datetime(df_detail["出货时间"], errors="coerce")
+df_detail["月份"] = df_detail["月份"].astype(str)
+
+# 只保留空运：红单 + 空派
+air_list = ["红单", "空派"]
+df_air = df_detail[df_detail["实际物流方式"].isin(air_list)].copy()
+
+# -------------------------- 筛选器 --------------------------
+st.sidebar.markdown("### 🔍 空运专项筛选")
+month_list = sorted(df_air["月份"].astype(str).unique(), reverse=False)
+default_months = month_list[-3:] if len(month_list) >=3 else month_list
+
+select_months = st.sidebar.multiselect("月份", month_list, default=default_months)
+select_logistics = st.sidebar.multiselect("物流方式", sorted(df_air["实际物流方式"].unique()), default=["红单","空派"])
+
+# 应用筛选
+df = df_air[
+    (df_air["月份"].isin(select_months)) &
+    (df_air["实际物流方式"].isin(select_logistics))
+].copy()
+
+if df.empty:
+    st.warning("当前筛选条件下无空运数据")
+    st.stop()
+
+# -------------------------- 核心指标：成本类型汇总 --------------------------
+st.subheader("🎯 空运成本结构概览")
+cost_type_sum = df.groupby("成本类型").agg(
+    总费用=("分摊总费用", "sum"),
+    总重量=("总重量", "sum"),
+    总申报量=("申报量", "sum")
+).reset_index()
+
+total_cost = df["分摊总费用"].sum()
+cost_type_sum["占比"] = (cost_type_sum["总费用"] / total_cost * 100).round(1).astype(str) + "%"
+
+# 指标卡展示
+cols = st.columns(len(cost_type_sum))
+for idx, row in cost_type_sum.iterrows():
+    with cols[idx]:
+        bg = "#2a9d8f" if "首批" in row["成本类型"] else "#f4a261" if "补货" in row["成本类型"] else "#3498db"
+        st.markdown(f"""
+        <div style='background-color:{bg}; padding:16px; border-radius:12px; color:white; text-align:center'>
+            <div style='font-size:15px'>{row['成本类型']}</div>
+            <div style='font-size:22px; font-weight:bold'>${row['总费用']:,.0f}</div>
+            <div style='font-size:13px'>占比 {row['占比']}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+# -------------------------- 按月趋势图 --------------------------
+st.subheader("📈 月度空运成本趋势")
+trend_df = df.groupby(["月份", "成本类型"])["分摊总费用"].sum().reset_index()
+fig_trend = px.bar(
+    trend_df, x="月份", y="分摊总费用", color="成本类型",
+    title="各成本类型月度费用趋势", barmode="stack"
+)
+st.plotly_chart(fig_trend, use_container_width=True)
+
+# -------------------------- 成本结构饼图 --------------------------
+st.subheader("🥧 空运成本占比分布")
+fig_pie = px.pie(
+    cost_type_sum, values="总费用", names="成本类型", hole=0.4,
+    color="成本类型", title="空运成本结构（新品/老品/补货）"
+)
+st.plotly_chart(fig_pie, use_container_width=True)
+
+# -------------------------- 明细汇总表 --------------------------
+st.subheader("📋 空运成本明细汇总")
+table_df = df.groupby(["月份", "实际物流方式", "成本类型"]).agg(
+    总费用=("分摊总费用", "sum"),
+    总重量=("总重量", "sum"),
+    总申报量=("申报量", "sum")
+).reset_index()
+
+table_df["总费用"] = table_df["总费用"].round(2)
+table_df["总重量"] = table_df["总重量"].round(2)
+
+st.dataframe(table_df, use_container_width=True, height=400)
+
+st.success("✅ 空运成本深度分析已加载完成")

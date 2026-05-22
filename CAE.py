@@ -674,8 +674,8 @@ st.markdown("""
 st.markdown("---")
 
 # ------------------------------------------------------
-# 空运成本深度分析（最终极简版）
-# 按月单选 + 物流方式筛选
+# 空运成本深度分析（最终完美版）
+# 月份单选 + 物流方式单选（默认全部）
 # ------------------------------------------------------
 st.markdown("---")
 st.header("📦 空运成本深度分析（红单 + 空派）")
@@ -700,25 +700,28 @@ df_detail = load_shipment_data()
 air_list = ["红单", "空派"]
 df_air = df_detail[df_detail["实际物流方式"].isin(air_list)].copy()
 
-# -------------------------- 筛选器 --------------------------
+# -------------------------- 筛选器（双单选，风格统一） --------------------------
 col1, col2 = st.columns(2)
 
 with col1:
-    # 月份 单选下拉框，默认最新月份
+    # 月份单选下拉框，默认最新月份
     month_sorted = sorted(df_air["月份"].dropna().unique())
     default_month = month_sorted[-1] if len(month_sorted) > 0 else None
     selected_month = st.selectbox("选择月份", month_sorted, index=month_sorted.index(default_month))
 
 with col2:
-    # 物流方式筛选，默认全选
-    logistics_options = sorted(df_air["实际物流方式"].unique())
-    selected_logistics = st.multiselect("实际物流方式", logistics_options, default=logistics_options)
+    # 物流方式单选下拉框，默认「全部」
+    logistics_options = ["全部"] + sorted(df_air["实际物流方式"].unique())
+    selected_logistics = st.selectbox("实际物流方式", logistics_options, index=0)
 
-# 应用筛选
-df_filtered = df_air[
-    (df_air["月份"] == selected_month) &
-    (df_air["实际物流方式"].isin(selected_logistics))
-    ].copy()
+# 应用筛选逻辑
+if selected_logistics == "全部":
+    df_filtered = df_air[df_air["月份"] == selected_month].copy()
+else:
+    df_filtered = df_air[
+        (df_air["月份"] == selected_month) &
+        (df_air["实际物流方式"] == selected_logistics)
+        ].copy()
 
 if df_filtered.empty:
     st.warning("⚠️ 当前筛选条件下无数据")
@@ -756,7 +759,8 @@ for i, row in cost_summary.iterrows():
 
 # -------------------------- 月度趋势图 --------------------------
 st.subheader("📈 月度成本趋势")
-trend_data = df_air[df_air["实际物流方式"].isin(selected_logistics)]
+# 趋势图默认展示全量数据，不受物流方式筛选影响，方便看整体变化
+trend_data = df_air[df_air["月份"] <= selected_month]
 trend_data = trend_data.groupby(["月份", "成本类型"])["分摊总费用"].sum().reset_index()
 
 fig_trend = px.bar(trend_data, x="月份", y="分摊总费用", color="成本类型",

@@ -874,13 +874,25 @@ with table_col:
     summary_table["总重量"] = summary_table["总重量"].round(2)
     st.dataframe(summary_table, use_container_width=True, height=450)
 
-# -------------------------- 4. 最下面：每一个MSKU的原始明细表 --------------------------
+# -------------------------- 空运原始明细（按MSKU）模块 --------------------------
 st.subheader("📦 空运原始明细（按MSKU）")
+
+# 新增：仅控制原始明细的成本类型筛选器
+detail_cost_options = ["全部"] + sorted(df_filtered["成本类型"].unique())
+detail_selected_cost = st.selectbox("筛选成本类型", detail_cost_options, index=0, key="detail_cost_filter")
+
+# 筛选原始明细数据（仅作用于本表，不影响其他模块）
+if detail_selected_cost == "全部":
+    detail_table = df_filtered.copy()
+else:
+    detail_table = df_filtered[df_filtered["成本类型"] == detail_selected_cost].copy()
+
+# 展示筛选后的原始明细表
 show_cols = [
     "月份", "实际物流方式", "成本类型", "开售时间", "出货时间",
     "总重量", "分摊总费用", "货件单号", "MSKU", "品名", "申报量"
 ]
-raw_table = df_filtered[show_cols].copy()
-raw_table["总重量"] = raw_table["总重量"].round(2)
-raw_table["分摊总费用"] = raw_table["分摊总费用"].round(2)
-st.dataframe(raw_table, use_container_width=True, height=600)
+final_table = detail_table[show_cols].copy()
+final_table["总重量"] = final_table["总重量"].round(2)
+final_table["分摊总费用"] = final_table["分摊总费用"].round(2)
+st.dataframe(final_table, use_container_width=True, height=600)

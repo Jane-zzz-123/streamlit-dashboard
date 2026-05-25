@@ -330,9 +330,29 @@ st.markdown("---")
 # ==============================================================================
 # 💰 第四部分：单价 & 总金额明细分析
 # ==============================================================================
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import numpy as np
+
+# ====================== 【新增】顶部费用计算公式说明 ======================
 st.markdown("## 💰 单价 & 总金额明细（按物流方式）")
 
-# 计算函数
+formula_html = """
+<div style="background:#f8f9fa; padding:14px; border-radius:8px; margin-bottom:20px; border-left:4px solid #1f77b4;">
+<b>📌 费用计算公式说明</b>
+<ul style="margin:5px 0 0 20px; padding:0; line-height:1.7;">
+<li>运费 = 账单运费 + 附加费 + 运费税点</li>
+<li>总运费 = 报关费 + 报关费税点 + 运费</li>
+<li>入库配置费折算RMB = 入库配置费单价（美元） × 汇率</li>
+<li>总费用 = 总运费 + 入库配置费折算RMB</li>
+</ul>
+</div>
+"""
+st.markdown(formula_html, unsafe_allow_html=True)
+
+
+# ====================== 原有计算函数（不变） ======================
 def calc_unit_price(df_filtered, value_col):
     df_sum = df_filtered.groupby([group_col, "实际物流方式"], as_index=False).agg(
         总重量=("重量", "sum"),
@@ -347,6 +367,7 @@ def calc_unit_price(df_filtered, value_col):
     )
     return df_sum
 
+
 def calc_total_amount(df_filtered, value_col):
     df_sum = df_filtered.groupby([group_col, "实际物流方式"], as_index=False).agg(
         总金额=(value_col, "sum")
@@ -359,21 +380,82 @@ def calc_total_amount(df_filtered, value_col):
     )
     return df_sum
 
+
 # 计算3组指标
-# 总费用
 df_cost_unit = calc_unit_price(df, "总费用")
 df_cost_amt = calc_total_amount(df, "总费用")
-# 总运费
 df_freight_unit = calc_unit_price(df, "总运费")
 df_freight_amt = calc_total_amount(df, "总运费")
-# 入库配置费
 df_storage_unit = calc_unit_price(df, "入库配置费折算RMB")
 df_storage_amt = calc_total_amount(df, "入库配置费折算RMB")
 
-# 渲染函数：图表+表格完整展示
+
+# ====================== 【新增】自动生成：单价+总金额 文字总结 ======================
+def generate_summary(df_unit, df_amt):
+    try:
+        latest_p = sorted(df_unit[group_col].unique())[-1]
+    except:
+        return "<div>暂无数据</div>"
+
+    lines = []
+    for logi in sorted(df["实际物流方式"].unique()):
+        u = df_unit[(df_unit[group_col] == latest_p) & (df_unit["实际物流方式"] == logi)]
+        a = df_amt[(df_amt[group_col] == latest_p) & (df_amt["实际物流方式"] == logi)]
+
+        if u.empty or a.empty:
+            lines.append(f"- {logi}：无数据")
+            continue
+
+        ur = u.iloc[0]
+        ar = a.iloc[0]
+
+        # 单价
+        up = ur["折算单价"]
+        ud = ur["环比差值"]
+        upct = ur["环比幅度"]
+
+        # 金额
+        am = ar["总金额"]
+        ad = ar["环比差值"]
+        apct = ar["环比幅度"]
+
+        # 单价符号
+        if pd.isna(ud):
+            uinfo = f"单价：首期 ¥{up:.2f}"
+        else:
+            uarr = "↑" if ud > 0 else "↓"
+            uinfo = f"单价{uarr}¥{abs(ud):.2f}({uarr}{abs(upct):.1f}%) 现价¥{up:.2f}"
+
+        # 金额符号
+        if pd.isna(ad):
+            ainfo = f"金额：首期 ¥{am:,.0f}"
+        else:
+            aarr = "↑" if ad > 0 else "↓"
+            ainfo = f"金额{aarr}¥{abs(ad):,.0f}({aarr}{abs(apct):.1f}%) 本期¥{am:,.0f}"
+
+        line = f"- {logi}：{uinfo}｜{ainfo}"
+        lines.append(line)
+
+    html = '<div style="font-size:13px; line-height:1.7; margin-bottom:12px;">'
+    for l in lines:
+        if "↑" in l:
+            html += f'<div style="color:#d93025;">{l}</div>'
+        elif "↓" in l:
+            html += f'<div style="color:#009d5a;">{l}</div>'
+        else:
+            html += f'<div style="color:#666;">{l}</div>'
+    html += "</div>"
+    return html
+
+
+# ====================== 原有渲染函数（只加了一行总结） ======================
 def render_detail_section(col, title, df_unit, df_amt):
     with col:
         st.markdown(f"### {title}")
+
+        # ====================== 【新增】这里插入自动总结 ======================
+        st.markdown(generate_summary(df_unit, df_amt), unsafe_allow_html=True)
+
         all_logi = sorted(df["实际物流方式"].unique())
         sorted_vals = sorted(df_unit[group_col].unique())
 
@@ -417,8 +499,6 @@ def render_detail_section(col, title, df_unit, df_amt):
             unit_table += "</tr>"
         unit_table += "</table>"
         st.markdown(unit_table, unsafe_allow_html=True)
-
-        # 分割线
         st.markdown("---")
 
         # 总金额图表
@@ -462,7 +542,8 @@ def render_detail_section(col, title, df_unit, df_amt):
         amt_table += "</table>"
         st.markdown(amt_table, unsafe_allow_html=True)
 
-# 渲染3列明细
+
+# 渲染3列
 col1, col2, col3 = st.columns(3)
 render_detail_section(col1, "💰 总费用", df_cost_unit, df_cost_amt)
 render_detail_section(col2, "🚚 总运费", df_freight_unit, df_freight_amt)

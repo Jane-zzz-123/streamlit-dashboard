@@ -7,7 +7,7 @@ st.title("📊 月度库存滞销复盘看板")
 
 
 # ----------------------
-# 1. 加载数据（严格按你给的sheet名）
+# 1. 加载数据
 # ----------------------
 @st.cache_data
 def load_data():
@@ -17,7 +17,6 @@ def load_data():
     df_sale = pd.read_excel(file, sheet_name="销量数据-每月")
     df_pur = pd.read_excel(file, sheet_name="采购数据-每月")
 
-    # 只去空格，绝不改列名
     for df in [df_snap, df_prod, df_sale, df_pur]:
         df.columns = [c.strip() for c in df.columns]
     return df_snap, df_prod, df_sale, df_pur
@@ -26,25 +25,28 @@ def load_data():
 df_snap, df_prod, df_sale, df_pur = load_data()
 
 # ----------------------
-# 2. 时间转换（安全模式，绝不报错）
+# 2. 时间安全转换
 # ----------------------
 df_snap["时间"] = pd.to_datetime(df_snap["时间"], errors="coerce")
 df_sale["时间"] = pd.to_datetime(df_sale["时间"], errors="coerce")
 df_pur["采购日期"] = pd.to_datetime(df_pur["采购日期"], errors="coerce")
 
 # ----------------------
-# 3. 合并：补货 + 销量（MSKU+时间，完全正确）
+# 3. 合并：补货 + 销量
 # ----------------------
 df = df_snap.merge(df_sale, on=["MSKU", "时间"], how="left")
 df["销量"] = df["销量"].fillna(0)
 
 # ----------------------
-# 4. 合并商品信息
+# 4. 合并商品信息（只取需要的，避免店铺重复！）
 # ----------------------
-df = df.merge(df_prod[["MSKU", "店铺", "是否年份", "类别", "岁数"]], on="MSKU", how="left")
+df = df.merge(
+    df_prod[["MSKU", "是否年份", "类别", "岁数"]],  # 不再带店铺！
+    on="MSKU", how="left"
+)
 
 # ----------------------
-# 5. 库存 & 滞销金额（严格按你的规则）
+# 5. 库存 & 滞销金额（你的规则）
 # ----------------------
 df["海外库存"] = df["FBA库存"] + df["FBA在途"] + df["海外仓可用"] + df["海外仓在途"]
 df["本地库存"] = df["本地可用"] + df["待检待上架量"] + df["待交付"]
@@ -55,7 +57,7 @@ df["本地滞销金额"] = df["本地库存"] * df["采购成本"]
 df["总滞销金额"] = df["海外滞销金额"] + df["本地滞销金额"]
 
 # ----------------------
-# 6. 年前/年后采购（用MSKU关联，完全正确）
+# 6. 年前/年后采购
 # ----------------------
 pur_before = df_pur[df_pur["采购类型"] == "年前采购"].groupby("MSKU")["采购量"].sum().reset_index()
 pur_after = df_pur[df_pur["采购类型"] == "年后采购"].groupby("MSKU")["采购量"].sum().reset_index()
@@ -103,12 +105,13 @@ time_list = sorted(df["时间"].dt.strftime("%Y-%m-%d").dropna().unique())
 sel_time = st.selectbox("选择时间", time_list)
 df_view = df[df["时间"].dt.strftime("%Y-%m-%d") == sel_time].copy()
 
+# 店铺从补货表取，不会重复！
 shop_list = df_view["店铺"].dropna().unique()
 sel_shop = st.multiselect("选择店铺", shop_list, default=shop_list)
 df_view = df_view[df_view["店铺"].isin(sel_shop)]
 
 # ----------------------
-# 9. 展示看板
+# 9. 看板展示
 # ----------------------
 st.markdown("## 🎯 核心概览")
 c1, c2, c3, c4 = st.columns(4)
@@ -137,6 +140,8 @@ st.dataframe(df_view["滞销原因"].value_counts().reset_index())
 
 st.divider()
 st.markdown("## 商品明细")
-show_cols = ["店铺", "MSKU", "品名", "时间", "是否年份", "类别", "岁数", "总库存", "总滞销金额", "销量", "年前剩余库存",
-             "滞销原因"]
+show_cols = [
+    "店铺", "MSKU", "品名", "时间", "是否年份", "类别", "岁数",
+    "总库存", "总滞销金额", "销量", "年前剩余库存", "滞销原因"
+]
 st.dataframe(df_view[show_cols], use_container_width=True)

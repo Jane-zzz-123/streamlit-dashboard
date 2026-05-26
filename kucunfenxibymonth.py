@@ -3,10 +3,10 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-st.set_page_config(page_title="月度库存滞销复盘看板", layout="wide")
-st.title("📊 月度库存滞销复盘看板")
+st.set_page_config(page_title="库存滞销分析", layout="wide")
+st.title("📊 整体滞销情况分析")
 
-# ---------------------- 1. 加载数据 ----------------------
+# ================== 加载数据 ==================
 @st.cache_data
 def load_data():
     file = "moon-date.xlsx"
@@ -20,58 +20,43 @@ def load_data():
 
 df_snap, df_prod, df_sale, df_pur = load_data()
 
-# ---------------------- 2. 时间转换 ----------------------
+# ================== 时间格式化 ==================
 df_snap["时间"] = pd.to_datetime(df_snap["时间"], errors="coerce")
 df_sale["时间"] = pd.to_datetime(df_sale["时间"], errors="coerce")
-df_pur["采购日期"] = pd.to_datetime(df_pur["采购日期"], errors="coerce")
 
-# ---------------------- 3. 数据合并 ----------------------
-# 快照 + 销量 只关联不参与计算
-df = df_snap.merge(df_sale[["MSKU","时间","销量"]], on=["MSKU","时间"], how="left")
-df["销量"] = df["销量"].fillna(0)
+# ================== 合并数据 ==================
+df_merge = df_snap.merge(df_sale[["MSKU", "时间", "销量"]], on=["MSKU", "时间"], how="left")
+df_merge["销量"] = df_merge["销量"].fillna(0)
 
-# 商品信息
-df_prod_use = df_prod[["MSKU","是否年份","类别","岁数"]].drop_duplicates(subset=["MSKU"])
-df = df.merge(df_prod_use, on="MSKU", how="left")
+df_prod_use = df_prod[["MSKU", "是否年份", "类别", "岁数"]].drop_duplicates(subset=["MSKU"])
+df_merge = df_merge.merge(df_prod_use, on="MSKU", how="left")
 
-# 采购类型透视
-pur_pivot = df_pur.pivot_table(
-    index="MSKU", columns="采购类型", values="采购量", aggfunc="sum", fill_value=0
-).reset_index()
-pur_pivot.columns = [str(c).strip() for c in pur_pivot.columns]
-for c in ["年前采购","年后采购"]:
+# ================== 采购数据处理 ==================
+pur_pivot = df_pur.pivot_table(index="MSKU", columns="采购类型", values="采购量", aggfunc="sum", fill_value=0).reset_index()
+for c in ["年前采购", "年后采购"]:
     if c not in pur_pivot.columns:
         pur_pivot[c] = 0
-pur_pivot.rename(columns={"年前采购":"年前采购总量","年后采购":"年后采购总量"}, inplace=True)
-df = df.merge(pur_pivot[["MSKU","年前采购总量","年后采购总量"]], on="MSKU", how="left")
-df[["年前采购总量","年后采购总量"]] = df[["年前采购总量","年后采购总量"]].fillna(0)
+pur_pivot.rename(columns={"年前采购": "年前采购总量", "年后采购": "年后采购总量"}, inplace=True)
+df_merge = df_merge.merge(pur_pivot[["MSKU", "年前采购总量", "年后采购总量"]], on="MSKU", how="left")
 
-# ---------------------- 4. 库存&金额计算 ----------------------
-df["海外库存"] = df["FBA库存"] + df["FBA在途"] + df["海外仓可用"] + df["海外仓在途"]
-df["本地库存"] = df["本地可用"] + df["待检待上架量"] + df["待交付"]
-df["总库存"] = df["海外库存"] + df["本地库存"]
-df["年前剩余库存"] = np.maximum(0, df["总库存"] - df["年后采购总量"])
+# ================== 库存 & 金额计算 ==================
+df_merge["海外库存"] = (df_merge["FBA库存"] + df_merge["FBA在途"] + df_merge["海外仓可用"] + df_merge["海外仓在途"]).fillna(0)
+df_merge["本地库存"] = (df_merge["本地可用"] + df_merge["待检待上架量"] + df_merge["待交付"]).fillna(0)
+df_merge["总库存"] = df_merge["海外库存"] + df_merge["本地库存"]
+df_merge["总库存金额"] = df_merge["总库存"] * df_merge["采购成本"].fillna(0)
+df_merge["总滞销金额"] = (df_merge["海外库存"] * (df_merge["采购成本"] + df_merge["头程费用"]) + df_merge["本地库存"] * df_merge["采购成本"]).fillna(0)
 
-df["海外滞销金额"] = df["海外库存"] * (df["采购成本"] + df["头程费用"])
-df["本地滞销金额"] = df["本地库存"] * df["采购成本"]
-df["总滞销金额"] = df["海外滞销金额"] + df["本地滞销金额"]
-df["总库存金额"] = df["总库存"] * df["采购成本"]
+# ================== 周转天数（用原表 日均） ==================
+df_merge["日均"] = df_merge["日均"].fillna(0)
+df_merge["周转天数"] = np.where(df_merge["日均"] > 0, df_merge["总库存"] / df_merge["日均"], np.nan)
 
-# 周转天数：只用原表【日均】，不再自己算
-df["日均"] = df["日均"].fillna(0)
-df["周转天数"] = np.where(df["日均"]>0, df["总库存"]/df["日均"], np.nan)
-
-# ---------------------- 5. 年份品口径选择 ----------------------
-st.subheader("⚙️ 年份品滞销分析口径选择")
-year_type_option = st.radio(
-    "",
-    ["按照清库存口径（预计售罄时间）", "按照库存周转天数口径"],
-    horizontal=True
-)
+# ================== 年份品口径 ==================
+st.subheader("⚙️ 年份品计算口径")
+year_option = st.radio("", ["按照清库存口径", "按照周转天数口径"], horizontal=True)
 TARGET_CLEAR_DATE = datetime(2026, 10, 31)
 
-# ---------------------- 6. 滞销风险分级 ----------------------
-def get_stock_risk(row):
+# ================== 滞销风险判断 ==================
+def get_risk(row):
     is_year = str(row["是否年份"]).strip() == "是"
     turn = row["周转天数"]
     stock = row["总库存"]
@@ -79,7 +64,7 @@ def get_stock_risk(row):
     dt = row["时间"]
 
     if pd.isna(turn) or avg <= 0 or stock <= 0:
-        return "无日均/库存数据"
+        return "无数据"
 
     if not is_year:
         if turn <= 100:
@@ -91,82 +76,87 @@ def get_stock_risk(row):
         else:
             return "高滞销风险"
     else:
-        if year_type_option == "按照清库存口径（预计售罄时间）":
-            need_days = stock / avg
-            sell_dt = dt + timedelta(days=need_days)
+        if year_option == "按照清库存口径":
+            need = stock / avg
+            sell_dt = dt + timedelta(days=need)
             over = (sell_dt - TARGET_CLEAR_DATE).days
             if sell_dt <= TARGET_CLEAR_DATE:
                 return "健康"
-            elif 0 < over <=10:
+            elif 0 < over <= 10:
                 return "低滞销风险"
-            elif 10 < over <=20:
+            elif 10 < over <= 20:
                 return "中滞销风险"
             else:
                 return "高滞销风险"
         else:
             if turn <= 100:
                 return "健康"
-            elif 100 < turn <=150:
+            elif 100 < turn <= 150:
                 return "低滞销风险"
-            elif 150 < turn <=180:
+            elif 150 < turn <= 180:
                 return "中滞销风险"
             else:
                 return "高滞销风险"
 
-df["滞销风险等级"] = df.apply(get_stock_risk, axis=1)
+df_merge["滞销风险等级"] = df_merge.apply(get_risk, axis=1)
 
-# ---------------------- 7. 时间筛选 单选 默认最新 ----------------------
+# ================== 时间筛选 ==================
 st.divider()
-time_list = sorted(df["时间"].dt.strftime("%Y-%m-%d").dropna().unique())
-sel_time = st.selectbox("选择统计时间", time_list, index=len(time_list)-1)
+all_dates = sorted(df_merge["时间"].dt.strftime("%Y-%m-%d").dropna().unique())
+sel_date = st.selectbox("选择时间", all_dates, index=len(all_dates)-1)
+df_curr = df_merge[df_merge["时间"].dt.strftime("%Y-%m-%d") == sel_date].copy()
+df_prev = df_merge[df_merge["时间"].dt.strftime("%Y-%m-%d") == all_dates[-2]].copy() if len(all_dates) >= 2 else df_curr.copy()
 
-df_curr = df[df["时间"].dt.strftime("%Y-%m-%d") == sel_time].copy()
-# 上月
-df_prev = df.copy()
-if len(time_list)>=2:
-    prev_time = time_list[-2]
-    df_prev = df[df["时间"].dt.strftime("%Y-%m-%d") == prev_time].copy()
+# ================== 配色 & 标题 ==================
+colors = {
+    "整体": "#f0f0f0",
+    "健康": "#e6f9e6",
+    "低滞销风险": "#fff9e6",
+    "中滞销风险": "#fff2e6",
+    "高滞销风险": "#ffe6e6"
+}
 
-# ---------------------- 8. 核心：5个横排卡片 跟你截图版式一致 ----------------------
+titles = ["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+
+# ================== 计算指标 ==================
+def calc(df, risk):
+    d = df.copy() if risk == "整体" else df[df["滞销风险等级"] == risk]
+    sku = d["MSKU"].nunique()
+    stock = d["总库存"].sum()
+    amt = d["总库存金额"].sum()
+
+    unsale_stock = d[d["滞销风险等级"].isin(["低滞销风险", "中滞销风险", "高滞销风险"])]["总库存"].sum()
+    unsale_amt = d[d["滞销风险等级"].isin(["低滞销风险", "中滞销风险", "高滞销风险"])]["总滞销金额"].sum()
+
+    stock_pct = unsale_stock / stock if stock != 0 else 0
+    amt_pct = unsale_amt / amt if amt != 0 else 0
+    return sku, stock, unsale_stock, stock_pct, amt, unsale_amt, amt_pct
+
+# ================== 展示卡片（5列） ==================
 st.divider()
-st.subheader("📊 整体滞销情况概览")
+st.subheader("📦 整体滞销情况概览")
+cols = st.columns(5)
 
-risk_list = ["整体","健康","低滞销风险","中滞销风险","高滞销风险"]
+for i, t in enumerate(titles):
+    sku_c, stock_c, unsale_c, sp_c, amt_c, uamt_c, ap_c = calc(df_curr, t)
+    sku_p, stock_p, unsale_p, sp_p, amt_p, uamt_p, ap_p = calc(df_prev, t)
 
-def get_data_by_risk(d, risk):
-    if risk=="整体":
-        return d
-    return d[d["滞销风险等级"]==risk]
+    sku_diff = sku_c - sku_p
+    stock_diff = stock_c - stock_p
+    unsale_diff = unsale_c - unsale_p
+    amt_diff = amt_c - amt_p
+    uamt_diff = uamt_c - uamt_p
 
-# 5列卡片
-c1,c2,c3,c4,c5 = st.columns(5)
-cols = [c1,c2,c3,c4,c5]
-
-for i,risk in enumerate(risk_list):
-    curr = get_data_by_risk(df_curr, risk)
-    prev = get_data_by_risk(df_prev, risk)
-
-    sku_curr = curr["MSKU"].nunique()
-    sku_prev = prev["MSKU"].nunique()
-    sku_diff = sku_curr - sku_prev
-
-    stock_curr = curr["总库存"].sum()
-    stock_prev = prev["总库存"].sum()
-
-    sale_risk = ["低滞销风险","中滞销风险","高滞销风险"]
-    unsale_stock_curr = curr[curr["滞销风险等级"].isin(sale_risk)]["总库存"].sum()
-    unsale_stock_prev = prev[prev["滞销风险等级"].isin(sale_risk)]["总库存"].sum()
-
-    unsale_pct = unsale_stock_curr/stock_curr if stock_curr else 0
-
-    amt_curr = curr["总库存金额"].sum()
-    unsale_amt_curr = curr[curr["滞销风险等级"].isin(sale_risk)]["总滞销金额"].sum()
-    amt_pct = unsale_amt_curr/amt_curr if amt_curr else 0
-
+    card_color = colors[t]
     with cols[i]:
-        st.markdown(f"### {risk}")
-        st.metric("SKU个数", f"{sku_curr}", f"{sku_diff}")
-        st.metric("总库存", f"{stock_curr:,.0f}")
-        st.metric("滞销库存(占比)", f"{unsale_stock_curr:,.0f} ({unsale_pct:.1%})")
-        st.metric("总金额", f"{amt_curr:,.0f}")
-        st.metric("滞销金额(占比)", f"{unsale_amt_curr:,.0f} ({amt_pct:.1%})")
+        # 带背景色的卡片
+        st.markdown(f"""
+        <div style="background-color:{card_color}; padding:12px; border-radius:8px; font-size:12px; line-height:1.8;">
+        <div style="font-size:14px; font-weight:bold; margin-bottom:6px;">{t}</div>
+        SKU个数：{sku_c}（对比上月{"+" if sku_diff>=0 else ""}{sku_diff}，上月：{sku_p}）<br>
+        总库存：{stock_c:,.0f}（对比上月{"+" if stock_diff>=0 else ""}{stock_diff:,.0f}，上月：{stock_p:,.0f}）<br>
+        滞销库存：{unsale_c:,.0f}（占比：{sp_c:.2%}）（对比上月{"+" if unsale_diff>=0 else ""}{unsale_diff:,.0f}，上月：{unsale_p:,.0f}）<br>
+        总金额：{amt_c:,.0f}（对比上月{"+" if amt_diff>=0 else ""}{amt_diff:,.0f}，上月：{amt_p:,.0f}）<br>
+        滞销金额：{uamt_c:,.0f}（占比：{ap_c:.2%}）（对比上月{"+" if uamt_diff>=0 else ""}{uamt_diff:,.0f}，上月：{uamt_p:,.0f}）
+        </div>
+        """, unsafe_allow_html=True)

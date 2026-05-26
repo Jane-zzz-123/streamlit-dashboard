@@ -338,7 +338,8 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
-# ===================== 1行4列 滞销分析图表 =====================
+
+# ===================== 1行4列 滞销分析图表（新增占比版） =====================
 st.divider()
 st.subheader("📊 滞销金额 & 数量 拆解分析")
 
@@ -393,10 +394,15 @@ with col1:
     fig1.update_layout(height=450, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig1, use_container_width=True)
 
-# ---------------------- 第2列：金额明细表 ----------------------
+# ---------------------- 第2列：金额明细表（新增占比） ----------------------
 with col2:
     st.markdown("#### 📄 金额明细")
     amt_detail = df_all[["风险等级", "滞销金额"]].copy()
+    # 新增占比列：仅计算低/中/高的占比，健康占比固定为0
+    amt_detail["占比"] = amt_detail.apply(
+        lambda row: f"{(row['滞销金额'] / total_unsold_amt * 100):.1f}%" if row["风险等级"] != "健康" else "0%",
+        axis=1
+    )
     st.dataframe(amt_detail, use_container_width=True, height=450)
 
 # ---------------------- 第3列：滞销数量 饼图 ----------------------
@@ -424,10 +430,15 @@ with col3:
     fig3.update_layout(height=450, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig3, use_container_width=True)
 
-# ---------------------- 第4列：数量明细表 ----------------------
+# ---------------------- 第4列：数量明细表（新增占比） ----------------------
 with col4:
     st.markdown("#### 📄 数量明细")
     stock_detail = df_all[["风险等级", "滞销库存"]].copy()
+    # 新增占比列：仅计算低/中/高的占比，健康占比固定为0
+    stock_detail["占比"] = stock_detail.apply(
+        lambda row: f"{(row['滞销库存'] / total_unsold_stock * 100):.1f}%" if row["风险等级"] != "健康" else "0%",
+        axis=1
+    )
     st.dataframe(stock_detail, use_container_width=True, height=450)
 
 

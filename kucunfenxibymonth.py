@@ -18,18 +18,18 @@ RISK_COLORS = {
     "中滞销风险": "#ffebee",
     "高滞销风险": "#ffcdd2",
 }
-# 【修复1】阈值改为从高到低排序，解决反向匹配问题
+# 【终极修复1】阈值改为从低到高排序，彻底解决等级覆盖问题
 TURN_DAYS_THRESHOLDS = [
-    (180, "高滞销风险"),
-    (150, "中滞销风险"),
-    (100, "低滞销风险"),
-    (float("inf"), "健康"),
+    (100, "健康"),
+    (150, "低滞销风险"),
+    (180, "中滞销风险"),
+    (float("inf"), "高滞销风险"),
 ]
 OVER_DAYS_THRESHOLDS = [
-    (20, "高滞销风险"),
-    (10, "中滞销风险"),
-    (0, "低滞销风险"),
-    (float("inf"), "健康"),
+    (0, "健康"),
+    (10, "低滞销风险"),
+    (20, "中滞销风险"),
+    (float("inf"), "高滞销风险"),
 ]
 
 
@@ -62,10 +62,10 @@ df_snap, df_prod, df_sale, df_pur = load_data()
 
 # ===================== 数据加工 =====================
 def build_master_df(
-    df_snap: pd.DataFrame,
-    df_prod: pd.DataFrame,
-    df_sale: pd.DataFrame,
-    df_pur: pd.DataFrame,
+        df_snap: pd.DataFrame,
+        df_prod: pd.DataFrame,
+        df_sale: pd.DataFrame,
+        df_pur: pd.DataFrame,
 ) -> pd.DataFrame:
     """构建主分析表"""
 
@@ -117,11 +117,11 @@ def build_master_df(
     df["头程费用"] = df["头程费用"].fillna(0).clip(lower=0)
     df["总库存金额"] = df["总库存"] * cost
     df["总滞销金额"] = (
-        df["海外库存"] * (cost + df["头程费用"])
-        + df["本地库存"] * cost
+            df["海外库存"] * (cost + df["头程费用"])
+            + df["本地库存"] * cost
     )
 
-    # 【修复2】日均字段清洗，避免异常值
+    # 日均字段清洗，避免异常值
     df["日均"] = df["日均"].fillna(0).clip(lower=0)
     df["周转天数"] = np.where(
         df["日均"] > 0,
@@ -135,13 +135,13 @@ def build_master_df(
 df_merge = build_master_df(df_snap, df_prod, df_sale, df_pur)
 
 
-# ===================== 风险等级判定（向量化修复版） =====================
+# ===================== 风险等级判定（终极修复版） =====================
 def classify_risk_vectorized(
-    df: pd.DataFrame,
-    year_option: str,
-    target_date: datetime,
+        df: pd.DataFrame,
+        year_option: str,
+        target_date: datetime,
 ) -> pd.Series:
-    """向量化判定滞销风险等级，修复反向匹配逻辑"""
+    """向量化判定滞销风险等级，彻底修复阈值匹配逻辑"""
 
     # 初始化所有SKU为最高风险，兜底无数据场景
     risk = pd.Series("高滞销风险", index=df.index)
@@ -149,17 +149,17 @@ def classify_risk_vectorized(
     is_year = df["是否年份"].astype(str).str.strip() == "是"
     has_stock = df["总库存"] > 0
 
-    # 非年份品判定
+    # ===================== 非年份品判定（核心修复） =====================
     mask_non_year = has_stock & ~is_year
     turn = df.loc[mask_non_year, "周转天数"]
-    # 从高到低匹配阈值，避免等级覆盖
-    for threshold, label in TURN_DAYS_THRESHOLDS:
-        if label == "健康":
-            risk.loc[mask_non_year & (turn <= threshold)] = label
-        else:
-            risk.loc[mask_non_year & (turn > threshold)] = label
 
-    # 年份品判定
+    # 【终极修复2】从低到高匹配阈值，先匹配最低等级，再往上叠加，避免覆盖
+    for threshold, label in TURN_DAYS_THRESHOLDS:
+        # 匹配「周转天数 ≤ 当前阈值」的SKU，从低到高覆盖
+        match_mask = mask_non_year & (turn <= threshold)
+        risk.loc[match_mask] = label
+
+    # ===================== 年份品判定（核心修复） =====================
     mask_year = has_stock & is_year
     if year_option == "按照清库存口径（预计售罄时间）":
         need_days = df.loc[mask_year, "总库存"] / df.loc[mask_year, "日均"]
@@ -167,17 +167,15 @@ def classify_risk_vectorized(
         over_days = (sell_dt - target_date).dt.days.fillna(np.inf)
 
         for threshold, label in OVER_DAYS_THRESHOLDS:
-            if label == "健康":
-                risk.loc[mask_year & (over_days <= threshold)] = label
-            else:
-                risk.loc[mask_year & (over_days > threshold)] = label
+            # 匹配「超期天数 ≤ 当前阈值」的SKU，从低到高覆盖
+            match_mask = mask_year & (over_days <= threshold)
+            risk.loc[match_mask] = label
     else:
         turn_y = df.loc[mask_year, "周转天数"]
         for threshold, label in TURN_DAYS_THRESHOLDS:
-            if label == "健康":
-                risk.loc[mask_year & (turn_y <= threshold)] = label
-            else:
-                risk.loc[mask_year & (turn_y > threshold)] = label
+            # 匹配「周转天数 ≤ 当前阈值」的SKU，从低到高覆盖
+            match_mask = mask_year & (turn_y <= threshold)
+            risk.loc[match_mask] = label
 
     return risk
 
@@ -193,14 +191,12 @@ df_merge["滞销风险等级"] = classify_risk_vectorized(
     df_merge, year_option, TARGET_CLEAR_DATE
 )
 
-
-# ===================== 时间选择（修复上月时间逻辑） =====================
+# ===================== 时间选择 =====================
 st.divider()
-# 【修复3】时间列表按年月分组，保证上月是连续的上一个自然月
+# 时间列表按年月分组，保证上月是连续的上一个自然月
 df_merge["年月"] = df_merge["时间"].dt.to_period("M")
 time_list = sorted(df_merge["年月"].dropna().unique().astype(str))
 sel_month = st.selectbox("选择统计时间", time_list, index=len(time_list) - 1)
-sel_time = pd.Period(sel_month).start_time
 
 # 自动匹配上月，避免时间错位
 if len(time_list) >= 2:
@@ -208,21 +204,20 @@ if len(time_list) >= 2:
     prev_month = time_list[prev_month_idx] if prev_month_idx >= 0 else sel_month
 else:
     prev_month = sel_month
-prev_time = pd.Period(prev_month).start_time
 
 df_curr = df_merge[df_merge["年月"] == sel_month].copy()
 df_prev = df_merge[df_merge["年月"] == prev_month].copy()
 
 
-# ===================== 指标计算（核心逻辑重写） =====================
+# ===================== 指标计算（终极修复版） =====================
 def calc_metrics(
-    df_curr: pd.DataFrame,
-    df_prev: pd.DataFrame,
-    risk_name: str,
+        df_curr: pd.DataFrame,
+        df_prev: pd.DataFrame,
+        risk_name: str,
 ) -> Dict:
-    """计算单个风险等级的所有指标，完全修复滞销统计逻辑"""
+    """计算单个风险等级的所有指标，彻底修复滞销统计逻辑"""
 
-    # 【修复4】正确筛选当前风险等级的SKU，不再二次过滤
+    # 筛选当前风险等级的SKU
     if risk_name == "整体":
         curr_data = df_curr
         prev_data = df_prev
@@ -240,14 +235,14 @@ def calc_metrics(
     amt_curr = curr_data["总库存金额"].sum()
     amt_prev = prev_data["总库存金额"].sum()
 
-    # 【修复5】滞销库存/金额逻辑重写：
-    # - 整体卡片：滞销库存=低/中/高风险SKU的库存总和
-    # - 其他卡片：滞销库存=该等级SKU自身的库存
+    # ===================== 滞销库存/金额逻辑（终极修复） =====================
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
+        # 整体卡片：滞销库存=低+中+高风险SKU的库存总和
         unsale_curr = curr_data[curr_data["滞销风险等级"].isin(risk_list)]
         unsale_prev = prev_data[prev_data["滞销风险等级"].isin(risk_list)]
     else:
+        # 其他卡片：滞销库存=该等级SKU自身的库存（因为本身就是滞销品）
         unsale_curr = curr_data
         unsale_prev = prev_data
 
@@ -282,7 +277,7 @@ def calc_metrics(
     }
 
 
-# ===================== 卡片渲染（无修改，保留你的样式） =====================
+# ===================== 卡片渲染 =====================
 def render_card_compact(title: str, metrics: Dict):
     """生成紧凑无换行的HTML卡片，使用st.html()渲染"""
 
@@ -297,7 +292,7 @@ def render_card_compact(title: str, metrics: Dict):
     stk_c, stk_s = fmt_diff(metrics["stock_diff"])
     amt_c, amt_s = fmt_diff(metrics["amt_diff"])
 
-    # 构建HTML - 完全紧凑，无换行符，无缩进
+    # 构建HTML
     parts = [
         f'<div style="background-color:{bg};padding:20px;border-radius:12px;line-height:2.2;margin-bottom:15px;">',
         f'<div style="font-size:22px;font-weight:bold;text-align:center;margin-bottom:15px;color:#1a1a1a;">{title}</div>',
@@ -308,13 +303,15 @@ def render_card_compact(title: str, metrics: Dict):
     if title != "健康":
         us_c, us_s = fmt_diff(metrics["unsale_stock_diff"])
         ua_c, ua_s = fmt_diff(metrics["unsale_amt_diff"])
-        parts.append(f'<div style="font-size:14px;margin-bottom:6px;color:#333333;">滞销库存：{metrics["unsale_stock_curr"]:,.0f}（占比：{metrics["unsale_stock_pct"]:.2%}）<span style="font-size:11px;color:{us_c};font-weight:normal;">（{us_s}，上月：{metrics["unsale_stock_prev"]:,.0f}）</span></div>')
-        parts.append(f'<div style="font-size:14px;color:#333333;">滞销金额：{metrics["unsale_amt_curr"]:,.0f}（占比：{metrics["unsale_amt_pct"]:.2%}）<span style="font-size:11px;color:{ua_c};font-weight:normal;">（{ua_s}，上月：{metrics["unsale_amt_prev"]:,.0f}）</span></div>')
+        parts.append(
+            f'<div style="font-size:14px;margin-bottom:6px;color:#333333;">滞销库存：{metrics["unsale_stock_curr"]:,.0f}（占比：{metrics["unsale_stock_pct"]:.2%}）<span style="font-size:11px;color:{us_c};font-weight:normal;">（{us_s}，上月：{metrics["unsale_stock_prev"]:,.0f}）</span></div>')
+        parts.append(
+            f'<div style="font-size:14px;color:#333333;">滞销金额：{metrics["unsale_amt_curr"]:,.0f}（占比：{metrics["unsale_amt_pct"]:.2%}）<span style="font-size:11px;color:{ua_c};font-weight:normal;">（{ua_s}，上月：{metrics["unsale_amt_prev"]:,.0f}）</span></div>')
 
-    parts.append(f'<div style="font-size:14px;margin-bottom:6px;color:#333333;">总金额：{metrics["amt_curr"]:,.0f}<span style="font-size:11px;color:{amt_c};font-weight:normal;">（{amt_s}，上月：{metrics["amt_prev"]:,.0f}）</span></div>')
+    parts.append(
+        f'<div style="font-size:14px;margin-bottom:6px;color:#333333;">总金额：{metrics["amt_curr"]:,.0f}<span style="font-size:11px;color:{amt_c};font-weight:normal;">（{amt_s}，上月：{metrics["amt_prev"]:,.0f}）</span></div>')
     parts.append('</div>')
 
-    # 使用st.html() - 直接渲染HTML，不经过Markdown解析
     st.html("".join(parts))
 
 

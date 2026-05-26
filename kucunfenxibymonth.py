@@ -208,46 +208,69 @@ df_prev = df_merge[df_merge["年月"] == prev_month].copy()
 
 # ===================== 指标计算 =====================
 def calc_metrics(df_curr, df_prev, risk_name):
+    # 定义风险等级列表
+    risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
+
     if risk_name == "整体":
-        c, p = df_curr, df_prev
+        # ========== 【修正核心】整体卡片：分别计算当前月、上月的低+中+高 ==========
+        # 当前月：筛选当前月的低/中/高SKU
+        curr_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
+        # 上月：筛选上月的低/中/高SKU（不是用当前月的SKU去上月找！）
+        prev_unsale = df_prev[df_prev["滞销风险等级"].isin(risk_list)]
+
+        # 整体SKU数：当前月所有SKU
+        sku_c = df_curr["MSKU"].nunique()
+        sku_p = df_prev["MSKU"].nunique()
+        sku_diff = sku_c - sku_p
+
+        # 整体总库存：当前月所有SKU
+        stk_c = df_curr["总库存"].sum()
+        stk_p = df_prev["总库存"].sum()
+        stk_diff = stk_c - stk_p
+
+        # 整体总金额：当前月所有SKU
+        amt_c = df_curr["总库存金额"].sum()
+        amt_p = df_prev["总库存金额"].sum()
+        amt_diff = amt_c - amt_p
+
+        # 滞销库存：当前月低+中+高SKU的库存
+        u_stk_c = curr_unsale["总滞销库存"].sum()
+        u_stk_p = prev_unsale["总滞销库存"].sum()
+        u_stk_diff = u_stk_c - u_stk_p
+        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+
+        # 滞销金额：当前月低+中+高SKU的金额
+        u_amt_c = curr_unsale["总滞销金额"].sum()
+        u_amt_p = prev_unsale["总滞销金额"].sum()
+        u_amt_diff = u_amt_c - u_amt_p
+        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+
     else:
+        # ========== 单个风险等级卡片：逻辑不变 ==========
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
         p = df_prev[df_prev["滞销风险等级"] == risk_name]
 
-    # SKU 指标
-    sku_c = c["MSKU"].nunique()
-    sku_p = p["MSKU"].nunique()
-    sku_diff = sku_c - sku_p
+        sku_c = c["MSKU"].nunique()
+        sku_p = p["MSKU"].nunique()
+        sku_diff = sku_c - sku_p
 
-    # 总库存 指标
-    stk_c = c["总库存"].sum()
-    stk_p = p["总库存"].sum()
-    stk_diff = stk_c - stk_p
+        stk_c = c["总库存"].sum()
+        stk_p = p["总库存"].sum()
+        stk_diff = stk_c - stk_p
 
-    # 总金额 指标
-    amt_c = c["总库存金额"].sum()
-    amt_p = p["总库存金额"].sum()
-    amt_diff = amt_c - amt_p
+        amt_c = c["总库存金额"].sum()
+        amt_p = p["总库存金额"].sum()
+        amt_diff = amt_c - amt_p
 
-    # 滞销指标计算
-    risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
-    if risk_name == "整体":
-        uc = c[c["滞销风险等级"].isin(risk_list)]
-        up = p[p["滞销风险等级"].isin(risk_list)]
-    else:
-        uc, up = c, p
+        u_stk_c = c["总滞销库存"].sum()
+        u_stk_p = p["总滞销库存"].sum()
+        u_stk_diff = u_stk_c - u_stk_p
+        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-    # 滞销库存 指标
-    u_stk_c = uc["总滞销库存"].sum()
-    u_stk_p = up["总滞销库存"].sum()
-    u_stk_diff = u_stk_c - u_stk_p
-    pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
-
-    # 滞销金额 指标
-    u_amt_c = uc["总滞销金额"].sum()
-    u_amt_p = up["总滞销金额"].sum()
-    u_amt_diff = u_amt_c - u_amt_p
-    pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+        u_amt_c = c["总滞销金额"].sum()
+        u_amt_p = p["总滞销金额"].sum()
+        u_amt_diff = u_amt_c - u_amt_p
+        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
 
     return {
         # SKU 指标

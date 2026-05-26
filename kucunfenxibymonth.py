@@ -69,12 +69,17 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
         + df["海外仓在途"].fillna(0)
     ).round(2)
 
+    # ===================== 本地库存 =====================
+    df["本地库存"] = (
+        df["本地可用"].fillna(0)
+        + df["待检待上架量"].fillna(0)
+        + df["待交付"].fillna(0)
+    ).round(2)
+
     # ===================== 【最新公式】总库存 =====================
     df["总库存"] = (
         df["FBA+AWD+在途库存"]
-        + df["本地可用"].fillna(0)
-        + df["待检待上架量"].fillna(0)
-        + df["待交付"].fillna(0)
+        + df["本地库存"]
     ).round(2)
 
     # 日均销量防0处理
@@ -88,10 +93,16 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
     # ===================== 预计用完时间 =====================
     df["预计总库存用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数"], unit="D")
 
-    # ===================== 成本 =====================
+    # ===================== ✅ 正确金额计算（你要求的版本） =====================
     df["采购成本"] = df["采购成本"].fillna(0)
     df["头程费用"] = df["头程费用"].fillna(0)
-    df["总库存金额"] = (df["总库存"] * df["采购成本"]).round(2)
+
+    # FBA金额 = FBA库存 * (成本+头程)
+    df["FBA金额"] = (df["FBA+AWD+在途库存"] * (df["采购成本"] + df["头程费用"])).round(2)
+    # 本地金额 = 本地库存 * 成本
+    df["本地金额"] = (df["本地库存"] * df["采购成本"]).round(2)
+    # 总金额 = FBA金额 + 本地金额
+    df["总库存金额"] = (df["FBA金额"] + df["本地金额"]).round(2)
 
     return df
 
@@ -135,7 +146,7 @@ def classify_risk_and_unsold(df, year_option, target_date):
             np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
         )
 
-        # --- 年份品：按 over_days 严格区间 ---
+        # --- 年份品：按 over_days 严格区间（0-10,10-20,>20）---
         mask_year = is_year
         over_year = over_days.loc[mask_year]
         risk.loc[mask_year] = np.where(
@@ -146,6 +157,7 @@ def classify_risk_and_unsold(df, year_option, target_date):
         )
 
     df["滞销风险等级"] = risk
+
     # ===================== 滞销数量（你最新公式） =====================
     unhealthy = df["滞销风险等级"] != "健康"
     base = df["目标基准天数"]
@@ -167,8 +179,10 @@ def classify_risk_and_unsold(df, year_option, target_date):
     # 本地滞销数量
     df["本地滞销数量"] = (df["总滞销库存"] - df["FBA+AWD+在途滞销数量"]).round(2)
 
-    # 滞销金额
-    df["总滞销金额"] = (df["总滞销库存"] * df["采购成本"]).round(2)
+    # ===================== ✅ 滞销金额（你要求的正确计算） =====================
+    df["FBA滞销金额"] = (df["FBA+AWD+在途滞销数量"] * (df["采购成本"] + df["头程费用"])).round(2)
+    df["本地滞销金额"] = (df["本地滞销数量"] * df["采购成本"]).round(2)
+    df["总滞销金额"] = (df["FBA滞销金额"] + df["本地滞销金额"]).round(2)
 
     return df
 

@@ -18,19 +18,6 @@ RISK_COLORS = {
     "中滞销风险": "#ffebee",
     "高滞销风险": "#ffcdd2",
 }
-# 阈值保持原样
-TURN_DAYS_THRESHOLDS = [
-    (100, "健康"),
-    (150, "低滞销风险"),
-    (180, "中滞销风险"),
-    (float("inf"), "高滞销风险"),
-]
-OVER_DAYS_THRESHOLDS = [
-    (0, "健康"),
-    (10, "低滞销风险"),
-    (20, "中滞销风险"),
-    (float("inf"), "高滞销风险"),
-]
 
 # ===================== 数据加载 =====================
 @st.cache_data(ttl=3600, show_spinner="正在加载数据...")
@@ -55,7 +42,7 @@ def load_data(file: str = "moon-date.xlsx") -> Tuple[pd.DataFrame, ...]:
 
 df_snap, df_prod, df_sale, df_pur = load_data()
 
-# ===================== 数据加工 =====================
+# ===================== 数据加工：按你最新公式 100% 重写 =====================
 def build_master_df(df_snap, df_prod, df_sale, df_pur):
     df = df_snap.merge(df_sale[["MSKU", "时间", "销量"]], on=["MSKU", "时间"], how="left")
     df["销量"] = df["销量"].fillna(0)
@@ -74,64 +61,114 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
 
     df = df.merge(pur_pivot[["MSKU", "年前采购总量", "年后采购总量"]], on="MSKU", how="left")
 
-    overseas_cols = ["FBA库存", "FBA在途", "海外仓可用", "海外仓在途"]
-    local_cols = ["本地可用", "待检待上架量", "待交付"]
-    df["海外库存"] = df[overseas_cols].sum(axis=1, min_count=1).fillna(0).clip(lower=0)
-    df["本地库存"] = df[local_cols].sum(axis=1, min_count=1).fillna(0).clip(lower=0)
-    df["总库存"] = df["海外库存"] + df["本地库存"]
+    # ===================== 【最新公式】FBA+AWD+在途库存 =====================
+    df["FBA+AWD+在途库存"] = (
+        df["FBA库存"].fillna(0)
+        + df["FBA在途"].fillna(0)
+        + df["海外仓可用"].fillna(0)
+        + df["海外仓在途"].fillna(0)
+    ).round(2)
 
-    cost = df["采购成本"].fillna(0).clip(lower=0)
-    df["头程费用"] = df["头程费用"].fillna(0).clip(lower=0)
-    df["总库存金额"] = df["总库存"] * cost
-    df["总滞销金额"] = df["海外库存"] * (cost + df["头程费用"]) + df["本地库存"] * cost
+    # ===================== 【最新公式】总库存 =====================
+    df["总库存"] = (
+        df["FBA+AWD+在途库存"]
+        + df["本地可用"].fillna(0)
+        + df["待检待上架量"].fillna(0)
+        + df["待交付"].fillna(0)
+    ).round(2)
 
-    # ===================== 关键改动：日均=0 强制填 0.01 =====================
-    df["日均"] = df["日均"].fillna(0).clip(lower=0)
-    # 所有日均为0的，直接改成0.01，不丢数据、不inf、不溢出
+    # 日均销量防0处理
+    df["日均"] = df["日均"].fillna(0)
     df.loc[df["日均"] == 0, "日均"] = 0.01
 
-    # 正常计算周转天数，再也没有inf
-    df["周转天数"] = df["总库存"] / df["日均"]
-    # 限制最大天数防极端溢出：封顶 36500天（100年）足够业务用
+    # ===================== 周转天数 =====================
+    df["周转天数"] = (df["总库存"] / df["日均"]).round(2)
     df["周转天数"] = df["周转天数"].clip(upper=36500)
+
+    # ===================== 预计用完时间 =====================
+    df["预计总库存用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数"], unit="D")
+
+    # ===================== 成本 =====================
+    df["采购成本"] = df["采购成本"].fillna(0)
+    df["头程费用"] = df["头程费用"].fillna(0)
+    df["总库存金额"] = (df["总库存"] * df["采购成本"]).round(2)
 
     return df
 
 df_merge = build_master_df(df_snap, df_prod, df_sale, df_pur)
 
-# ===================== 风险等级判定 =====================
-def classify_risk_vectorized(df, year_option, target_date):
-    risk = pd.Series("高滞销风险", index=df.index)
+# ===================== 风险等级 + 滞销数量 100% 按你要求 =====================
+def classify_risk_and_unsold(df, year_option, target_date):
+    df = df.copy()
     is_year = df["是否年份"].astype(str).str.strip() == "是"
-    has_stock = df["总库存"] > 0
+    risk = pd.Series("健康", index=df.index)
 
-    # 非年份品
-    mask_non_year = has_stock & ~is_year
-    turn = df.loc[mask_non_year, "周转天数"]
-    for th, lab in TURN_DAYS_THRESHOLDS:
-        risk.loc[mask_non_year & (turn <= th)] = lab
+    # 目标基准天数
+    target_days_common = 100
+    target_days_year = (target_date - df["时间"]).dt.days
+    df["目标基准天数"] = np.where(
+        (is_year) & (year_option == "按照清库存口径（预计售罄时间）"),
+        target_days_year,
+        target_days_common
+    )
 
-    # 年份品：现在所有都有日均=0.01，全部可以正常算售罄时间，不跳过、不丢数据
-    mask_year = has_stock & is_year
-    if year_option == "按照清库存口径（预计售罄时间）":
-        need_days = df.loc[mask_year, "总库存"] / df.loc[mask_year, "日均"]
-        need_days = need_days.clip(upper=36500)
-        sell_dt = df.loc[mask_year, "时间"] + pd.to_timedelta(need_days, unit="D")
-        over_days = (sell_dt - target_date).dt.days
+    # ===================== 风险判定 =====================
+    if year_option == "按照库存周转天数口径":
+        # 全部按周转天数：≤100，100-150，150-180，>180
+        turn = df["周转天数"]
+        risk = np.where(turn <= 100, "健康",
+                 np.where(turn <= 150, "低滞销风险",
+                 np.where(turn <= 180, "中滞销风险", "高滞销风险")))
 
-        for th, lab in OVER_DAYS_THRESHOLDS:
-            risk.loc[mask_year & (over_days <= th)] = lab
     else:
-        turn_y = df.loc[mask_year, "周转天数"]
-        for th, lab in TURN_DAYS_THRESHOLDS:
-            risk.loc[mask_year & (turn_y <= th)] = lab
+        # 清库存口径：只对年份品生效
+        over_days = (df["预计总库存用完时间"] - target_date).dt.days
+        risk = np.where(
+            ~is_year,
+            # 非年份品依旧按周转天数
+            np.where(df["周转天数"] <= 100, "健康",
+            np.where(df["周转天数"] <= 150, "低滞销风险",
+            np.where(df["周转天数"] <= 180, "中滞销风险", "高滞销风险"))),
+            # 年份品按超期天数
+            np.where(df["周转天数"] <= df["目标基准天数"], "健康",
+            np.where(over_days <= 10, "低滞销风险",
+            np.where(over_days <= 20, "中滞销风险", "高滞销风险")))
+        )
 
-    return risk
+    df["滞销风险等级"] = risk
+
+    # ===================== 滞销数量（你最新公式） =====================
+    unhealthy = df["滞销风险等级"] != "健康"
+    base = df["目标基准天数"]
+
+    # FBA+AWD+在途滞销数量
+    df["FBA+AWD+在途滞销数量"] = np.where(
+        unhealthy,
+        (df["FBA+AWD+在途库存"] - df["日均"] * base).clip(lower=0).round(2),
+        0
+    )
+
+    # 总滞销库存
+    df["总滞销库存"] = np.where(
+        unhealthy,
+        (df["总库存"] - df["日均"] * base).clip(lower=0).round(2),
+        0
+    )
+
+    # 本地滞销数量
+    df["本地滞销数量"] = (df["总滞销库存"] - df["FBA+AWD+在途滞销数量"]).round(2)
+
+    # 滞销金额
+    df["总滞销金额"] = (df["总滞销库存"] * df["采购成本"]).round(2)
+
+    return df
 
 # ===================== 界面 =====================
 st.subheader("⚙️ 年份品计算口径")
 year_option = st.radio("", ["按照清库存口径（预计售罄时间）", "按照库存周转天数口径"], horizontal=True)
-df_merge["滞销风险等级"] = classify_risk_vectorized(df_merge, year_option, TARGET_CLEAR_DATE)
+
+# 计算风险 + 滞销
+df_merge = classify_risk_and_unsold(df_merge, year_option, TARGET_CLEAR_DATE)
 
 st.divider()
 df_merge["年月"] = df_merge["时间"].dt.to_period("M")
@@ -168,8 +205,8 @@ def calc_metrics(df_curr, df_prev, risk_name):
     else:
         uc, up = c, p
 
-    u_stk_c = uc["总库存"].sum()
-    u_stk_p = up["总库存"].sum()
+    u_stk_c = uc["总滞销库存"].sum()
+    u_stk_p = up["总滞销库存"].sum()
     u_amt_c = uc["总滞销金额"].sum()
     u_amt_p = up["总滞销金额"].sum()
 
@@ -181,7 +218,7 @@ def calc_metrics(df_curr, df_prev, risk_name):
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_c - stk_p,
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_c - amt_p,
         "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_c - u_stk_p, "unsale_stock_pct": pct_stk,
-        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_c - amt_p, "unsale_amt_pct": pct_amt
+        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_c - u_amt_p, "unsale_amt_pct": pct_amt
     }
 
 # ===================== 卡片渲染 =====================
@@ -214,3 +251,13 @@ cols = st.columns(5)
 for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
     with cols[i]:
         render_card_compact(t, calc_metrics(df_curr, df_prev, t))
+
+# ===================== 可选：展示明细 =====================
+with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
+    show_cols = [
+        "MSKU", "是否年份", "时间",
+        "FBA+AWD+在途库存", "总库存", "日均", "周转天数",
+        "预计总库存用完时间", "滞销风险等级",
+        "FBA+AWD+在途滞销数量", "总滞销库存", "本地滞销数量", "总滞销金额"
+    ]
+    st.dataframe(df_curr[show_cols], use_container_width=True)

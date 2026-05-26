@@ -33,7 +33,7 @@ df_merge["销量"] = df_merge["销量"].fillna(0)
 df_prod_use = df_prod[["MSKU", "是否年份", "类别", "岁数"]].drop_duplicates(subset=["MSKU"])
 df_merge = df_merge.merge(df_prod_use, on="MSKU", how="left")
 
-# ====================== 4. 采购数据透视（正确适配你的表结构） ======================
+# ====================== 4. 采购数据透视 ======================
 pur_pivot = df_pur.pivot_table(
     index="MSKU",
     columns="采购类型",
@@ -44,7 +44,6 @@ pur_pivot = df_pur.pivot_table(
 
 pur_pivot.columns = [str(c).strip() for c in pur_pivot.columns]
 
-# 安全兜底
 for col in ["年前采购", "年后采购"]:
     if col not in pur_pivot.columns:
         pur_pivot[col] = 0
@@ -53,19 +52,18 @@ pur_pivot.rename(columns={"年前采购": "年前采购总量", "年后采购": 
 df_merge = df_merge.merge(pur_pivot[["MSKU", "年前采购总量", "年后采购总量"]], on="MSKU", how="left")
 df_merge[["年前采购总量", "年后采购总量"]] = df_merge[["年前采购总量", "年后采购总量"]].fillna(0)
 
-# ====================== 5. 计算库存（必须放在采购合并之后！） ======================
+# ====================== 5. 库存计算（已修复真实列名） ======================
 df_merge["海外库存"] = (
     df_merge["FBA库存"] + df_merge["FBA在途"] +
     df_merge["海外仓可用"] + df_merge["海外仓在途"]
 ).fillna(0)
 
+# ✅ 修复：你的列名是 待检待上架量，不是 待检
 df_merge["本地库存"] = (
-    df_merge["本地可用"] + df_merge["待检"] + df_merge["待交付"]
+    df_merge["本地可用"] + df_merge["待检待上架量"] + df_merge["待交付"]
 ).fillna(0)
 
 df_merge["总库存"] = df_merge["海外库存"] + df_merge["本地库存"]
-
-# 年前剩余库存
 df_merge["年前剩余库存"] = np.maximum(0, df_merge["总库存"] - df_merge["年后采购总量"])
 
 # 滞销金额

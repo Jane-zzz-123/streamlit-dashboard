@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Tuple
-
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 # ===================== 页面配置 =====================
 st.set_page_config(page_title="库存滞销复盘看板", layout="wide")
 st.title("📊 整体滞销情况分析")
@@ -336,3 +337,89 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
         "FBA滞销金额", "本地滞销金额", "总滞销金额"
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
+
+# ===================== 新增：滞销金额双层饼图 =====================
+st.divider()
+st.subheader("📊 滞销金额结构分析")
+
+# 1. 从calc_metrics里提取各风险等级的总金额/滞销金额
+# 先重新计算各等级的汇总数据
+risk_summary = []
+for risk in ["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
+    m = calc_metrics(df_curr, df_prev, risk)
+    risk_summary.append({
+        "风险等级": risk,
+        "总金额": m["amt_curr"],
+        "滞销金额": m["unsale_amt_curr"]
+    })
+df_summary = pd.DataFrame(risk_summary)
+
+# 2. 准备饼图数据
+# 主饼图：健康+低+中+高 总金额占比（整体库存结构）
+main_pie_labels = df_summary[df_summary["风险等级"] != "整体"]["风险等级"].tolist()
+main_pie_values = df_summary[df_summary["风险等级"] != "整体"]["总金额"].tolist()
+
+# 子饼图：低+中+高 滞销金额占比（滞销内部结构）
+sub_pie_labels = ["低滞销风险", "中滞销风险", "高滞销风险"]
+sub_pie_values = df_summary[df_summary["风险等级"].isin(sub_pie_labels)]["滞销金额"].tolist()
+
+# 3. 匹配你看板的配色
+color_map = {
+    "健康": "#e8f5e9",
+    "低滞销风险": "#fff8e1",
+    "中滞销风险": "#ffebee",
+    "高滞销风险": "#ffcdd2"
+}
+main_colors = [color_map[label] for label in main_pie_labels]
+sub_colors = [color_map[label] for label in sub_pie_labels]
+
+# 4. 绘制双层饼图
+fig = make_subplots(rows=1, cols=2, specs=[[{"type": "pie"}, {"type": "pie"}]], column_widths=[0.7, 0.3])
+
+# 主饼图：整体库存金额结构
+fig.add_trace(
+    go.Pie(
+        labels=main_pie_labels,
+        values=main_pie_values,
+        name="整体库存金额",
+        marker=dict(colors=main_colors, line=dict(color="#000000", width=1)),
+        hovertemplate="<b>%{label}</b><br>金额: %{value:,.0f} 元<br>占比: %{percent:.1%}<extra></extra>",
+        textposition="inside",
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}"
+    ),
+    row=1, col=1
+)
+
+# 子饼图：滞销金额内部结构
+fig.add_trace(
+    go.Pie(
+        labels=sub_pie_labels,
+        values=sub_pie_values,
+        name="滞销金额内部占比",
+        marker=dict(colors=sub_colors, line=dict(color="#000000", width=1)),
+        hovertemplate="<b>%{label}</b><br>滞销金额: %{value:,.0f} 元<br>占比: %{percent:.1%}<extra></extra>",
+        textposition="inside",
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}"
+    ),
+    row=1, col=2
+)
+
+# 5. 图表样式美化
+fig.update_layout(
+    height=600,
+    showlegend=False,
+    title_text="左侧：整体库存金额结构 | 右侧：滞销金额内部占比",
+    title_x=0.5,
+    title_font=dict(size=16),
+    font=dict(size=14),
+    paper_bgcolor="rgba(0,0,0,0)",
+    plot_bgcolor="rgba(0,0,0,0)"
+)
+
+# 6. 渲染图表
+st.plotly_chart(fig, use_container_width=True)
+
+
+

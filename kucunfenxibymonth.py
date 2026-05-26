@@ -112,15 +112,16 @@ else:
     df_prev = df_curr.copy()
 
 card_config = [
-    {"title": "整体", "bg_color": "#f0f0f0"},
-    {"title": "健康", "bg_color": "#e6f9e6"},
-    {"title": "低滞销风险", "bg_color": "#fff9e6"},
-    {"title": "中滞销风险", "bg_color": "#fff2e6"},
-    {"title": "高滞销风险", "bg_color": "#ffe6e6"}
+    {"title": "整体", "bg_color": "#f5f5f5"},
+    {"title": "健康", "bg_color": "#e8f5e9"},
+    {"title": "低滞销风险", "bg_color": "#fff8e1"},
+    {"title": "中滞销风险", "bg_color": "#ffebee"},
+    {"title": "高滞销风险", "bg_color": "#ffcdd2"},
 ]
 
 
 def calc_metrics(df_curr, df_prev, risk_name):
+    # 1. 筛选当前风险等级的数据
     if risk_name == "整体":
         curr_data = df_curr.copy()
         prev_data = df_prev.copy()
@@ -128,6 +129,7 @@ def calc_metrics(df_curr, df_prev, risk_name):
         curr_data = df_curr[df_curr["滞销风险等级"] == risk_name].copy()
         prev_data = df_prev[df_prev["滞销风险等级"] == risk_name].copy()
 
+    # 2. 基础指标（SKU、总库存、总金额）
     sku_curr = curr_data["MSKU"].nunique()
     sku_prev = prev_data["MSKU"].nunique()
     sku_diff = sku_curr - sku_prev
@@ -140,16 +142,27 @@ def calc_metrics(df_curr, df_prev, risk_name):
     amt_prev = prev_data["总库存金额"].sum()
     amt_diff = amt_curr - amt_prev
 
-    sale_risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
-    unsale_stock_curr = curr_data[curr_data["滞销风险等级"].isin(sale_risk_list)]["总库存"].sum()
-    unsale_stock_prev = prev_data[prev_data["滞销风险等级"].isin(sale_risk_list)]["总库存"].sum()
+    # ===================== 修复部分开始 =====================
+    # 3. 滞销库存、滞销金额：只统计【当前卡片自身】的数据
+    # 原来错误：重新筛选了低/中/高，导致所有卡片数据一样
+    # 现在正确：当前卡片里的库存，就是它的滞销库存
+    unsale_stock_curr = curr_data["总库存"].sum()
+    unsale_stock_prev = prev_data["总库存"].sum()
     unsale_stock_diff = unsale_stock_curr - unsale_stock_prev
-    unsale_stock_pct = unsale_stock_curr / stock_curr if stock_curr != 0 else 0
 
-    unsale_amt_curr = curr_data[curr_data["滞销风险等级"].isin(sale_risk_list)]["总滞销金额"].sum()
-    unsale_amt_prev = prev_data[prev_data["滞销风险等级"].isin(sale_risk_list)]["总滞销金额"].sum()
+    unsale_amt_curr = curr_data["总滞销金额"].sum()
+    unsale_amt_prev = prev_data["总滞销金额"].sum()
     unsale_amt_diff = unsale_amt_curr - unsale_amt_prev
-    unsale_amt_pct = unsale_amt_curr / amt_curr if amt_curr != 0 else 0
+
+    # 4. 占比修复：健康类目不应该计算滞销占比
+    if risk_name in ["低滞销风险", "中滞销风险", "高滞销风险"]:
+        unsale_stock_pct = unsale_stock_curr / stock_curr if stock_curr != 0 else 0
+        unsale_amt_pct = unsale_amt_curr / amt_curr if amt_curr != 0 else 0
+    else:
+        # 整体/健康 卡片：滞销占比显示 0
+        unsale_stock_pct = 0
+        unsale_amt_pct = 0
+    # ===================== 修复部分结束 =====================
 
     return {
         "sku_curr": sku_curr, "sku_prev": sku_prev, "sku_diff": sku_diff,

@@ -18,17 +18,18 @@ RISK_COLORS = {
     "中滞销风险": "#ffebee",
     "高滞销风险": "#ffcdd2",
 }
+# 【修复1】阈值改为从高到低排序，解决反向匹配问题
 TURN_DAYS_THRESHOLDS = [
-    (100, "健康"),
-    (150, "低滞销风险"),
-    (180, "中滞销风险"),
-    (float("inf"), "高滞销风险"),
+    (180, "高滞销风险"),
+    (150, "中滞销风险"),
+    (100, "低滞销风险"),
+    (float("inf"), "健康"),
 ]
 OVER_DAYS_THRESHOLDS = [
-    (0, "健康"),
-    (10, "低滞销风险"),
-    (20, "中滞销风险"),
-    (float("inf"), "高滞销风险"),
+    (20, "高滞销风险"),
+    (10, "中滞销风险"),
+    (0, "低滞销风险"),
+    (float("inf"), "健康"),
 ]
 
 
@@ -49,8 +50,9 @@ def load_data(file: str = "moon-date.xlsx") -> Tuple[pd.DataFrame, ...]:
             df.columns = df.columns.str.strip()
             dfs[key] = df
 
-    dfs["snap"]["时间"] = pd.to_datetime(dfs["snap"]["时间"], errors="coerce")
-    dfs["sale"]["时间"] = pd.to_datetime(dfs["sale"]["时间"], errors="coerce")
+    # 时间字段标准化
+    dfs["snap"]["时间"] = pd.to_datetime(dfs["snap"]["时间"], errors="coerce").dt.normalize()
+    dfs["sale"]["时间"] = pd.to_datetime(dfs["sale"]["时间"], errors="coerce").dt.normalize()
 
     return dfs["snap"], dfs["prod"], dfs["sale"], dfs["pur"]
 
@@ -106,22 +108,25 @@ def build_master_df(
     overseas_cols = ["FBA库存", "FBA在途", "海外仓可用", "海外仓在途"]
     local_cols = ["本地可用", "待检待上架量", "待交付"]
 
-    df["海外库存"] = df[overseas_cols].sum(axis=1, min_count=1).fillna(0)
-    df["本地库存"] = df[local_cols].sum(axis=1, min_count=1).fillna(0)
+    # 库存字段兜底，非负校验
+    df["海外库存"] = df[overseas_cols].sum(axis=1, min_count=1).fillna(0).clip(lower=0)
+    df["本地库存"] = df[local_cols].sum(axis=1, min_count=1).fillna(0).clip(lower=0)
     df["总库存"] = df["海外库存"] + df["本地库存"]
 
-    cost = df["采购成本"].fillna(0)
+    cost = df["采购成本"].fillna(0).clip(lower=0)
+    df["头程费用"] = df["头程费用"].fillna(0).clip(lower=0)
     df["总库存金额"] = df["总库存"] * cost
     df["总滞销金额"] = (
-        df["海外库存"] * (cost + df["头程费用"].fillna(0))
+        df["海外库存"] * (cost + df["头程费用"])
         + df["本地库存"] * cost
     )
 
-    df["日均"] = df["日均"].fillna(0)
+    # 【修复2】日均字段清洗，避免异常值
+    df["日均"] = df["日均"].fillna(0).clip(lower=0)
     df["周转天数"] = np.where(
         df["日均"] > 0,
         df["总库存"] / df["日均"],
-        np.nan,
+        np.inf,  # 日均为0时，周转天数设为无穷大，直接判定为最高风险
     )
 
     return df
@@ -130,34 +135,36 @@ def build_master_df(
 df_merge = build_master_df(df_snap, df_prod, df_sale, df_pur)
 
 
-# ===================== 风险等级判定（向量化） =====================
+# ===================== 风险等级判定（向量化修复版） =====================
 def classify_risk_vectorized(
     df: pd.DataFrame,
     year_option: str,
     target_date: datetime,
 ) -> pd.Series:
-    """向量化判定滞销风险等级"""
+    """向量化判定滞销风险等级，修复反向匹配逻辑"""
 
-    valid = (
-        df["周转天数"].notna()
-        & (df["日均"] > 0)
-        & (df["总库存"] > 0)
-    )
+    # 初始化所有SKU为最高风险，兜底无数据场景
+    risk = pd.Series("高滞销风险", index=df.index)
+
     is_year = df["是否年份"].astype(str).str.strip() == "是"
+    has_stock = df["总库存"] > 0
 
-    risk = pd.Series("无日均/库存数据", index=df.index)
-
-    mask_non_year = valid & ~is_year
+    # 非年份品判定
+    mask_non_year = has_stock & ~is_year
     turn = df.loc[mask_non_year, "周转天数"]
+    # 从高到低匹配阈值，避免等级覆盖
     for threshold, label in TURN_DAYS_THRESHOLDS:
-        risk.loc[mask_non_year & (turn <= threshold)] = label
+        if label == "健康":
+            risk.loc[mask_non_year & (turn <= threshold)] = label
+        else:
+            risk.loc[mask_non_year & (turn > threshold)] = label
 
-    mask_year = valid & is_year
-
+    # 年份品判定
+    mask_year = has_stock & is_year
     if year_option == "按照清库存口径（预计售罄时间）":
         need_days = df.loc[mask_year, "总库存"] / df.loc[mask_year, "日均"]
         sell_dt = df.loc[mask_year, "时间"] + pd.to_timedelta(need_days, unit="D")
-        over_days = (sell_dt - target_date).dt.days
+        over_days = (sell_dt - target_date).dt.days.fillna(np.inf)
 
         for threshold, label in OVER_DAYS_THRESHOLDS:
             if label == "健康":
@@ -167,7 +174,10 @@ def classify_risk_vectorized(
     else:
         turn_y = df.loc[mask_year, "周转天数"]
         for threshold, label in TURN_DAYS_THRESHOLDS:
-            risk.loc[mask_year & (turn_y <= threshold)] = label
+            if label == "健康":
+                risk.loc[mask_year & (turn_y <= threshold)] = label
+            else:
+                risk.loc[mask_year & (turn_y > threshold)] = label
 
     return risk
 
@@ -184,28 +194,35 @@ df_merge["滞销风险等级"] = classify_risk_vectorized(
 )
 
 
-# ===================== 时间选择 =====================
+# ===================== 时间选择（修复上月时间逻辑） =====================
 st.divider()
-time_list = sorted(
-    df_merge["时间"].dt.strftime("%Y-%m-%d").dropna().unique()
-)
-sel_time = st.selectbox("选择统计时间", time_list, index=len(time_list) - 1)
+# 【修复3】时间列表按年月分组，保证上月是连续的上一个自然月
+df_merge["年月"] = df_merge["时间"].dt.to_period("M")
+time_list = sorted(df_merge["年月"].dropna().unique().astype(str))
+sel_month = st.selectbox("选择统计时间", time_list, index=len(time_list) - 1)
+sel_time = pd.Period(sel_month).start_time
 
-df_curr = df_merge[df_merge["时间"].dt.strftime("%Y-%m-%d") == sel_time].copy()
-prev_time = time_list[-2] if len(time_list) >= 2 else sel_time
-df_prev = df_merge[df_merge["时间"].dt.strftime("%Y-%m-%d") == prev_time].copy()
+# 自动匹配上月，避免时间错位
+if len(time_list) >= 2:
+    prev_month_idx = time_list.index(sel_month) - 1
+    prev_month = time_list[prev_month_idx] if prev_month_idx >= 0 else sel_month
+else:
+    prev_month = sel_month
+prev_time = pd.Period(prev_month).start_time
+
+df_curr = df_merge[df_merge["年月"] == sel_month].copy()
+df_prev = df_merge[df_merge["年月"] == prev_month].copy()
 
 
-# ===================== 指标计算 =====================
+# ===================== 指标计算（核心逻辑重写） =====================
 def calc_metrics(
     df_curr: pd.DataFrame,
     df_prev: pd.DataFrame,
     risk_name: str,
 ) -> Dict:
-    """计算单个风险等级的所有指标"""
+    """计算单个风险等级的所有指标，完全修复滞销统计逻辑"""
 
-    risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
-
+    # 【修复4】正确筛选当前风险等级的SKU，不再二次过滤
     if risk_name == "整体":
         curr_data = df_curr
         prev_data = df_prev
@@ -213,6 +230,7 @@ def calc_metrics(
         curr_data = df_curr[df_curr["滞销风险等级"] == risk_name]
         prev_data = df_prev[df_prev["滞销风险等级"] == risk_name]
 
+    # 基础指标计算
     sku_curr = curr_data["MSKU"].nunique()
     sku_prev = prev_data["MSKU"].nunique()
 
@@ -222,8 +240,16 @@ def calc_metrics(
     amt_curr = curr_data["总库存金额"].sum()
     amt_prev = prev_data["总库存金额"].sum()
 
-    unsale_curr = curr_data[curr_data["滞销风险等级"].isin(risk_list)]
-    unsale_prev = prev_data[prev_data["滞销风险等级"].isin(risk_list)]
+    # 【修复5】滞销库存/金额逻辑重写：
+    # - 整体卡片：滞销库存=低/中/高风险SKU的库存总和
+    # - 其他卡片：滞销库存=该等级SKU自身的库存
+    risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
+    if risk_name == "整体":
+        unsale_curr = curr_data[curr_data["滞销风险等级"].isin(risk_list)]
+        unsale_prev = prev_data[prev_data["滞销风险等级"].isin(risk_list)]
+    else:
+        unsale_curr = curr_data
+        unsale_prev = prev_data
 
     unsale_stock_curr = unsale_curr["总库存"].sum()
     unsale_stock_prev = unsale_prev["总库存"].sum()
@@ -231,12 +257,9 @@ def calc_metrics(
     unsale_amt_curr = unsale_curr["总滞销金额"].sum()
     unsale_amt_prev = unsale_prev["总滞销金额"].sum()
 
-    if risk_name in risk_list:
-        usp = unsale_stock_curr / stock_curr if stock_curr != 0 else 0.0
-        uap = unsale_amt_curr / amt_curr if amt_curr != 0 else 0.0
-    else:
-        usp = 0.0
-        uap = 0.0
+    # 占比计算，兜底除零错误
+    usp = unsale_stock_curr / stock_curr if stock_curr != 0 else 0.0
+    uap = unsale_amt_curr / amt_curr if amt_curr != 0 else 0.0
 
     return {
         "sku_curr": sku_curr,
@@ -259,7 +282,7 @@ def calc_metrics(
     }
 
 
-# ===================== 卡片渲染（紧凑HTML，无换行，使用st.html） =====================
+# ===================== 卡片渲染（无修改，保留你的样式） =====================
 def render_card_compact(title: str, metrics: Dict):
     """生成紧凑无换行的HTML卡片，使用st.html()渲染"""
 

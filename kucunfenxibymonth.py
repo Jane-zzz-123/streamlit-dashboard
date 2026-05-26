@@ -214,13 +214,22 @@ def calc_metrics(df_curr, df_prev, risk_name):
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
         p = df_prev[df_prev["滞销风险等级"] == risk_name]
 
+    # SKU 指标
     sku_c = c["MSKU"].nunique()
     sku_p = p["MSKU"].nunique()
+    sku_diff = sku_c - sku_p
+
+    # 总库存 指标
     stk_c = c["总库存"].sum()
     stk_p = p["总库存"].sum()
+    stk_diff = stk_c - stk_p
+
+    # 总金额 指标
     amt_c = c["总库存金额"].sum()
     amt_p = p["总库存金额"].sum()
+    amt_diff = amt_c - amt_p
 
+    # 滞销指标计算
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
         uc = c[c["滞销风险等级"].isin(risk_list)]
@@ -228,43 +237,61 @@ def calc_metrics(df_curr, df_prev, risk_name):
     else:
         uc, up = c, p
 
+    # 滞销库存 指标
     u_stk_c = uc["总滞销库存"].sum()
     u_stk_p = up["总滞销库存"].sum()
+    u_stk_diff = u_stk_c - u_stk_p
+    pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+
+    # 滞销金额 指标
     u_amt_c = uc["总滞销金额"].sum()
     u_amt_p = up["总滞销金额"].sum()
-
-    pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+    u_amt_diff = u_amt_c - u_amt_p
     pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
 
     return {
-        "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_c - sku_p,
-        "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_c - stk_p,
-        "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_c - amt_p,
-        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_c - u_stk_p, "unsale_stock_pct": pct_stk,
-        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_c - u_amt_p, "unsale_amt_pct": pct_amt
+        # SKU 指标
+        "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
+        # 总库存 指标
+        "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
+        # 总金额 指标
+        "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
+        # 滞销库存 指标
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
+        # 滞销金额 指标
+        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
     }
 
 # ===================== 卡片渲染 =====================
 def render_card_compact(title, m):
     bg = RISK_COLORS.get(title, "#f5f5f5")
+
+    # 数值格式化：正数红色，负数绿色
     def fmt(d):
         return ("#e53935", f"+{d:,.0f}") if d >=0 else ("#2e7d32", f"{d:,.0f}")
+
+    # 各指标的环比颜色+符号
     sku_c, sku_s = fmt(m["sku_diff"])
     stk_c, stk_s = fmt(m["stock_diff"])
     amt_c, amt_s = fmt(m["amt_diff"])
 
+    # 卡片HTML主体
     parts = [f'<div style="background:{bg};padding:20px;border-radius:12px;margin-bottom:15px;">',
              f'<div style="font-size:22px;font-weight:bold;text-align:center">{title}</div>',
-             f'<div style="font-size:18px;font-weight:bold">SKU：{m["sku_curr"]:,.0f} <span style="color:{sku_c}">({sku_s})</span></div>',
-             f'<div style="font-size:14px">总库存：{m["stock_curr"]:,.0f} <span style="color:{stk_c}">({stk_s})</span></div>']
+             # SKU：当前值 + 上月值 + 环比
+             f'<div style="font-size:18px;font-weight:bold">SKU：{m["sku_curr"]:,.0f} （上月：{m["sku_prev"]:,.0f}） <span style="color:{sku_c}">({sku_s})</span></div>',
+             # 总库存：当前值 + 上月值 + 环比
+             f'<div style="font-size:14px">总库存：{m["stock_curr"]:,.0f} （上月：{m["stock_prev"]:,.0f}） <span style="color:{stk_c}">({stk_s})</span></div>']
 
+    # 非健康卡片：新增滞销指标（含上月值）
     if title != "健康":
         usc, uss = fmt(m["unsale_stock_diff"])
         uac, uas = fmt(m["unsale_amt_diff"])
-        parts.append(f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) <span style="color:{usc}">({uss})</span></div>')
-        parts.append(f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) <span style="color:{uac}">({uas})</span></div>')
+        parts.append(f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span></div>')
+        parts.append(f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
 
-    parts.append(f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} <span style="color:{amt_c}">({amt_s})</span></div></div>')
+    # 总金额：当前值 + 上月值 + 环比
+    parts.append(f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
     st.html("".join(parts))
 
 # ===================== 输出 =====================

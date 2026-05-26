@@ -302,35 +302,62 @@ def render_card(title: str, metrics: Dict) -> str:
         us_color, us_sign = fmt_diff(metrics["unsale_stock_diff"])
         ua_color, ua_sign = fmt_diff(metrics["unsale_amt_diff"])
 
-        unsale_html = f"""
-        <div style='font-size:14px;margin-bottom:6px;color:#333;'>
-            滞销库存：{metrics['unsale_stock_curr']:,.0f}（占比：{metrics['unsale_stock_pct']:.2%}）
-            <span style='font-size:11px;color:{us_color};font-weight:normal;'>（{us_sign}，上月：{metrics['unsale_stock_prev']:,.0f}）</span>
+        unsale_html = """
+        <div style="font-size:14px;margin-bottom:6px;color:#333333;">
+            滞销库存：{unsale_stock_curr:,.0f}（占比：{unsale_stock_pct:.2%}）
+            <span style="font-size:11px;color:{us_color};font-weight:normal;">（{us_sign}，上月：{unsale_stock_prev:,.0f}）</span>
         </div>
-        <div style='font-size:14px;color:#333;'>
-            滞销金额：{metrics['unsale_amt_curr']:,.0f}（占比：{metrics['unsale_amt_pct']:.2%}）
-            <span style='font-size:11px;color:{ua_color};font-weight:normal;'>（{ua_sign}，上月：{metrics['unsale_amt_prev']:,.0f}）</span>
+        <div style="font-size:14px;color:#333333;">
+            滞销金额：{unsale_amt_curr:,.0f}（占比：{unsale_amt_pct:.2%}）
+            <span style="font-size:11px;color:{ua_color};font-weight:normal;">（{ua_sign}，上月：{unsale_amt_prev:,.0f}）</span>
         </div>
-        """
+        """.format(
+            unsale_stock_curr=metrics["unsale_stock_curr"],
+            unsale_stock_pct=metrics["unsale_stock_pct"],
+            us_color=us_color,
+            us_sign=us_sign,
+            unsale_stock_prev=metrics["unsale_stock_prev"],
+            unsale_amt_curr=metrics["unsale_amt_curr"],
+            unsale_amt_pct=metrics["unsale_amt_pct"],
+            ua_color=ua_color,
+            ua_sign=ua_sign,
+            unsale_amt_prev=metrics["unsale_amt_prev"],
+        )
 
-    return f"""
+    return """
     <div style="background-color:{bg};padding:20px;border-radius:12px;line-height:2.2;margin-bottom:15px;">
         <div style="font-size:22px;font-weight:bold;text-align:center;margin-bottom:15px;color:#1a1a1a;">{title}</div>
         <div style="font-size:18px;font-weight:bold;margin-bottom:8px;color:#1a1a1a;">
-            SKU个数：{metrics['sku_curr']:,.0f}
-            <span style="font-size:12px;color:{sku_color};font-weight:normal;">（{sku_sign}，上月：{metrics['sku_prev']:,.0f}）</span>
+            SKU个数：{sku_curr:,.0f}
+            <span style="font-size:12px;color:{sku_color};font-weight:normal;">（{sku_sign}，上月：{sku_prev:,.0f}）</span>
         </div>
-        <div style="font-size:14px;margin-bottom:6px;color:#333;">
-            总库存：{metrics['stock_curr']:,.0f}
-            <span style="font-size:11px;color:{stk_color};font-weight:normal;">（{stk_sign}，上月：{metrics['stock_prev']:,.0f}）</span>
+        <div style="font-size:14px;margin-bottom:6px;color:#333333;">
+            总库存：{stock_curr:,.0f}
+            <span style="font-size:11px;color:{stk_color};font-weight:normal;">（{stk_sign}，上月：{stock_prev:,.0f}）</span>
         </div>
         {unsale_html}
-        <div style="font-size:14px;margin-bottom:6px;color:#333;">
-            总金额：{metrics['amt_curr']:,.0f}
-            <span style="font-size:11px;color:{amt_color};font-weight:normal;">（{amt_sign}，上月：{metrics['amt_prev']:,.0f}）</span>
+        <div style="font-size:14px;margin-bottom:6px;color:#333333;">
+            总金额：{amt_curr:,.0f}
+            <span style="font-size:11px;color:{amt_color};font-weight:normal;">（{amt_sign}，上月：{amt_prev:,.0f}）</span>
         </div>
     </div>
-    """
+    """.format(
+        bg=bg,
+        title=title,
+        sku_curr=metrics["sku_curr"],
+        sku_color=sku_color,
+        sku_sign=sku_sign,
+        sku_prev=metrics["sku_prev"],
+        stock_curr=metrics["stock_curr"],
+        stk_color=stk_color,
+        stk_sign=stk_sign,
+        stock_prev=metrics["stock_prev"],
+        unsale_html=unsale_html,
+        amt_curr=metrics["amt_curr"],
+        amt_color=amt_color,
+        amt_sign=amt_sign,
+        amt_prev=metrics["amt_prev"],
+    )
 
 
 # ===================== 页面渲染 =====================

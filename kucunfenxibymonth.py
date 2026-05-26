@@ -338,109 +338,97 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
-import plotly.graph_objects as go
-
-# ===================== 滞销金额延伸双层饼图（公式完全对齐版） =====================
+# ===================== 1行4列 滞销分析图表 =====================
 st.divider()
-st.subheader("📊 滞销金额结构拆解分析")
+st.subheader("📊 滞销金额 & 数量 拆解分析")
 
-# 1. 从看板实时数据中提取核心指标（和卡片数据100%一致）
-# 重新计算各等级汇总数据
-risk_summary = []
-for risk in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
-    m = calc_metrics(df_curr, df_prev, risk)
-    risk_summary.append({
-        "风险等级": risk,
+# 1. 统一计算所有等级数据
+risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+data_list = []
+for r in risk_list:
+    m = calc_metrics(df_curr, df_prev, r)
+    data_list.append({
+        "风险等级": r,
         "总金额": m["amt_curr"],
-        "滞销金额": m["unsale_amt_curr"]
+        "滞销金额": m["unsale_amt_curr"],
+        "总库存": m["stock_curr"],
+        "滞销库存": m["unsale_stock_curr"],
     })
-df_summary = pd.DataFrame(risk_summary)
+df_all = pd.DataFrame(data_list)
 
-# 2. 【核心修正】完全按你的公式计算饼图数据
-# 整体总金额 = 所有SKU总金额之和
-total_amount = df_summary["总金额"].sum()
-# 整体滞销金额 = 低+中+高风险SKU的滞销金额之和
-total_unsold_amount = df_summary[df_summary["风险等级"] != "健康"]["滞销金额"].sum()
-# 整体不滞销金额 = 总金额 - 滞销金额（完全按你的公式）
-total_not_unsold_amount = total_amount - total_unsold_amount
+# 2. 计算整体指标
+total_amt = df_all["总金额"].sum()
+total_unsold_amt = df_all[df_all["风险等级"] != "健康"]["滞销金额"].sum()
+total_not_unsold_amt = total_amt - total_unsold_amt
 
-# 左侧主饼图数据
-main_labels = ["不滞销金额", "滞销金额"]
-main_values = [total_not_unsold_amount, total_unsold_amount]
-# 配色：不滞销=健康绿，滞销=滞销红
-main_colors = ["#e8f5e9", "#ffcdd2"]
+total_stock = df_all["总库存"].sum()
+total_unsold_stock = df_all[df_all["风险等级"] != "健康"]["滞销库存"].sum()
+total_not_unsold_stock = total_stock - total_unsold_stock
 
-# 右侧子饼图：滞销金额内部的低/中/高占比
-sub_labels = ["低滞销风险", "中滞销风险", "高滞销风险"]
-sub_values = df_summary[df_summary["风险等级"].isin(sub_labels)]["滞销金额"].tolist()
-# 配色：完全对齐你看板的等级色
-sub_colors = ["#fff8e1", "#ffebee", "#ffcdd2"]
+# 3. 1行4列布局
+col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
 
-# 3. 创建画布，绘制饼图
-fig = go.Figure()
+# ---------------------- 第1列：滞销金额 饼图 ----------------------
+with col1:
+    st.markdown("#### 💰 滞销金额结构")
+    fig1 = go.Figure()
+    fig1.add_trace(go.Pie(
+        labels=["不滞销金额", "滞销金额"],
+        values=[total_not_unsold_amt, total_unsold_amt],
+        domain=dict(x=[0, 0.65], y=[0, 1]),
+        marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
+        sort=False, direction="clockwise"
+    ))
+    fig1.add_trace(go.Pie(
+        labels=["低滞销风险", "中滞销风险", "高滞销风险"],
+        values=df_all[df_all["风险等级"] != "健康"]["滞销金额"],
+        domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
+        marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
+        sort=False, direction="clockwise"
+    ))
+    fig1.update_layout(height=450, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
+    st.plotly_chart(fig1, use_container_width=True)
 
-# 左侧主饼图：占左侧60%宽度
-fig.add_trace(go.Pie(
-    labels=main_labels,
-    values=main_values,
-    domain=dict(x=[0, 0.6], y=[0, 1]),
-    marker=dict(colors=main_colors, line=dict(color="#000000", width=1.5)),
-    textposition="inside",
-    textinfo="label+value+percent",
-    texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
-    hovertemplate="<b>%{label}</b><br>金额: %{value:,.0f} 元<br>占比: %{percent:.1%}<extra></extra>",
-    sort=False,  # 锁定扇区顺序，不自动排序
-    direction="clockwise"
-))
+# ---------------------- 第2列：金额明细表 ----------------------
+with col2:
+    st.markdown("#### 📄 金额明细")
+    amt_detail = df_all[["风险等级", "滞销金额"]].copy()
+    st.dataframe(amt_detail, use_container_width=True, height=450)
 
-# 右侧子饼图：占右侧30%宽度，垂直居中
-fig.add_trace(go.Pie(
-    labels=sub_labels,
-    values=sub_values,
-    domain=dict(x=[0.7, 1], y=[0.15, 0.85]),
-    marker=dict(colors=sub_colors, line=dict(color="#000000", width=1.5)),
-    textposition="inside",
-    textinfo="label+value+percent",
-    texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
-    hovertemplate="<b>%{label}</b><br>滞销金额: %{value:,.0f} 元<br>占比: %{percent:.1%}<extra></extra>",
-    sort=False,
-    direction="clockwise"
-))
+# ---------------------- 第3列：滞销数量 饼图 ----------------------
+with col3:
+    st.markdown("#### 📦 滞销数量结构")
+    fig3 = go.Figure()
+    fig3.add_trace(go.Pie(
+        labels=["不滞销数量", "滞销数量"],
+        values=[total_not_unsold_stock, total_unsold_stock],
+        domain=dict(x=[0, 0.65], y=[0, 1]),
+        marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
+        sort=False, direction="clockwise"
+    ))
+    fig3.add_trace(go.Pie(
+        labels=["低滞销风险", "中滞销风险", "高滞销风险"],
+        values=df_all[df_all["风险等级"] != "健康"]["滞销库存"],
+        domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
+        marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
+        sort=False, direction="clockwise"
+    ))
+    fig3.update_layout(height=450, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
+    st.plotly_chart(fig3, use_container_width=True)
 
-# 4. 连接线精准对准「滞销金额」扇区
-main_pie_right_x = 0.6
-main_pie_top_y = 0.75
-main_pie_bottom_y = 0.25
-sub_pie_left_x = 0.7
-sub_pie_top_y = 0.85
-sub_pie_bottom_y = 0.15
-
-fig.add_shape(type="line",
-    x0=main_pie_right_x, y0=main_pie_top_y,
-    x1=sub_pie_left_x, y1=sub_pie_top_y,
-    line=dict(color="#333333", width=1.5)
-)
-fig.add_shape(type="line",
-    x0=main_pie_right_x, y0=main_pie_bottom_y,
-    x1=sub_pie_left_x, y1=sub_pie_bottom_y,
-    line=dict(color="#333333", width=1.5)
-)
-
-# 5. 样式美化
-fig.update_layout(
-    height=650,
-    showlegend=False,
-    title_text="左侧：整体库存 滞销/不滞销金额占比 | 右侧：滞销金额内部 低/中/高等级占比",
-    title_x=0.5,
-    title_font=dict(size=16),
-    font=dict(size=14),
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    margin=dict(l=20, r=20, t=80, b=20)
-)
-
-# 6. 渲染图表
-st.plotly_chart(fig, use_container_width=True)
+# ---------------------- 第4列：数量明细表 ----------------------
+with col4:
+    st.markdown("#### 📄 数量明细")
+    stock_detail = df_all[["风险等级", "滞销库存"]].copy()
+    st.dataframe(stock_detail, use_container_width=True, height=450)
 
 
 

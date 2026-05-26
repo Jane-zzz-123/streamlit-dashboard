@@ -166,17 +166,48 @@ st.divider()
 st.subheader("📦 整体滞销情况概览")
 cols = st.columns(5)
 
+# --- 把函数提到循环外面，只定义一次 ---
+def get_diff_color(diff):
+    return "red" if diff >= 0 else "green"
+
+def get_diff_sign(diff):
+    return f"+{diff}" if diff >= 0 else f"{diff}"
+
 for idx, config in enumerate(card_config):
     metrics = calc_metrics(df_curr, df_prev, config["title"])
 
+    # --- 先把所有值算好，再塞进 f-string ---
+    sku_curr = metrics['sku_curr']
+    sku_prev = metrics['sku_prev']
+    sku_diff = metrics['sku_diff']
+    sku_color = get_diff_color(sku_diff)
+    sku_sign = get_diff_sign(sku_diff)
 
-    def get_diff_color(diff):
-        return "red" if diff >= 0 else "green"
+    stock_curr = round(metrics['stock_curr'])
+    stock_prev = round(metrics['stock_prev'])
+    stock_diff = round(metrics['stock_diff'])
+    stock_color = get_diff_color(stock_diff)
+    stock_sign = get_diff_sign(stock_diff)
 
+    unsale_stock_curr = round(metrics['unsale_stock_curr'])
+    unsale_stock_prev = round(metrics['unsale_stock_prev'])
+    unsale_stock_diff = round(metrics['unsale_stock_diff'])
+    unsale_stock_pct = metrics['unsale_stock_pct']
+    unsale_stock_color = get_diff_color(unsale_stock_diff)
+    unsale_stock_sign = get_diff_sign(unsale_stock_diff)
 
-    def get_diff_sign(diff):
-        return f"+{diff}" if diff >= 0 else f"{diff}"
+    amt_curr = round(metrics['amt_curr'])
+    amt_prev = round(metrics['amt_prev'])
+    amt_diff = round(metrics['amt_diff'])
+    amt_color = get_diff_color(amt_diff)
+    amt_sign = get_diff_sign(amt_diff)
 
+    unsale_amt_curr = round(metrics['unsale_amt_curr'])
+    unsale_amt_prev = round(metrics['unsale_amt_prev'])
+    unsale_amt_diff = round(metrics['unsale_amt_diff'])
+    unsale_amt_pct = metrics['unsale_amt_pct']
+    unsale_amt_color = get_diff_color(unsale_amt_diff)
+    unsale_amt_sign = get_diff_sign(unsale_amt_diff)
 
     with cols[idx]:
         st.markdown(f"""
@@ -186,37 +217,37 @@ for idx, config in enumerate(card_config):
             </div>
 
             <div style="font-size:18px; font-weight:bold; margin-bottom:8px;">
-                SKU个数：{metrics['sku_curr']:,}
-                <span style="font-size:12px; color:{get_diff_color(metrics['sku_diff'])};">
-                    （{get_diff_sign(metrics['sku_diff'])}，上月：{metrics['sku_prev']:,}）
+                SKU个数：{sku_curr:,}
+                <span style="font-size:12px; color:{sku_color};">
+                    （{sku_sign}，上月：{sku_prev:,}）
                 </span>
             </div>
 
             <div style="font-size:14px; margin-bottom:6px;">
-                总库存：{round(metrics['stock_curr']):,.0f}
-                <span style="font-size:11px; color:{get_diff_color(metrics['stock_diff'])};">
-                    （{get_diff_sign(round(metrics['stock_diff']))}，上月：{round(metrics['stock_prev']):,.0f}）
+                总库存：{stock_curr:,}
+                <span style="font-size:11px; color:{stock_color};">
+                    （{stock_sign}，上月：{stock_prev:,}）
                 </span>
             </div>
 
             <div style="font-size:14px; margin-bottom:6px;">
-                滞销库存：{round(metrics['unsale_stock_curr']):,.0f}（占比：{metrics['unsale_stock_pct']:.2%}）
-                <span style="font-size:11px; color:{get_diff_color(metrics['unsale_stock_diff'])};">
-                    （{get_diff_sign(round(metrics['unsale_stock_diff']))}，上月：{round(metrics['unsale_stock_prev']):,.0f}）
+                滞销库存：{unsale_stock_curr:,}（占比：{unsale_stock_pct:.2%}）
+                <span style="font-size:11px; color:{unsale_stock_color};">
+                    （{unsale_stock_sign}，上月：{unsale_stock_prev:,}）
                 </span>
             </div>
 
             <div style="font-size:14px; margin-bottom:6px;">
-                总金额：{round(metrics['amt_curr']):,.0f}
-                <span style="font-size:11px; color:{get_diff_color(metrics['amt_diff'])};">
-                    （{get_diff_sign(round(metrics['amt_diff']))}，上月：{round(metrics['amt_prev']):,.0f}）
+                总金额：{amt_curr:,}
+                <span style="font-size:11px; color:{amt_color};">
+                    （{amt_sign}，上月：{amt_prev:,}）
                 </span>
             </div>
 
             <div style="font-size:14px;">
-                滞销金额：{round(metrics['unsale_amt_curr']):,.0f}（占比：{metrics['unsale_amt_pct']:.2%}）
-                <span style="font-size:11px; color:{get_diff_color(metrics['unsale_amt_diff'])};">
-                    （{get_diff_sign(round(metrics['unsale_amt_diff']))}，上月：{round(metrics['unsale_amt_prev']):,.0f}）
+                滞销金额：{unsale_amt_curr:,}（占比：{unsale_amt_pct:.2%}）
+                <span style="font-size:11px; color:{unsale_amt_color};">
+                    （{unsale_amt_sign}，上月：{unsale_amt_prev:,}）
                 </span>
             </div>
         </div>

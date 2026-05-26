@@ -166,29 +166,41 @@ st.divider()
 st.subheader("📦 整体滞销情况概览")
 cols = st.columns(5)
 
-# --- 把函数提到循环外面，只定义一次 ---
+# --- 工具函数：提到循环外，仅定义1次，避免重复执行 ---
 def get_diff_color(diff):
-    return "red" if diff >= 0 else "green"
+    """
+    涨跌颜色规则：
+    数值上涨（diff≥0）标红色，数值下跌（diff<0）标绿色，符合库存业务的风险感知
+    """
+    return "#e53935" if diff >= 0 else "#2e7d32"
 
 def get_diff_sign(diff):
+    """
+    涨跌符号格式化：正数带+号，负数正常显示负号，统一格式
+    """
     return f"+{diff}" if diff >= 0 else f"{diff}"
 
+# --- 循环渲染卡片 ---
 for idx, config in enumerate(card_config):
+    # 1. 计算指标
     metrics = calc_metrics(df_curr, df_prev, config["title"])
 
-    # --- 先把所有值算好，再塞进 f-string ---
-    sku_curr = metrics['sku_curr']
-    sku_prev = metrics['sku_prev']
-    sku_diff = metrics['sku_diff']
+    # 2. 提前格式化所有数值，避免f-string内计算导致的HTML语法断裂
+    # SKU数
+    sku_curr = int(metrics['sku_curr'])
+    sku_prev = int(metrics['sku_prev'])
+    sku_diff = int(metrics['sku_diff'])
     sku_color = get_diff_color(sku_diff)
     sku_sign = get_diff_sign(sku_diff)
 
+    # 总库存
     stock_curr = round(metrics['stock_curr'])
     stock_prev = round(metrics['stock_prev'])
     stock_diff = round(metrics['stock_diff'])
     stock_color = get_diff_color(stock_diff)
     stock_sign = get_diff_sign(stock_diff)
 
+    # 滞销库存
     unsale_stock_curr = round(metrics['unsale_stock_curr'])
     unsale_stock_prev = round(metrics['unsale_stock_prev'])
     unsale_stock_diff = round(metrics['unsale_stock_diff'])
@@ -196,12 +208,14 @@ for idx, config in enumerate(card_config):
     unsale_stock_color = get_diff_color(unsale_stock_diff)
     unsale_stock_sign = get_diff_sign(unsale_stock_diff)
 
+    # 总金额
     amt_curr = round(metrics['amt_curr'])
     amt_prev = round(metrics['amt_prev'])
     amt_diff = round(metrics['amt_diff'])
     amt_color = get_diff_color(amt_diff)
     amt_sign = get_diff_sign(amt_diff)
 
+    # 滞销金额
     unsale_amt_curr = round(metrics['unsale_amt_curr'])
     unsale_amt_prev = round(metrics['unsale_amt_prev'])
     unsale_amt_diff = round(metrics['unsale_amt_diff'])
@@ -209,44 +223,51 @@ for idx, config in enumerate(card_config):
     unsale_amt_color = get_diff_color(unsale_amt_diff)
     unsale_amt_sign = get_diff_sign(unsale_amt_diff)
 
+    # 3. 卡片渲染：严格闭合所有HTML标签，强制开启unsafe_allow_html
     with cols[idx]:
         st.markdown(f"""
-        <div style="background-color:{config['bg_color']}; padding:20px; border-radius:12px; line-height:2.2;">
-            <div style="font-size:22px; font-weight:bold; text-align:center; margin-bottom:15px;">
+        <div style="background-color:{config['bg_color']}; padding:20px; border-radius:12px; line-height:2.2; margin-bottom:15px;">
+            <!-- 卡片标题 -->
+            <div style="font-size:22px; font-weight:bold; text-align:center; margin-bottom:15px; color:#1a1a1a;">
                 {config['title']}
             </div>
 
-            <div style="font-size:18px; font-weight:bold; margin-bottom:8px;">
+            <!-- SKU个数 -->
+            <div style="font-size:18px; font-weight:bold; margin-bottom:8px; color:#1a1a1a;">
                 SKU个数：{sku_curr:,}
-                <span style="font-size:12px; color:{sku_color};">
+                <span style="font-size:12px; color:{sku_color}; font-weight:normal;">
                     （{sku_sign}，上月：{sku_prev:,}）
                 </span>
             </div>
 
-            <div style="font-size:14px; margin-bottom:6px;">
+            <!-- 总库存 -->
+            <div style="font-size:14px; margin-bottom:6px; color:#333333;">
                 总库存：{stock_curr:,}
-                <span style="font-size:11px; color:{stock_color};">
+                <span style="font-size:11px; color:{stock_color}; font-weight:normal;">
                     （{stock_sign}，上月：{stock_prev:,}）
                 </span>
             </div>
 
-            <div style="font-size:14px; margin-bottom:6px;">
+            <!-- 滞销库存 -->
+            <div style="font-size:14px; margin-bottom:6px; color:#333333;">
                 滞销库存：{unsale_stock_curr:,}（占比：{unsale_stock_pct:.2%}）
-                <span style="font-size:11px; color:{unsale_stock_color};">
+                <span style="font-size:11px; color:{unsale_stock_color}; font-weight:normal;">
                     （{unsale_stock_sign}，上月：{unsale_stock_prev:,}）
                 </span>
             </div>
 
-            <div style="font-size:14px; margin-bottom:6px;">
+            <!-- 总金额 -->
+            <div style="font-size:14px; margin-bottom:6px; color:#333333;">
                 总金额：{amt_curr:,}
-                <span style="font-size:11px; color:{amt_color};">
+                <span style="font-size:11px; color:{amt_color}; font-weight:normal;">
                     （{amt_sign}，上月：{amt_prev:,}）
                 </span>
             </div>
 
-            <div style="font-size:14px;">
+            <!-- 滞销金额 -->
+            <div style="font-size:14px; color:#333333;">
                 滞销金额：{unsale_amt_curr:,}（占比：{unsale_amt_pct:.2%}）
-                <span style="font-size:11px; color:{unsale_amt_color};">
+                <span style="font-size:11px; color:{unsale_amt_color}; font-weight:normal;">
                     （{unsale_amt_sign}，上月：{unsale_amt_prev:,}）
                 </span>
             </div>

@@ -338,8 +338,7 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
-
-# ===================== 1行3列 滞销分析图表（文字总结版 - 100%正确） =====================
+# ===================== 1行3列 滞销分析图表（文字总结最终优化版） =====================
 st.divider()
 st.subheader("📊 滞销金额 & 数量 & SKU 拆解分析")
 
@@ -367,27 +366,37 @@ total_stock = df_all["总库存"].sum()
 total_unsold_stock = df_all[df_all["风险等级"] != "健康"]["滞销库存"].sum()
 total_not_unsold_stock = total_stock - total_unsold_stock
 
-# ===================== ✅ 正确 SKU 统计（完全用你已有的计算结果，100% 不报错） =====================
+# 3. 正确 SKU 统计（完全用你已有的计算结果）
 df_sku = df_all.set_index("风险等级")
-total_sku     = int(df_sku["SKU数"].sum())
-healthy_sku   = int(df_sku.loc["健康", "SKU数"])
-low_sku       = int(df_sku.loc["低滞销风险", "SKU数"])
-mid_sku       = int(df_sku.loc["中滞销风险", "SKU数"])
-high_sku      = int(df_sku.loc["高滞销风险", "SKU数"])
-unsold_sku    = low_sku + mid_sku + high_sku
+total_sku = int(df_sku["SKU数"].sum())
+healthy_sku = int(df_sku.loc["健康", "SKU数"])
+low_sku = int(df_sku.loc["低滞销风险", "SKU数"])
+mid_sku = int(df_sku.loc["中滞销风险", "SKU数"])
+high_sku = int(df_sku.loc["高滞销风险", "SKU数"])
+unsold_sku = low_sku + mid_sku + high_sku
 
-# 3. 1行3列布局
+# 4. 1行3列布局
 col1, col2, col3 = st.columns(3)
 
-# ---------------------- 第1列：滞销金额 ----------------------
+# ---------------------- 第1列：滞销金额结构 ----------------------
 with col1:
     st.markdown("#### 💰 滞销金额结构")
+    # 提取各等级金额数据
+    low_amt = df_all[df_all["风险等级"] == "低滞销风险"]["滞销金额"].iloc[0]
+    mid_amt = df_all[df_all["风险等级"] == "中滞销风险"]["滞销金额"].iloc[0]
+    high_amt = df_all[df_all["风险等级"] == "高滞销风险"]["滞销金额"].iloc[0]
+
+    # 新总结文字：分低/中/高列数值+占比
     st.markdown(f"""
     总库存金额：**{total_amt:,.0f}** 元<br>
-    滞销金额：**{total_unsold_amt:,.0f}** 元（占比 {total_unsold_amt/total_amt:.1%}）<br>
-    高风险占比：**{high_sku/(unsold_sku if unsold_sku else 1):.1%}**
+    滞销金额：**{total_unsold_amt:,.0f}** 元（占总库存 {total_unsold_amt / total_amt:.1%}）<br>
+    👉 其中：<br>
+    &nbsp;&nbsp;• 高滞销风险金额：**{high_amt:,.0f}** 元，占滞销金额 **{high_amt / total_unsold_amt:.1%}**<br>
+    &nbsp;&nbsp;• 中滞销风险金额：**{mid_amt:,.0f}** 元，占滞销金额 **{mid_amt / total_unsold_amt:.1%}**<br>
+    &nbsp;&nbsp;• 低滞销风险金额：**{low_amt:,.0f}** 元，占滞销金额 **{low_amt / total_unsold_amt:.1%}**
     """, unsafe_allow_html=True)
 
+    # 饼图逻辑不变
     fig1 = go.Figure()
     fig1.add_trace(go.Pie(
         labels=["不滞销金额", "滞销金额"],
@@ -410,15 +419,25 @@ with col1:
     fig1.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig1, use_container_width=True)
 
-# ---------------------- 第2列：滞销数量 ----------------------
+# ---------------------- 第2列：滞销数量结构 ----------------------
 with col2:
     st.markdown("#### 📦 滞销数量结构")
+    # 提取各等级数量数据
+    low_stk = df_all[df_all["风险等级"] == "低滞销风险"]["滞销库存"].iloc[0]
+    mid_stk = df_all[df_all["风险等级"] == "中滞销风险"]["滞销库存"].iloc[0]
+    high_stk = df_all[df_all["风险等级"] == "高滞销风险"]["滞销库存"].iloc[0]
+
+    # 新总结文字：分低/中/高列数值+占比
     st.markdown(f"""
     总库存数量：**{total_stock:,.0f}** 件<br>
-    滞销数量：**{total_unsold_stock:,.0f}** 件（占比 {total_unsold_stock/total_stock:.1%}）<br>
-    高风险占比：**{high_sku/(unsold_sku if unsold_sku else 1):.1%}**
+    滞销数量：**{total_unsold_stock:,.0f}** 件（占总库存 {total_unsold_stock / total_stock:.1%}）<br>
+    👉 其中：<br>
+    &nbsp;&nbsp;• 高滞销风险数量：**{high_stk:,.0f}** 件，占滞销数量 **{high_stk / total_unsold_stock:.1%}**<br>
+    &nbsp;&nbsp;• 中滞销风险数量：**{mid_stk:,.0f}** 件，占滞销数量 **{mid_stk / total_unsold_stock:.1%}**<br>
+    &nbsp;&nbsp;• 低滞销风险数量：**{low_stk:,.0f}** 件，占滞销数量 **{low_stk / total_unsold_stock:.1%}**
     """, unsafe_allow_html=True)
 
+    # 饼图逻辑不变
     fig3 = go.Figure()
     fig3.add_trace(go.Pie(
         labels=["不滞销数量", "滞销数量"],
@@ -441,15 +460,20 @@ with col2:
     fig3.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig3, use_container_width=True)
 
-# ---------------------- 第3列：滞销SKU（完全正确 ✅） ----------------------
+# ---------------------- 第3列：滞销SKU结构 ----------------------
 with col3:
     st.markdown("#### 📊 滞销SKU结构")
+    # 新总结文字：分低/中/高列数值+占比
     st.markdown(f"""
     总SKU数量：**{total_sku}** 个<br>
-    滞销SKU：**{unsold_sku}** 个（占比 {unsold_sku/total_sku:.1%}）<br>
-    高风险SKU占比：**{high_sku/(unsold_sku if unsold_sku>0 else 1):.1%}**
+    滞销SKU：**{unsold_sku}** 个（占总SKU {unsold_sku / total_sku:.1%}）<br>
+    👉 其中：<br>
+    &nbsp;&nbsp;• 高滞销风险SKU：**{high_sku}** 个，占滞销SKU **{high_sku / unsold_sku:.1%}**<br>
+    &nbsp;&nbsp;• 中滞销风险SKU：**{mid_sku}** 个，占滞销SKU **{mid_sku / unsold_sku:.1%}**<br>
+    &nbsp;&nbsp;• 低滞销风险SKU：**{low_sku}** 个，占滞销SKU **{low_sku / unsold_sku:.1%}**
     """, unsafe_allow_html=True)
 
+    # 饼图逻辑不变
     fig_sku = go.Figure()
     fig_sku.add_trace(go.Pie(
         labels=["不滞销SKU", "滞销SKU"],

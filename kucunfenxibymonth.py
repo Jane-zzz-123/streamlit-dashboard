@@ -964,56 +964,73 @@ with col3_yr:
     st.plotly_chart(fig, use_container_width=True)
 
 # ======================================================================================
-# 滞销库存来源分析：年货 / 年前 / 年后 采购滞销（逻辑修正版·滞销匹配采购）
+# 滞销库存来源分析：年货 / 年前 / 年后 采购滞销（先进先出匹配版）
 # ======================================================================================
 st.divider()
 st.subheader("📦 滞销库存来源分析（按采购类型）")
 
-# ===================== 1. 基础配置：只锁定【滞销商品】 =====================
+# ===================== 1. 基础配置 =====================
 # 自动获取当前库存日期
 stock_date = pd.to_datetime(df_curr["时间"].iloc[0])
 
-# 只筛选：低/中/高滞销风险的商品（健康品不参与拆分）
+# 只保留：低/中/高滞销风险的商品，且用「总滞销库存」字段
 risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
 df_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_unsale)].copy()
 
-# ===================== 2. 清洗采购数据：只统计【当前库存日期之前】的采购 =====================
+# ===================== 2. 清洗采购数据（只统计库存日期之前的采购） =====================
 pur_clean = df_pur.copy()
 pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
 pur_before = pur_clean[pur_clean["采购日期"] < stock_date].copy()
 
-# 按 MSKU + 采购类型 汇总采购量
+# 按MSKU + 采购类型汇总采购量
 msku_pur = pur_before.groupby(["MSKU", "采购类型"])["采购量"].sum().unstack().fillna(0).reset_index()
-# 确保两列都存在，避免KeyError
 for col in ["年前采购", "年后采购"]:
     if col not in msku_pur.columns:
         msku_pur[col] = 0
 
-# ===================== 3. 匹配：滞销库存 + 采购数据（按MSKU） =====================
-# 先汇总滞销商品的全字段（你要的追溯字段）
+# ===================== 3. 匹配滞销库存 =====================
+# 汇总滞销商品的核心字段
 inv_full = df_unsale.groupby("MSKU").agg(
     店铺=("店铺", "first"),
     品名=("品名", "first"),
     FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
     本地库存=("本地库存", "sum"),
-    滞销总库存=("总库存", "sum")  # 这里是「滞销总库存」，不是总库存！
+    滞销总库存=("总滞销库存", "sum")  # 用你真实的「总滞销库存」字段！
 ).reset_index()
 
 # 合并采购数据
 df_merge = inv_full.merge(msku_pur, on="MSKU", how="left").fillna(0)
 
-# ===================== 4. 核心计算（完全按你说的：滞销数量 vs 采购数量） =====================
-df_merge["年后采购滞销"] = df_merge["年后采购"]
-df_merge["年前采购滞销"] = df_merge["年前采购"]
-# 年货 = 滞销总库存 - 年前采购 - 年后采购（不能为负）
-df_merge["年货采购滞销"] = (df_merge["滞销总库存"] - df_merge["年前采购"] - df_merge["年后采购"]).clip(lower=0)
 
-# ===================== 5. 汇总总数（卡纸用） =====================
+# ===================== 4. 核心逻辑：先进先出匹配（年后→年前→年货） =====================
+def allocate_stock(row):
+    unsale = row["滞销总库存"]
+    after_pur = row["年后采购"]
+    before_pur = row["年前采购"]
+
+    # 1. 先扣年后采购
+    after_unsale = min(unsale, after_pur)
+    remaining = unsale - after_unsale
+
+    # 2. 再扣年前采购
+    before_unsale = min(remaining, before_pur)
+    remaining = remaining - before_unsale
+
+    # 3. 剩下的就是年货采购
+    new_year_unsale = remaining
+
+    return pd.Series([before_unsale, after_unsale, new_year_unsale])
+
+
+# 应用函数
+df_merge[["年前采购滞销", "年后采购滞销", "年货采购滞销"]] = df_merge.apply(allocate_stock, axis=1)
+
+# ===================== 5. 汇总总数 =====================
 total_new_year = int(df_merge["年货采购滞销"].sum())
-total_before   = int(df_merge["年前采购滞销"].sum())
-total_after    = int(df_merge["年后采购滞销"].sum())
+total_before = int(df_merge["年前采购滞销"].sum())
+total_after = int(df_merge["年后采购滞销"].sum())
 
-# ===================== 6. 3张精美卡纸 =====================
+# ===================== 6. 3张卡纸 =====================
 c1, c2, c3 = st.columns(3)
 
 with c1:
@@ -1043,16 +1060,14 @@ with c3:
     </div>
     """, unsafe_allow_html=True)
 
-# ===================== 7. 全字段明细表格 =====================
+# ===================== 7. 明细表格 =====================
 with st.expander("📄 查看 MSKU 滞销来源明细（全字段追溯）"):
-    # 列顺序：基础信息 → 库存结构 → 采购数据 → 滞销分类
     final_cols = [
         "MSKU", "店铺", "品名",
         "FBA_AWD_在途库存", "本地库存", "滞销总库存",
         "年前采购", "年后采购",
         "年前采购滞销", "年后采购滞销", "年货采购滞销"
     ]
-    # 按滞销总库存从高到低排序，优先看大滞销SKU
     st.dataframe(
         df_merge[final_cols].sort_values("滞销总库存", ascending=False),
         use_container_width=True,

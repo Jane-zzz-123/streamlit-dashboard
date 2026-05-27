@@ -547,7 +547,7 @@ with col3:
     fig_sku.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig_sku, use_container_width=True)
 
-# ===================== 年份品 / 非年份品 滞销拆分占比分析（精简+收紧+饼图放大） =====================
+# ===================== 年份品 / 非年份品 滞销拆分占比分析（每一项都加环比版） =====================
 st.divider()
 st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
@@ -587,37 +587,48 @@ total_all_qty_p = year_qty_p + noyear_qty_p
 total_all_amt_p = year_amt_p + noyear_amt_p
 
 # 环比差值
-diff_sku = total_all_sku - total_all_sku_p
-diff_qty = total_all_qty - total_all_qty_p
-diff_amt = total_all_amt - total_all_amt_p
+diff_sku_total = total_all_sku - total_all_sku_p
+diff_qty_total = total_all_qty - total_all_qty_p
+diff_amt_total = total_all_amt - total_all_amt_p
 
-# 百分比 + 环比颜色
+diff_sku_year = year_sku - year_sku_p
+diff_qty_year = year_qty - year_qty_p
+diff_amt_year = year_amt - year_amt_p
+
+diff_sku_noyear = noyear_sku - noyear_sku_p
+diff_qty_noyear = noyear_qty - noyear_qty_p
+diff_amt_noyear = noyear_amt - noyear_amt_p
+
+# 格式化工具
 def safe_pct_2(val, total):
     return f"{(val / total)*100:.2f}%" if total > 0 else "0.00%"
 
 def color_num(v):
     if v > 0:
-        return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
+        return f'<span style="color:#d32f2f">↑ +{int(v):,}</span>'
     elif v < 0:
-        return f'<span style="color:#388e3c">↓ {v:,}</span>'
+        return f'<span style="color:#388e3c">↓ {int(v):,}</span>'
     else:
         return "—"
 
-# ===================== 布局：文字收紧 + 饼图放大 =====================
+# ===================== 布局：文字收紧 + 饼图放大 + 每一项都加环比 =====================
 col_left, col_right = st.columns([1, 1.5], gap="small")
 
 with col_left:
     st.markdown(f"""
-<div style="background:#f8f9fa; padding:10px; border-radius:8px; line-height:1.5; font-size:13px;">
+<div style="background:#f8f9fa; padding:12px; border-radius:8px; line-height:1.6; font-size:13px;">
 <b>📊 整体滞销结构总结</b><br>
-• 滞销SKU共 <b>{total_all_sku}</b> 个，环比 {color_num(diff_sku)}<br>
-　年份品 <b>{year_sku}</b> 个（{safe_pct_2(year_sku, total_all_sku)}），非年份品 <b>{noyear_sku}</b> 个（{safe_pct_2(noyear_sku, total_all_sku)}）<br>
+• 滞销SKU共 <b>{total_all_sku}</b> 个，环比 {color_num(diff_sku_total)}<br>
+　年份品 <b>{year_sku}</b> 个（{safe_pct_2(year_sku, total_all_sku)}），环比 {color_num(diff_sku_year)}<br>
+　非年份品 <b>{noyear_sku}</b> 个（{safe_pct_2(noyear_sku, total_all_sku)}），环比 {color_num(diff_sku_noyear)}<br>
 <br>
-• 滞销数量共 <b>{total_all_qty:,.0f}</b> 件，环比 {color_num(diff_qty)}<br>
-　年份品 <b>{year_qty:,.0f}</b> 件（{safe_pct_2(year_qty, total_all_qty)}），非年份品 <b>{noyear_qty:,.0f}</b> 件（{safe_pct_2(noyear_qty, total_all_qty)}）<br>
+• 滞销数量共 <b>{total_all_qty:,.0f}</b> 件，环比 {color_num(diff_qty_total)}<br>
+　年份品 <b>{year_qty:,.0f}</b> 件（{safe_pct_2(year_qty, total_all_qty)}），环比 {color_num(diff_qty_year)}<br>
+　非年份品 <b>{noyear_qty:,.0f}</b> 件（{safe_pct_2(noyear_qty, total_all_qty)}），环比 {color_num(diff_qty_noyear)}<br>
 <br>
-• 滞销金额共 <b>{total_all_amt:,.0f}</b> 元，环比 {color_num(diff_amt)}<br>
-　年份品 <b>{year_amt:,.0f}</b> 元（{safe_pct_2(year_amt, total_all_amt)}），非年份品 <b>{noyear_amt}</b> 元（{safe_pct_2(noyear_amt, total_all_amt)}）
+• 滞销金额共 <b>{total_all_amt:,.0f}</b> 元，环比 {color_num(diff_amt_total)}<br>
+　年份品 <b>{year_amt:,.0f}</b> 元（{safe_pct_2(year_amt, total_all_amt)}），环比 {color_num(diff_amt_year)}<br>
+　非年份品 <b>{noyear_amt:,.0f}</b> 元（{safe_pct_2(noyear_amt, total_all_amt)}），环比 {color_num(diff_amt_noyear)}
 </div>
 """, unsafe_allow_html=True)
 

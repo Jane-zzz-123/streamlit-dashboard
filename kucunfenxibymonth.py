@@ -547,20 +547,19 @@ with col3:
     fig_sku.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig_sku, use_container_width=True)
 
-# ===================== 年份品 / 非年份品 滞销拆分占比分析（文字总结精准版） =====================
+# ===================== 年份品 / 非年份品 滞销拆分占比分析（精简+环比版） =====================
 st.divider()
 st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
 # 1. 按【是否年份】拆分数据
-df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()  # 年份品
-df_noyear_curr = df_curr[df_curr["是否年份"] == "否"].copy()  # 非年份品
+df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()
+df_noyear_curr = df_curr[df_curr["是否年份"] == "否"].copy()
 
 df_year_prev = df_prev[df_prev["是否年份"] == "是"].copy()
 df_noyear_prev = df_prev[df_prev["是否年份"] == "否"].copy()
 
 # 滞销风险范围：低/中/高
 risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
-
 
 # 2. 封装统计函数
 def get_unsold_stat(df):
@@ -569,7 +568,6 @@ def get_unsold_stat(df):
     qty_cnt = df_unsale["总滞销库存"].sum()
     amt_cnt = df_unsale["总滞销金额"].sum()
     return sku_cnt, qty_cnt, amt_cnt
-
 
 # 3. 当月统计
 year_sku, year_qty, year_amt = get_unsold_stat(df_year_curr)
@@ -584,85 +582,63 @@ total_all_sku = year_sku + noyear_sku
 total_all_qty = year_qty + noyear_qty
 total_all_amt = year_amt + noyear_amt
 
+total_all_sku_p = year_sku_p + noyear_sku_p
+total_all_qty_p = year_qty_p + noyear_qty_p
+total_all_amt_p = year_amt_p + noyear_amt_p
 
-# 防除0 & 百分比格式化（保留2位小数）
+# 环比差值
+diff_sku = total_all_sku - total_all_sku_p
+diff_qty = total_all_qty - total_all_qty_p
+diff_amt = total_all_amt - total_all_amt_p
+
+# 百分比 + 环比颜色
 def safe_pct_2(val, total):
-    return f"{(val / total) * 100:.2f}%" if total > 0 else "0.00%"
+    return f"{(val / total)*100:.2f}%" if total > 0 else "0.00%"
 
+def color_num(v):
+    if v > 0:
+        return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
+    elif v < 0:
+        return f'<span style="color:#388e3c">↓ {v:,}</span>'
+    else:
+        return "—"
 
-# 环比格式化（修复小数过长问题）
-def delta_fmt(v):
-    if v > 0: return f'<span style="color:#d32f2f">↑ +{int(v):,}</span>'
-    if v < 0: return f'<span style="color:#388e3c">↓ {int(v):,}</span>'
-    return "—"
+# ===================== 一行两列：左边文字总结（带环比） + 右边饼图 =====================
+col_left, col_right = st.columns([1.2, 2], gap="medium")
 
-
-# ===================== ✅ 一行三列布局（完全匹配你要求） =====================
-col1, col2, col3 = st.columns([1, 1, 2], gap="medium")
-
-# ---------------------- 第1列：精准文字总结 + 年份品详情 ----------------------
-with col1:
-    # 完全按你指定话术的文字总结卡片
+with col_left:
     st.markdown(f"""
 <div style="background:#f8f9fa; padding:16px; border-radius:8px; line-height:2.0; font-size:14px;">
 <b>📊 整体滞销结构总结</b><br>
-• 滞销SKU共 <b>{total_all_sku}</b> 个，其中年份品的滞销SKU有 <b>{year_sku}</b> 个（占比 {safe_pct_2(year_sku, total_all_sku)}），非年份品的滞销SKU有 <b>{noyear_sku}</b> 个（占比 {safe_pct_2(noyear_sku, total_all_sku)}）<br>
-• 滞销数量共 <b>{total_all_qty:,.0f}</b> 件，其中年份品的滞销数量有 <b>{year_qty:,.0f}</b> 件（占比 {safe_pct_2(year_qty, total_all_qty)}），非年份品的滞销数量有 <b>{noyear_qty:,.0f}</b> 件（占比 {safe_pct_2(noyear_qty, total_all_qty)}）<br>
-• 滞销金额共 <b>{total_all_amt:,.0f}</b> 元，其中年份品的滞销金额有 <b>{year_amt:,.0f}</b> 元（占比 {safe_pct_2(year_amt, total_all_amt)}），非年份品的滞销金额有 <b>{noyear_amt:,.0f}</b> 元（占比 {safe_pct_2(noyear_amt, total_all_amt)}）
+• 滞销SKU共 <b>{total_all_sku}</b> 个，环比 {color_num(diff_sku)}<br>
+　其中年份品 <b>{year_sku}</b> 个（占比 {safe_pct_2(year_sku, total_all_sku)}），非年份品 <b>{noyear_sku}</b> 个（占比 {safe_pct_2(noyear_sku, total_all_sku)}）<br>
+<br>
+• 滞销数量共 <b>{total_all_qty:,.0f}</b> 件，环比 {color_num(diff_qty)}<br>
+　其中年份品 <b>{year_qty:,.0f}</b> 件（占比 {safe_pct_2(year_qty, total_all_qty)}），非年份品 <b>{noyear_qty:,.0f}</b> 件（占比 {safe_pct_2(noyear_qty, total_all_qty)}）<br>
+<br>
+• 滞销金额共 <b>{total_all_amt:,.0f}</b> 元，环比 {color_num(diff_amt)}<br>
+　其中年份品 <b>{year_amt:,.0f}</b> 元（占比 {safe_pct_2(year_amt, total_all_amt)}），非年份品 <b>{noyear_amt:,.0f}</b> 元（占比 {safe_pct_2(noyear_amt, total_all_amt)}）
 </div>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-    st.markdown("#### 📆 年份品 滞销情况")
-    st.markdown(f"""
-<div style="line-height:1.8; font-size:14px;">
-• 滞销SKU：<b>{year_sku}</b> 个（占 {safe_pct_2(year_sku, total_all_sku)}）{delta_fmt(year_sku - year_sku_p)}<br>
-• 滞销数量：<b>{year_qty:,.0f}</b> 件（占 {safe_pct_2(year_qty, total_all_qty)}）{delta_fmt(year_qty - year_qty_p)}<br>
-• 滞销金额：<b>{year_amt:,.0f}</b> 元（占 {safe_pct_2(year_amt, total_all_amt)}）{delta_fmt(year_amt - year_amt_p)}
-</div>
-    """, unsafe_allow_html=True)
-
-# ---------------------- 第2列：非年份品详情 ----------------------
-with col2:
-    st.markdown("#### 📦 非年份品 滞销情况")
-    st.markdown(f"""
-<div style="line-height:1.8; font-size:14px;">
-• 滞销SKU：<b>{noyear_sku}</b> 个（占 {safe_pct_2(noyear_sku, total_all_sku)}）{delta_fmt(noyear_sku - noyear_sku_p)}<br>
-• 滞销数量：<b>{noyear_qty:,.0f}</b> 件（占 {safe_pct_2(noyear_qty, total_all_qty)}）{delta_fmt(noyear_qty - noyear_qty_p)}<br>
-• 滞销金额：<b>{noyear_amt:,.0f}</b> 元（占 {safe_pct_2(noyear_amt, total_all_amt)}）{delta_fmt(noyear_amt - noyear_amt_p)}
-</div>
-    """, unsafe_allow_html=True)
-
-# ---------------------- 第3列：3个饼图（年份vs非年份占比） ----------------------
-with col3:
+with col_right:
     st.markdown("#### 🥧 年份品 vs 非年份品 占比")
     c_pie1, c_pie2, c_pie3 = st.columns(3)
 
-    # 滞销金额占比饼图
     with c_pie1:
-        pie_amt = pd.DataFrame({"类型": ["年份品", "非年份品"], "值": [year_amt, noyear_amt]})
-        fig_amt = px.pie(
-            pie_amt, names="类型", values="值", title="滞销金额占比",
-            color_discrete_map={"年份品": "#90caf9", "非年份品": "#1565c0"}
-        )
-        fig_amt.update_layout(height=240, showlegend=False, margin=dict(t=30, b=0, l=0, r=0))
+        pie_amt = pd.DataFrame({"类型":["年份品","非年份品"],"值":[year_amt, noyear_amt]})
+        fig_amt = px.pie(pie_amt, names="类型", values="值", title="滞销金额占比")
+        fig_amt.update_layout(height=240, showlegend=False)
         st.plotly_chart(fig_amt, use_container_width=True)
 
-    # 滞销数量占比饼图
     with c_pie2:
-        pie_qty = pd.DataFrame({"类型": ["年份品", "非年份品"], "值": [year_qty, noyear_qty]})
-        fig_qty = px.pie(
-            pie_qty, names="类型", values="值", title="滞销数量占比",
-            color_discrete_map={"年份品": "#90caf9", "非年份品": "#1565c0"}
-        )
-        fig_qty.update_layout(height=240, showlegend=False, margin=dict(t=30, b=0, l=0, r=0))
+        pie_qty = pd.DataFrame({"类型":["年份品","非年份品"],"值":[year_qty, noyear_qty]})
+        fig_qty = px.pie(pie_qty, names="类型", values="值", title="滞销数量占比")
+        fig_qty.update_layout(height=240, showlegend=False)
         st.plotly_chart(fig_qty, use_container_width=True)
 
-    # 滞销SKU占比饼图
     with c_pie3:
-        pie_sku = pd.DataFrame({"类型": ["年份品", "非年份品"], "值": [year_sku, noyear_sku]})
-        fig_sku = px.pie(
-            pie_sku, names="类型", values="值", title="滞销SKU占比",
-            color_discrete_map={"年份品": "#90caf9", "非年份品": "#1565c0"}
-        )
-        fig_sku.update_layout(height=240, showlegend=False, margin=dict(t=30, b=0, l=0, r=0))
+        pie_sku = pd.DataFrame({"类型":["年份品","非年份品"],"值":[year_sku, noyear_sku]})
+        fig_sku = px.pie(pie_sku, names="类型", values="值", title="滞销SKU占比")
+        fig_sku.update_layout(height=240, showlegend=False)
         st.plotly_chart(fig_sku, use_container_width=True)

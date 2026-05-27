@@ -338,7 +338,7 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
-# ===================== 1行3列 滞销分析图表（文字总结最终优化版） =====================
+# ===================== 1行3列 滞销分析图表（文字排版+配色+环比完整版） =====================
 st.divider()
 st.subheader("📊 滞销金额 & 数量 & SKU 拆解分析")
 
@@ -350,53 +350,102 @@ for r in risk_list:
     data_list.append({
         "风险等级": r,
         "SKU数": m["sku_curr"],
+        "SKU_prev": m["sku_prev"],
+        "SKU_diff": m["sku_diff"],
         "总金额": m["amt_curr"],
-        "滞销金额": m["unsale_amt_curr"],
+        "amt_prev": m["amt_prev"],
+        "amt_diff": m["amt_diff"],
         "总库存": m["stock_curr"],
+        "stock_prev": m["stock_prev"],
+        "stock_diff": m["stock_diff"],
+        "滞销金额": m["unsale_amt_curr"],
+        "unsale_amt_prev": m["unsale_amt_prev"],
+        "unsale_amt_diff": m["unsale_amt_diff"],
         "滞销库存": m["unsale_stock_curr"],
+        "unsale_stock_prev": m["unsale_stock_prev"],
+        "unsale_stock_diff": m["unsale_stock_diff"],
     })
 df_all = pd.DataFrame(data_list)
 
-# 2. 计算整体指标
+# 2. 整体指标
 total_amt = df_all["总金额"].sum()
 total_unsold_amt = df_all[df_all["风险等级"] != "健康"]["滞销金额"].sum()
 total_not_unsold_amt = total_amt - total_unsold_amt
+amt_diff_total = total_amt - df_all["amt_prev"].sum()
+unsale_amt_diff_total = total_unsold_amt - df_all["unsale_amt_prev"].sum()
 
 total_stock = df_all["总库存"].sum()
 total_unsold_stock = df_all[df_all["风险等级"] != "健康"]["滞销库存"].sum()
 total_not_unsold_stock = total_stock - total_unsold_stock
+stock_diff_total = total_stock - df_all["stock_prev"].sum()
+unsale_stock_diff_total = total_unsold_stock - df_all["unsale_stock_prev"].sum()
 
-# 3. 正确 SKU 统计（完全用你已有的计算结果）
+# 3. SKU 统计
 df_sku = df_all.set_index("风险等级")
-total_sku = int(df_sku["SKU数"].sum())
-healthy_sku = int(df_sku.loc["健康", "SKU数"])
-low_sku = int(df_sku.loc["低滞销风险", "SKU数"])
-mid_sku = int(df_sku.loc["中滞销风险", "SKU数"])
-high_sku = int(df_sku.loc["高滞销风险", "SKU数"])
-unsold_sku = low_sku + mid_sku + high_sku
+total_sku     = int(df_sku["SKU数"].sum())
+total_sku_prev= int(df_sku["SKU_prev"].sum())
+total_sku_diff= total_sku - total_sku_prev
 
-# 4. 1行3列布局
+healthy_sku   = int(df_sku.loc["健康", "SKU数"])
+low_sku       = int(df_sku.loc["低滞销风险", "SKU数"])
+mid_sku       = int(df_sku.loc["中滞销风险", "SKU数"])
+high_sku      = int(df_sku.loc["高滞销风险", "SKU数"])
+
+low_sku_diff  = int(df_sku.loc["低滞销风险", "SKU_diff"])
+mid_sku_diff  = int(df_sku.loc["中滞销风险", "SKU_diff"])
+high_sku_diff = int(df_sku.loc["高滞销风险", "SKU_diff"])
+
+unsold_sku    = low_sku + mid_sku + high_sku
+unsold_sku_prev = (df_sku.loc["低滞销风险","SKU_prev"]
+                   + df_sku.loc["中滞销风险","SKU_prev"]
+                   + df_sku.loc["高滞销风险","SKU_prev"])
+unsold_sku_diff = unsold_sku - unsold_sku_prev
+
+# 取各等级金额、数量
+low_amt    = df_all[df_all["风险等级"]=="低滞销风险"]["滞销金额"].iloc[0]
+mid_amt    = df_all[df_all["风险等级"]=="中滞销风险"]["滞销金额"].iloc[0]
+high_amt   = df_all[df_all["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0]
+
+low_amt_diff  = df_all[df_all["风险等级"]=="低滞销风险"]["unsale_amt_diff"].iloc[0]
+mid_amt_diff  = df_all[df_all["风险等级"]=="中滞销风险"]["unsale_amt_diff"].iloc[0]
+high_amt_diff = df_all[df_all["风险等级"]=="高滞销风险"]["unsale_amt_diff"].iloc[0]
+
+low_stk    = df_all[df_all["风险等级"]=="低滞销风险"]["滞销库存"].iloc[0]
+mid_stk    = df_all[df_all["风险等级"]=="中滞销风险"]["滞销库存"].iloc[0]
+high_stk   = df_all[df_all["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0]
+
+low_stk_diff  = df_all[df_all["风险等级"]=="低滞销风险"]["unsale_stock_diff"].iloc[0]
+mid_stk_diff  = df_all[df_all["风险等级"]=="中滞销风险"]["unsale_stock_diff"].iloc[0]
+high_stk_diff = df_all[df_all["风险等级"]=="高滞销风险"]["unsale_stock_diff"].iloc[0]
+
+# 格式化颜色函数
+def fmt_val(val):
+    if val > 0:
+        return f'<span style="color:#d32f2f">↑ +{val:,.0f}</span>'
+    elif val < 0:
+        return f'<span style="color:#388e3c">↓ {val:,.0f}</span>'
+    else:
+        return f'<span style="color:#666">持平</span>'
+
+# 3. 1行3列布局
 col1, col2, col3 = st.columns(3)
 
 # ---------------------- 第1列：滞销金额结构 ----------------------
 with col1:
     st.markdown("#### 💰 滞销金额结构")
-    # 提取各等级金额数据
-    low_amt = df_all[df_all["风险等级"] == "低滞销风险"]["滞销金额"].iloc[0]
-    mid_amt = df_all[df_all["风险等级"] == "中滞销风险"]["滞销金额"].iloc[0]
-    high_amt = df_all[df_all["风险等级"] == "高滞销风险"]["滞销金额"].iloc[0]
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总库存金额：<b>{total_amt:,.0f}</b> 元 {fmt_val(amt_diff_total)}<br>
+• 滞销总金额：<b>{total_unsold_amt:,.0f}</b> 元（占总 {total_unsold_amt/total_amt:.1%}）{fmt_val(unsale_amt_diff_total)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_amt:,.0f}</b> 元，占滞销 <b>{high_amt/total_unsold_amt:.1%}</b> {fmt_val(high_amt_diff)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_amt:,.0f}</b> 元，占滞销 <b>{mid_amt/total_unsold_amt:.1%}</b> {fmt_val(mid_amt_diff)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_amt:,.0f}</b> 元，占滞销 <b>{low_amt/total_unsold_amt:.1%}</b> {fmt_val(low_amt_diff)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
-    # 新总结文字：分低/中/高列数值+占比
-    st.markdown(f"""
-    总库存金额：**{total_amt:,.0f}** 元<br>
-    滞销金额：**{total_unsold_amt:,.0f}** 元（占总库存 {total_unsold_amt / total_amt:.1%}）<br>
-    👉 其中：<br>
-    &nbsp;&nbsp;• 高滞销风险金额：**{high_amt:,.0f}** 元，占滞销金额 **{high_amt / total_unsold_amt:.1%}**<br>
-    &nbsp;&nbsp;• 中滞销风险金额：**{mid_amt:,.0f}** 元，占滞销金额 **{mid_amt / total_unsold_amt:.1%}**<br>
-    &nbsp;&nbsp;• 低滞销风险金额：**{low_amt:,.0f}** 元，占滞销金额 **{low_amt / total_unsold_amt:.1%}**
-    """, unsafe_allow_html=True)
-
-    # 饼图逻辑不变
     fig1 = go.Figure()
     fig1.add_trace(go.Pie(
         labels=["不滞销金额", "滞销金额"],
@@ -422,22 +471,19 @@ with col1:
 # ---------------------- 第2列：滞销数量结构 ----------------------
 with col2:
     st.markdown("#### 📦 滞销数量结构")
-    # 提取各等级数量数据
-    low_stk = df_all[df_all["风险等级"] == "低滞销风险"]["滞销库存"].iloc[0]
-    mid_stk = df_all[df_all["风险等级"] == "中滞销风险"]["滞销库存"].iloc[0]
-    high_stk = df_all[df_all["风险等级"] == "高滞销风险"]["滞销库存"].iloc[0]
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总库存数量：<b>{total_stock:,.0f}</b> 件 {fmt_val(stock_diff_total)}<br>
+• 滞销总数量：<b>{total_unsold_stock:,.0f}</b> 件（占总 {total_unsold_stock/total_stock:.1%}）{fmt_val(unsale_stock_diff_total)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_stk:,.0f}</b> 件，占滞销 <b>{high_stk/total_unsold_stock:.1%}</b> {fmt_val(high_stk_diff)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_stk:,.0f}</b> 件，占滞销 <b>{mid_stk/total_unsold_stock:.1%}</b> {fmt_val(mid_stk_diff)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_stk:,.0f}</b> 件，占滞销 <b>{low_stk/total_unsold_stock:.1%}</b> {fmt_val(low_stk_diff)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
-    # 新总结文字：分低/中/高列数值+占比
-    st.markdown(f"""
-    总库存数量：**{total_stock:,.0f}** 件<br>
-    滞销数量：**{total_unsold_stock:,.0f}** 件（占总库存 {total_unsold_stock / total_stock:.1%}）<br>
-    👉 其中：<br>
-    &nbsp;&nbsp;• 高滞销风险数量：**{high_stk:,.0f}** 件，占滞销数量 **{high_stk / total_unsold_stock:.1%}**<br>
-    &nbsp;&nbsp;• 中滞销风险数量：**{mid_stk:,.0f}** 件，占滞销数量 **{mid_stk / total_unsold_stock:.1%}**<br>
-    &nbsp;&nbsp;• 低滞销风险数量：**{low_stk:,.0f}** 件，占滞销数量 **{low_stk / total_unsold_stock:.1%}**
-    """, unsafe_allow_html=True)
-
-    # 饼图逻辑不变
     fig3 = go.Figure()
     fig3.add_trace(go.Pie(
         labels=["不滞销数量", "滞销数量"],
@@ -463,17 +509,19 @@ with col2:
 # ---------------------- 第3列：滞销SKU结构 ----------------------
 with col3:
     st.markdown("#### 📊 滞销SKU结构")
-    # 新总结文字：分低/中/高列数值+占比
-    st.markdown(f"""
-    总SKU数量：**{total_sku}** 个<br>
-    滞销SKU：**{unsold_sku}** 个（占总SKU {unsold_sku / total_sku:.1%}）<br>
-    👉 其中：<br>
-    &nbsp;&nbsp;• 高滞销风险SKU：**{high_sku}** 个，占滞销SKU **{high_sku / unsold_sku:.1%}**<br>
-    &nbsp;&nbsp;• 中滞销风险SKU：**{mid_sku}** 个，占滞销SKU **{mid_sku / unsold_sku:.1%}**<br>
-    &nbsp;&nbsp;• 低滞销风险SKU：**{low_sku}** 个，占滞销SKU **{low_sku / unsold_sku:.1%}**
-    """, unsafe_allow_html=True)
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总SKU数量：<b>{total_sku}</b> 个 {fmt_val(total_sku_diff)}<br>
+• 滞销SKU总数：<b>{unsold_sku}</b> 个（占总 {unsold_sku/total_sku:.1%}）{fmt_val(unsold_sku_diff)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_sku}</b> 个，占滞销 <b>{high_sku/unsold_sku:.1%}</b> {fmt_val(high_sku_diff)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_sku}</b> 个，占滞销 <b>{mid_sku/unsold_sku:.1%}</b> {fmt_val(mid_sku_diff)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_sku}</b> 个，占滞销 <b>{low_sku/unsold_sku:.1%}</b> {fmt_val(low_sku_diff)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
 
-    # 饼图逻辑不变
     fig_sku = go.Figure()
     fig_sku.add_trace(go.Pie(
         labels=["不滞销SKU", "滞销SKU"],

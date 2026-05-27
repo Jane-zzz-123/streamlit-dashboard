@@ -343,7 +343,7 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
 
 # ===================== 1行3列 滞销分析图表（文字排版+配色+环比完整版） =====================
 st.divider()
-st.subheader("📊 滞销金额 & 数量 & SKU 拆解分析")
+st.subheader("📊 整体滞销金额 & 数量 & SKU 拆解分析")
 
 # 1. 统一计算所有等级数据
 risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
@@ -664,3 +664,301 @@ with col_right:
         fig = px.pie(pie_amt, names="类型", values="值", title="滞销金额占比")
         fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
         st.plotly_chart(fig, use_container_width=True)
+
+# ======================================================================================
+# 👇 下面是你要的：非年份品 滞销拆解分析（和你上面原版完全同结构）
+# ======================================================================================
+st.divider()
+st.subheader("📦 非年份品 滞销金额 & 数量 & SKU 拆解分析")
+
+df_no_year_curr = df_curr[df_curr["是否年份"] == "否"].copy()
+df_no_year_prev = df_prev[df_prev["是否年份"] == "否"].copy()
+
+# 1. 统一计算所有等级数据
+risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+data_list_no = []
+for r in risk_list:
+    m = calc_metrics(df_no_year_curr, df_no_year_prev, r)
+    data_list_no.append({
+        "风险等级": r,
+        "SKU数": m["sku_curr"],
+        "SKU_prev": m["sku_prev"],
+        "SKU_diff": m["sku_diff"],
+        "总金额": m["amt_curr"],
+        "amt_prev": m["amt_prev"],
+        "amt_diff": m["amt_diff"],
+        "总库存": m["stock_curr"],
+        "stock_prev": m["stock_prev"],
+        "stock_diff": m["stock_diff"],
+        "滞销金额": m["unsale_amt_curr"],
+        "unsale_amt_prev": m["unsale_amt_prev"],
+        "unsale_amt_diff": m["unsale_amt_diff"],
+        "滞销库存": m["unsale_stock_curr"],
+        "unsale_stock_prev": m["unsale_stock_prev"],
+        "unsale_stock_diff": m["unsale_stock_diff"],
+    })
+df_all_no = pd.DataFrame(data_list_no)
+
+# 2. 整体指标
+total_amt_no = df_all_no["总金额"].sum()
+total_unsold_amt_no = df_all_no[df_all_no["风险等级"] != "健康"]["滞销金额"].sum()
+total_not_unsold_amt_no = total_amt_no - total_unsold_amt_no
+amt_diff_total_no = total_amt_no - df_all_no["amt_prev"].sum()
+unsale_amt_diff_total_no = total_unsold_amt_no - df_all_no["unsale_amt_prev"].sum()
+
+total_stock_no = df_all_no["总库存"].sum()
+total_unsold_stock_no = df_all_no[df_all_no["风险等级"] != "健康"]["滞销库存"].sum()
+total_not_unsold_stock_no = total_stock_no - total_unsold_stock_no
+stock_diff_total_no = total_stock_no - df_all_no["stock_prev"].sum()
+unsale_stock_diff_total_no = total_unsold_stock_no - df_all_no["unsale_stock_prev"].sum()
+
+# 3. SKU 统计
+df_sku_no = df_all_no.set_index("风险等级")
+total_sku_no = int(df_sku_no["SKU数"].sum())
+total_sku_prev_no = int(df_sku_no["SKU_prev"].sum())
+total_sku_diff_no = total_sku_no - total_sku_prev_no
+
+healthy_sku_no = int(df_sku_no.loc["健康", "SKU数"])
+low_sku_no = int(df_sku_no.loc["低滞销风险", "SKU数"])
+mid_sku_no = int(df_sku_no.loc["中滞销风险", "SKU数"])
+high_sku_no = int(df_sku_no.loc["高滞销风险", "SKU数"])
+
+low_sku_diff_no = int(df_sku_no.loc["低滞销风险", "SKU_diff"])
+mid_sku_diff_no = int(df_sku_no.loc["中滞销风险", "SKU_diff"])
+high_sku_diff_no = int(df_sku_no.loc["高滞销风险", "SKU_diff"])
+
+unsold_sku_no = low_sku_no + mid_sku_no + high_sku_no
+unsold_sku_prev_no = (df_sku_no.loc["低滞销风险","SKU_prev"] + df_sku_no.loc["中滞销风险","SKU_prev"] + df_sku_no.loc["高滞销风险","SKU_prev"])
+unsold_sku_diff_no = unsold_sku_no - unsold_sku_prev_no
+
+# 取各等级金额、数量
+low_amt_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["滞销金额"].iloc[0]
+mid_amt_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["滞销金额"].iloc[0]
+high_amt_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0]
+
+low_amt_diff_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["unsale_amt_diff"].iloc[0]
+mid_amt_diff_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["unsale_amt_diff"].iloc[0]
+high_amt_diff_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["unsale_amt_diff"].iloc[0]
+
+low_stk_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["滞销库存"].iloc[0]
+mid_stk_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["滞销库存"].iloc[0]
+high_stk_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0]
+
+low_stk_diff_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["unsale_stock_diff"].iloc[0]
+mid_stk_diff_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["unsale_stock_diff"].iloc[0]
+high_stk_diff_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["unsale_stock_diff"].iloc[0]
+
+# 布局
+col1_no, col2_no, col3_no = st.columns(3)
+
+# 金额
+with col1_no:
+    st.markdown("#### 💰 非年份品｜滞销金额结构")
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总库存金额：<b>{total_amt_no:,.0f}</b> 元 {fmt_val(amt_diff_total_no)}<br>
+• 滞销总金额：<b>{total_unsold_amt_no:,.0f}</b> 元（占总 {total_unsold_amt_no/total_amt_no:.1%}）{fmt_val(unsale_amt_diff_total_no)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_amt_no:,.0f}</b> 元，占滞销 <b>{high_amt_no/total_unsold_amt_no:.1%}</b> {fmt_val(high_amt_diff_no)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_amt_no:,.0f}</b> 元，占滞销 <b>{mid_amt_no/total_unsold_amt_no:.1%}</b> {fmt_val(mid_amt_diff_no)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_amt_no:,.0f}</b> 元，占滞销 <b>{low_amt_no/total_unsold_amt_no:.1%}</b> {fmt_val(low_amt_diff_no)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["不滞销金额","滞销金额"], values=[total_not_unsold_amt_no, total_unsold_amt_no], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_amt_no,mid_amt_no,high_amt_no], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
+    st.plotly_chart(fig, use_container_width=True)
+
+# 数量
+with col2_no:
+    st.markdown("#### 📦 非年份品｜滞销数量结构")
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总库存数量：<b>{total_stock_no:,.0f}</b> 件 {fmt_val(stock_diff_total_no)}<br>
+• 滞销总数量：<b>{total_unsold_stock_no:,.0f}</b> 件（占总 {total_unsold_stock_no/total_stock_no:.1%}）{fmt_val(unsale_stock_diff_total_no)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_stk_no:,.0f}</b> 件，占滞销 <b>{high_stk_no/total_unsold_stock_no:.1%}</b> {fmt_val(high_stk_diff_no)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_stk_no:,.0f}</b> 件，占滞销 <b>{mid_stk_no/total_unsold_stock_no:.1%}</b> {fmt_val(mid_stk_diff_no)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_stk_no:,.0f}</b> 件，占滞销 <b>{low_stk_no/total_unsold_stock_no:.1%}</b> {fmt_val(low_stk_diff_no)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["不滞销数量","滞销数量"], values=[total_not_unsold_stock_no, total_unsold_stock_no], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_stk_no,mid_stk_no,high_stk_no], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
+    st.plotly_chart(fig, use_container_width=True)
+
+# SKU
+with col3_no:
+    st.markdown("#### 📊 非年份品｜滞销SKU结构")
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总SKU数量：<b>{total_sku_no}</b> 个 {fmt_val(total_sku_diff_no)}<br>
+• 滞销SKU总数：<b>{unsold_sku_no}</b> 个（占总 {unsold_sku_no/total_sku_no:.1%}）{fmt_val(unsold_sku_diff_no)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_sku_no}</b> 个，占滞销 <b>{high_sku_no/unsold_sku_no:.1%}</b> {fmt_val(high_sku_diff_no)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_sku_no}</b> 个，占滞销 <b>{mid_sku_no/unsold_sku_no:.1%}</b> {fmt_val(mid_sku_diff_no)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_sku_no}</b> 个，占滞销 <b>{low_sku_no/unsold_sku_no:.1%}</b> {fmt_val(low_sku_diff_no)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["不滞销SKU","滞销SKU"], values=[healthy_sku_no, unsold_sku_no], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
+    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_sku_no,mid_sku_no,high_sku_no], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ======================================================================================
+# 👇 接下来：年份品 滞销拆解分析（结构完全一样）
+# ======================================================================================
+st.divider()
+st.subheader("📅 年份品 滞销金额 & 数量 & SKU 拆解分析")
+
+df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()
+df_year_prev = df_prev[df_prev["是否年份"] == "是"].copy()
+
+risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+data_list_yr = []
+for r in risk_list:
+    m = calc_metrics(df_year_curr, df_year_prev, r)
+    data_list_yr.append({
+        "风险等级": r,
+        "SKU数": m["sku_curr"],
+        "SKU_prev": m["sku_prev"],
+        "SKU_diff": m["sku_diff"],
+        "总金额": m["amt_curr"],
+        "amt_prev": m["amt_prev"],
+        "amt_diff": m["amt_diff"],
+        "总库存": m["stock_curr"],
+        "stock_prev": m["stock_prev"],
+        "stock_diff": m["stock_diff"],
+        "滞销金额": m["unsale_amt_curr"],
+        "unsale_amt_prev": m["unsale_amt_prev"],
+        "unsale_amt_diff": m["unsale_amt_diff"],
+        "滞销库存": m["unsale_stock_curr"],
+        "unsale_stock_prev": m["unsale_stock_prev"],
+        "unsale_stock_diff": m["unsale_stock_diff"],
+    })
+df_all_yr = pd.DataFrame(data_list_yr)
+
+# 指标
+total_amt_yr = df_all_yr["总金额"].sum()
+total_unsold_amt_yr = df_all_yr[df_all_yr["风险等级"] != "健康"]["滞销金额"].sum()
+total_not_unsold_amt_yr = total_amt_yr - total_unsold_amt_yr
+amt_diff_total_yr = total_amt_yr - df_all_yr["amt_prev"].sum()
+unsale_amt_diff_total_yr = total_unsold_amt_yr - df_all_yr["unsale_amt_prev"].sum()
+
+total_stock_yr = df_all_yr["总库存"].sum()
+total_unsold_stock_yr = df_all_yr[df_all_yr["风险等级"] != "健康"]["滞销库存"].sum()
+total_not_unsold_stock_yr = total_stock_yr - total_unsold_stock_yr
+stock_diff_total_yr = total_stock_yr - df_all_yr["stock_prev"].sum()
+unsale_stock_diff_total_yr = total_unsold_stock_yr - df_all_yr["unsale_stock_prev"].sum()
+
+# SKU
+df_sku_yr = df_all_yr.set_index("风险等级")
+total_sku_yr = int(df_sku_yr["SKU数"].sum())
+total_sku_prev_yr = int(df_sku_yr["SKU_prev"].sum())
+total_sku_diff_yr = total_sku_yr - total_sku_prev_yr
+
+healthy_sku_yr = int(df_sku_yr.loc["健康", "SKU数"])
+low_sku_yr = int(df_sku_yr.loc["低滞销风险", "SKU数"])
+mid_sku_yr = int(df_sku_yr.loc["中滞销风险", "SKU数"])
+high_sku_yr = int(df_sku_yr.loc["高滞销风险", "SKU数"])
+
+low_sku_diff_yr = int(df_sku_yr.loc["低滞销风险", "SKU_diff"])
+mid_sku_diff_yr = int(df_sku_yr.loc["中滞销风险", "SKU_diff"])
+high_sku_diff_yr = int(df_sku_yr.loc["高滞销风险", "SKU_diff"])
+
+unsold_sku_yr = low_sku_yr + mid_sku_yr + high_sku_yr
+unsold_sku_prev_yr = (df_sku_yr.loc["低滞销风险","SKU_prev"] + df_sku_yr.loc["中滞销风险","SKU_prev"] + df_sku_yr.loc["高滞销风险","SKU_prev"])
+unsold_sku_diff_yr = unsold_sku_yr - unsold_sku_prev_yr
+
+# 金额/数量
+low_amt_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["滞销金额"].iloc[0]
+mid_amt_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["滞销金额"].iloc[0]
+high_amt_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0]
+
+low_amt_diff_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["unsale_amt_diff"].iloc[0]
+mid_amt_diff_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["unsale_amt_diff"].iloc[0]
+high_amt_diff_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["unsale_amt_diff"].iloc[0]
+
+low_stk_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["滞销库存"].iloc[0]
+mid_stk_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["滞销库存"].iloc[0]
+high_stk_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0]
+
+low_stk_diff_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["unsale_stock_diff"].iloc[0]
+mid_stk_diff_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["unsale_stock_diff"].iloc[0]
+high_stk_diff_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["unsale_stock_diff"].iloc[0]
+
+# 布局
+col1_yr, col2_yr, col3_yr = st.columns(3)
+
+# 金额
+with col1_yr:
+    st.markdown("#### 💰 年份品｜滞销金额结构")
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总库存金额：<b>{total_amt_yr:,.0f}</b> 元 {fmt_val(amt_diff_total_yr)}<br>
+• 滞销总金额：<b>{total_unsold_amt_yr:,.0f}</b> 元（占总 {total_unsold_amt_yr/total_amt_yr:.1%}）{fmt_val(unsale_amt_diff_total_yr)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_amt_yr:,.0f}</b> 元，占滞销 <b>{high_amt_yr/total_unsold_amt_yr:.1%}</b> {fmt_val(high_amt_diff_yr)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_amt_yr:,.0f}</b> 元，占滞销 <b>{mid_amt_yr/total_unsold_amt_yr:.1%}</b> {fmt_val(mid_amt_diff_yr)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_amt_yr:,.0f}</b> 元，占滞销 <b>{low_amt_yr/total_unsold_amt_yr:.1%}</b> {fmt_val(low_amt_diff_yr)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["不滞销金额","滞销金额"], values=[total_not_unsold_amt_yr, total_unsold_amt_yr], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_amt_yr,mid_amt_yr,high_amt_yr], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
+    st.plotly_chart(fig, use_container_width=True)
+
+# 数量
+with col2_yr:
+    st.markdown("#### 📦 年份品｜滞销数量结构")
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总库存数量：<b>{total_stock_yr:,.0f}</b> 件 {fmt_val(stock_diff_total_yr)}<br>
+• 滞销总数量：<b>{total_unsold_stock_yr:,.0f}</b> 件（占总 {total_unsold_stock_yr/total_stock_yr:.1%}）{fmt_val(unsale_stock_diff_total_yr)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_stk_yr:,.0f}</b> 件，占滞销 <b>{high_stk_yr/total_unsold_stock_yr:.1%}</b> {fmt_val(high_stk_diff_yr)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_stk_yr:,.0f}</b> 件，占滞销 <b>{mid_stk_yr/total_unsold_stock_yr:.1%}</b> {fmt_val(mid_stk_diff_yr)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_stk_yr:,.0f}</b> 件，占滞销 <b>{low_stk_yr/total_unsold_stock_yr:.1%}</b> {fmt_val(low_stk_diff_yr)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["不滞销数量","滞销数量"], values=[total_not_unsold_stock_yr, total_unsold_stock_yr], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_stk_yr,mid_stk_yr,high_stk_yr], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
+    st.plotly_chart(fig, use_container_width=True)
+
+# SKU
+with col3_yr:
+    st.markdown("#### 📊 年份品｜滞销SKU结构")
+    html = f"""
+<div style="line-height:1.8;font-size:14px">
+• 总SKU数量：<b>{total_sku_yr}</b> 个 {fmt_val(total_sku_diff_yr)}<br>
+• 滞销SKU总数：<b>{unsold_sku_yr}</b> 个（占总 {unsold_sku_yr/total_sku_yr:.1%}）{fmt_val(unsold_sku_diff_yr)}<br>
+<br>
+<b>细分滞销占比：</b><br>
+&nbsp;&nbsp;▸ 高滞销风险：<b>{high_sku_yr}</b> 个，占滞销 <b>{high_sku_yr/unsold_sku_yr:.1%}</b> {fmt_val(high_sku_diff_yr)}<br>
+&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_sku_yr}</b> 个，占滞销 <b>{mid_sku_yr/unsold_sku_yr:.1%}</b> {fmt_val(mid_sku_diff_yr)}<br>
+&nbsp;&nbsp;▸ 低滞销风险：<b>{low_sku_yr}</b> 个，占滞销 <b>{low_sku_yr/unsold_sku_yr:.1%}</b> {fmt_val(low_sku_diff_yr)}
+</div>
+"""
+    st.markdown(html, unsafe_allow_html=True)
+    fig = go.Figure()
+    fig.add_trace(go.Pie(labels=["不滞销SKU","滞销SKU"], values=[healthy_sku_yr, unsold_sku_yr], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
+    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_sku_yr,mid_sku_yr,high_sku_yr], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
+    st.plotly_chart(fig, use_container_width=True)

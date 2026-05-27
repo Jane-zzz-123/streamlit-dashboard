@@ -339,9 +339,9 @@ with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
 
-# ===================== 1行4列 滞销分析图表（新增占比版） =====================
+# ===================== 1行3列 滞销分析图表（文字总结版） =====================
 st.divider()
-st.subheader("📊 滞销金额 & 数量 拆解分析")
+st.subheader("📊 滞销金额 & 数量 & SKU 拆解分析")
 
 # 1. 统一计算所有等级数据
 risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
@@ -366,12 +366,29 @@ total_stock = df_all["总库存"].sum()
 total_unsold_stock = df_all[df_all["风险等级"] != "健康"]["滞销库存"].sum()
 total_not_unsold_stock = total_stock - total_unsold_stock
 
-# 3. 1行4列布局
-col1, col2, col3, col4 = st.columns([2, 1, 2, 1])
+# 新增：SKU指标统计
+total_sku = len(df_curr)
+unsold_sku = len(df_curr[df_curr["风险等级"] != "健康"])
+healthy_sku = total_sku - unsold_sku
 
-# ---------------------- 第1列：滞销金额 饼图 ----------------------
+risk_sku = df_curr["风险等级"].value_counts()
+low_sku = risk_sku.get("低滞销风险", 0)
+mid_sku = risk_sku.get("中滞销风险", 0)
+high_sku = risk_sku.get("高滞销风险", 0)
+
+# 3. 1行3列布局（你要的结构）
+col1, col2, col3 = st.columns(3)
+
+# ---------------------- 第1列：滞销金额 饼图 + 上方文字总结 ----------------------
 with col1:
     st.markdown("#### 💰 滞销金额结构")
+    # 文字总结（原来的表格替换成这个）
+    st.markdown(f"""
+    总库存金额：**{total_amt:,.0f}** 元  
+    滞销金额：**{total_unsold_amt:,.0f}** 元（占比 {total_unsold_amt/total_amt:.1%}）  
+    高风险占滞销：**{df_all[df_all["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0] / total_unsold_amt:.1%}**
+    """)
+
     fig1 = go.Figure()
     fig1.add_trace(go.Pie(
         labels=["不滞销金额", "滞销金额"],
@@ -391,23 +408,19 @@ with col1:
         texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
         sort=False, direction="clockwise"
     ))
-    fig1.update_layout(height=450, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
+    fig1.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig1, use_container_width=True)
 
-# ---------------------- 第2列：金额明细表（新增占比） ----------------------
+# ---------------------- 第2列：滞销数量 饼图 + 上方文字总结 ----------------------
 with col2:
-    st.markdown("#### 📄 金额明细")
-    amt_detail = df_all[["风险等级", "滞销金额"]].copy()
-    # 新增占比列：仅计算低/中/高的占比，健康占比固定为0
-    amt_detail["占比"] = amt_detail.apply(
-        lambda row: f"{(row['滞销金额'] / total_unsold_amt * 100):.1f}%" if row["风险等级"] != "健康" else "0%",
-        axis=1
-    )
-    st.dataframe(amt_detail, use_container_width=True, height=450)
-
-# ---------------------- 第3列：滞销数量 饼图 ----------------------
-with col3:
     st.markdown("#### 📦 滞销数量结构")
+    # 文字总结
+    st.markdown(f"""
+    总库存数量：**{total_stock:,.0f}** 件  
+    滞销数量：**{total_unsold_stock:,.0f}** 件（占比 {total_unsold_stock/total_stock:.1%}）  
+    高风险占滞销：**{df_all[df_all["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0] / total_unsold_stock:.1%}**
+    """)
+
     fig3 = go.Figure()
     fig3.add_trace(go.Pie(
         labels=["不滞销数量", "滞销数量"],
@@ -427,19 +440,41 @@ with col3:
         texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
         sort=False, direction="clockwise"
     ))
-    fig3.update_layout(height=450, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
+    fig3.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig3, use_container_width=True)
 
-# ---------------------- 第4列：数量明细表（新增占比） ----------------------
-with col4:
-    st.markdown("#### 📄 数量明细")
-    stock_detail = df_all[["风险等级", "滞销库存"]].copy()
-    # 新增占比列：仅计算低/中/高的占比，健康占比固定为0
-    stock_detail["占比"] = stock_detail.apply(
-        lambda row: f"{(row['滞销库存'] / total_unsold_stock * 100):.1f}%" if row["风险等级"] != "健康" else "0%",
-        axis=1
-    )
-    st.dataframe(stock_detail, use_container_width=True, height=450)
+# ---------------------- 第3列：滞销SKU个数（新增） ----------------------
+with col3:
+    st.markdown("#### 📊 滞销SKU结构")
+    # 文字总结
+    st.markdown(f"""
+    总SKU数量：**{total_sku}** 个  
+    滞销SKU：**{unsold_sku}** 个（占比 {unsold_sku/total_sku:.1%}）  
+    高风险SKU占比：**{high_sku / unsold_sku:.1%}**
+    """)
+
+    # 双饼图：整体结构 + 风险细分
+    fig_sku = go.Figure()
+    fig_sku.add_trace(go.Pie(
+        labels=["不滞销SKU", "滞销SKU"],
+        values=[healthy_sku, unsold_sku],
+        domain=dict(x=[0, 0.65], y=[0, 1]),
+        marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value}<br>%{percent:.1%}",
+        sort=False, direction="clockwise"
+    ))
+    fig_sku.add_trace(go.Pie(
+        labels=["低滞销风险", "中滞销风险", "高滞销风险"],
+        values=[low_sku, mid_sku, high_sku],
+        domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
+        marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
+        textinfo="label+value+percent",
+        texttemplate="%{label}<br>%{value}<br>%{percent:.1%}",
+        sort=False, direction="clockwise"
+    ))
+    fig_sku.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
+    st.plotly_chart(fig_sku, use_container_width=True)
 
 
 

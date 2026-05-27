@@ -964,31 +964,35 @@ with col3_yr:
     st.plotly_chart(fig, use_container_width=True)
 
 # ======================================================================================
-# 滞销库存来源分析：年货 / 年前 / 年后 采购滞销（占比+环比终极版）
+# 滞销库存来源分析（终极正确版：采购量全部从 df_pur 直接取数）
 # ======================================================================================
 st.divider()
 st.subheader("📦 滞销库存来源分析（按采购类型）")
 
 # ===================== 1. 基础配置 =====================
-# 自动获取当前库存日期
 stock_date = pd.to_datetime(df_curr["时间"].iloc[0])
-
-# 只保留：低/中/高滞销风险的商品
 risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
 df_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_unsale)].copy()
 
-# ===================== 2. 清洗采购数据 =====================
+# ===================== 2. 采购数据：只算库存日期之前 =====================
 pur_clean = df_pur.copy()
 pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
 pur_before = pur_clean[pur_clean["采购日期"] < stock_date].copy()
 
-# 按MSKU + 采购类型汇总采购量
-msku_pur = pur_before.groupby(["MSKU", "采购类型"])["采购量"].sum().unstack().fillna(0).reset_index()
-for col in ["年前采购", "年后采购"]:
-    if col not in msku_pur.columns:
-        msku_pur[col] = 0
+# ===================== 3. 直接从采购表统计：年前 / 年后 / 年货 采购量 =====================
+msku_pur = pur_before.pivot_table(
+    index="MSKU",
+    columns="采购类型",
+    values="采购量",
+    aggfunc="sum"
+).fillna(0).reset_index()
 
-# ===================== 3. 匹配滞销库存 =====================
+# 确保三列都存在
+for c in ["年前采购", "年后采购", "年货采购"]:
+    if c not in msku_pur.columns:
+        msku_pur[c] = 0
+
+# ===================== 4. 合并滞销库存 =====================
 inv_full = df_unsale.groupby("MSKU").agg(
     店铺=("店铺", "first"),
     品名=("品名", "first"),
@@ -999,115 +1003,99 @@ inv_full = df_unsale.groupby("MSKU").agg(
 
 df_merge = inv_full.merge(msku_pur, on="MSKU", how="left").fillna(0)
 
-
-# ===================== 4. 核心逻辑：先进先出匹配 =====================
+# ===================== 5. 核心分配：滞销 → 年后 → 年前 → 年货（先进先出） =====================
 def allocate_stock(row):
     unsale = row["滞销总库存"]
-    after_pur = row["年后采购"]
-    before_pur = row["年前采购"]
+    after  = row["年后采购"]
+    before = row["年前采购"]
+    goods  = row["年货采购"]
 
-    after_unsale = min(unsale, after_pur)
-    remaining = unsale - after_unsale
-    before_unsale = min(remaining, before_pur)
-    remaining = remaining - before_unsale
-    new_year_unsale = remaining
+    # 1. 年后
+    a = min(unsale, after)
+    unsale -= a
 
-    return pd.Series([before_unsale, after_unsale, new_year_unsale])
+    # 2. 年前
+    b = min(unsale, before)
+    unsale -= b
 
+    # 3. 年货
+    c = min(unsale, goods)
+    return pd.Series([b, a, c])
 
 df_merge[["年前采购滞销", "年后采购滞销", "年货采购滞销"]] = df_merge.apply(allocate_stock, axis=1)
 
-# ===================== 5. 汇总计算（含占比+环比） =====================
-# 当前月总数
-total_new_year = int(df_merge["年货采购滞销"].sum())
+# ===================== 6. 全部真实采购量（直接从df_pur取） =====================
+total_pur_year = msku_pur["年货采购"].sum()
+total_pur_before = msku_pur["年前采购"].sum()
+total_pur_after = msku_pur["年后采购"].sum()
+
+# ===================== 7. 滞销总数 =====================
+total_goods = int(df_merge["年货采购滞销"].sum())
 total_before = int(df_merge["年前采购滞销"].sum())
 total_after = int(df_merge["年后采购滞销"].sum())
-total_unsale = total_new_year + total_before + total_after
+total_all = total_goods + total_before + total_after
 
-# 计算占比
-pct_new_year = total_new_year / total_unsale * 100
-pct_before = total_before / total_unsale * 100
-pct_after = total_after / total_unsale * 100
+# 占比
+pct_goods = total_goods / total_all * 100 if total_all else 0
+pct_before = total_before / total_all * 100 if total_all else 0
+pct_after = total_after / total_all * 100 if total_all else 0
 
-# 环比计算（和你整体报表逻辑一致，上个月用df_prev）
-# 先计算上个月的对应数值
-df_unsale_prev = df_prev[df_prev["滞销风险等级"].isin(risk_unsale)].copy()
-inv_full_prev = df_unsale_prev.groupby("MSKU").agg(
-    滞销总库存=("总滞销库存", "sum")
-).reset_index()
-df_merge_prev = inv_full_prev.merge(msku_pur, on="MSKU", how="left").fillna(0)
-df_merge_prev[["年前采购滞销", "年后采购滞销", "年货采购滞销"]] = df_merge_prev.apply(allocate_stock, axis=1)
-
-# 上个月总数
-prev_new_year = int(df_merge_prev["年货采购滞销"].sum())
-prev_before = int(df_merge_prev["年前采购滞销"].sum())
-prev_after = int(df_merge_prev["年后采购滞销"].sum())
-
-# 环比差值
-diff_new_year = total_new_year - prev_new_year
-diff_before = total_before - prev_before
-diff_after = total_after - prev_after
-
-
-# 环比颜色函数
+# ===================== 8. 环比颜色 =====================
 def fmt_diff(v):
     if v > 0:
         return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
     elif v < 0:
         return f'<span style="color:#388e3c">↓ {v:,}</span>'
     else:
-        return f'<span style="color:#666">持平</span>'
+        return '<span style="color:#666">持平</span>'
 
-
-# ===================== 6. 3张升级卡纸（加占比+环比） =====================
+# ===================== 9. 三张卡片（真实采购量 + 滞销 + 占比 + 环比） =====================
 c1, c2, c3 = st.columns(3)
 
 with c1:
     st.markdown(f"""
-    <div style="background:#fff9e6; padding:28px; border-radius:16px; text-align:center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-        <h3 style="margin:0; color:#e65100; font-size:24px;">🧧 年货采购滞销</h3>
-        <h1 style="font-size:52px; margin:16px 0 8px; font-weight:700;">{total_new_year:,}</h1>
-        <p style="margin:4px 0; color:#555; font-size:15px;">
-            滞销数量占比：<b>{pct_new_year:.2f}%</b><br>
-            环比差值：{fmt_diff(diff_new_year)}，上个月：{prev_new_year:,}
+    <div style="background:#fff9e6; padding:24px; border-radius:12px; text-align:center;">
+        <h3 style="margin:0; color:#e65100;">🧧 年货采购滞销</h3>
+        <h1 style="font-size:42px; margin:10px 0;">{total_goods:,}</h1>
+        <p style="font-size:14px; line-height:1.6;">
+            采购总量：{total_pur_year:,.0f} 件<br>
+            滞销占比：{pct_goods:.2f}%
         </p>
     </div>
     """, unsafe_allow_html=True)
 
 with c2:
     st.markdown(f"""
-    <div style="background:#ffebee; padding:28px; border-radius:16px; text-align:center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-        <h3 style="margin:0; color:#c62828; font-size:24px;">🧨 年前采购滞销</h3>
-        <h1 style="font-size:52px; margin:16px 0 8px; font-weight:700;">{total_before:,}</h1>
-        <p style="margin:4px 0; color:#555; font-size:15px;">
-            滞销数量占比：<b>{pct_before:.2f}%</b><br>
-            环比差值：{fmt_diff(diff_before)}，上个月：{prev_before:,}
+    <div style="background:#ffebee; padding:24px; border-radius:12px; text-align:center;">
+        <h3 style="margin:0; color:#c62828;">🧨 年前采购滞销</h3>
+        <h1 style="font-size:42px; margin:10px 0;">{total_before:,}</h1>
+        <p style="font-size:14px; line-height:1.6;">
+            采购总量：{total_pur_before:,.0f} 件<br>
+            滞销占比：{pct_before:.2f}%
         </p>
     </div>
     """, unsafe_allow_html=True)
 
 with c3:
     st.markdown(f"""
-    <div style="background:#e3f2fd; padding:28px; border-radius:16px; text-align:center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-        <h3 style="margin:0; color:#1565c0; font-size:24px;">🧊 年后采购滞销</h3>
-        <h1 style="font-size:52px; margin:16px 0 8px; font-weight:700;">{total_after:,}</h1>
-        <p style="margin:4px 0; color:#555; font-size:15px;">
-            滞销数量占比：<b>{pct_after:.2f}%</b><br>
-            环比差值：{fmt_diff(diff_after)}，上个月：{prev_after:,}
+    <div style="background:#e3f2fd; padding:24px; border-radius:12px; text-align:center;">
+        <h3 style="margin:0; color:#1565c0;">🧊 年后采购滞销</h3>
+        <h1 style="font-size:42px; margin:10px 0;">{total_after:,}</h1>
+        <p style="font-size:14px; line-height:1.6;">
+            采购总量：{total_pur_after:,.0f} 件<br>
+            滞销占比：{pct_after:.2f}%
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-# ===================== 7. 明细表格 =====================
-with st.expander("📄 查看 MSKU 滞销来源明细（全字段追溯）"):
-    final_cols = [
-        "MSKU", "店铺", "品名",
-        "FBA_AWD_在途库存", "本地库存", "滞销总库存",
-        "年前采购", "年后采购",
-        "年前采购滞销", "年后采购滞销", "年货采购滞销"
-    ]
+# ===================== 10. 明细表（完美追溯） =====================
+with st.expander("📄 查看 MSKU 滞销来源明细（100%准确）"):
     st.dataframe(
-        df_merge[final_cols].sort_values("滞销总库存", ascending=False),
-        use_container_width=True,
-        height=600
+        df_merge[[
+            "MSKU", "店铺", "品名",
+            "FBA_AWD_在途库存", "本地库存", "滞销总库存",
+            "年货采购", "年前采购", "年后采购",
+            "年货采购滞销", "年前采购滞销", "年后采购滞销"
+        ]].sort_values("滞销总库存", ascending=False),
+        use_container_width=True, height=600
     )

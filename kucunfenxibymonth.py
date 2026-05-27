@@ -547,7 +547,7 @@ with col3:
     fig_sku.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig_sku, use_container_width=True)
 
-# ===================== 年份品 / 非年份品 滞销拆分占比分析（精简+环比版） =====================
+# ===================== 年份品 / 非年份品 滞销拆分占比分析（精简+收紧+饼图放大） =====================
 st.divider()
 st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
@@ -603,42 +603,53 @@ def color_num(v):
     else:
         return "—"
 
-# ===================== 一行两列：左边文字总结（带环比） + 右边饼图 =====================
-col_left, col_right = st.columns([1.2, 2], gap="medium")
+# ===================== 布局：文字收紧 + 饼图放大 =====================
+col_left, col_right = st.columns([1, 1.5], gap="small")
 
 with col_left:
     st.markdown(f"""
-<div style="background:#f8f9fa; padding:16px; border-radius:8px; line-height:2.0; font-size:14px;">
+<div style="background:#f8f9fa; padding:10px; border-radius:8px; line-height:1.5; font-size:13px;">
 <b>📊 整体滞销结构总结</b><br>
 • 滞销SKU共 <b>{total_all_sku}</b> 个，环比 {color_num(diff_sku)}<br>
-　其中年份品 <b>{year_sku}</b> 个（占比 {safe_pct_2(year_sku, total_all_sku)}），非年份品 <b>{noyear_sku}</b> 个（占比 {safe_pct_2(noyear_sku, total_all_sku)}）<br>
+　年份品 <b>{year_sku}</b> 个（{safe_pct_2(year_sku, total_all_sku)}），非年份品 <b>{noyear_sku}</b> 个（{safe_pct_2(noyear_sku, total_all_sku)}）<br>
 <br>
 • 滞销数量共 <b>{total_all_qty:,.0f}</b> 件，环比 {color_num(diff_qty)}<br>
-　其中年份品 <b>{year_qty:,.0f}</b> 件（占比 {safe_pct_2(year_qty, total_all_qty)}），非年份品 <b>{noyear_qty:,.0f}</b> 件（占比 {safe_pct_2(noyear_qty, total_all_qty)}）<br>
+　年份品 <b>{year_qty:,.0f}</b> 件（{safe_pct_2(year_qty, total_all_qty)}），非年份品 <b>{noyear_qty:,.0f}</b> 件（{safe_pct_2(noyear_qty, total_all_qty)}）<br>
 <br>
 • 滞销金额共 <b>{total_all_amt:,.0f}</b> 元，环比 {color_num(diff_amt)}<br>
-　其中年份品 <b>{year_amt:,.0f}</b> 元（占比 {safe_pct_2(year_amt, total_all_amt)}），非年份品 <b>{noyear_amt:,.0f}</b> 元（占比 {safe_pct_2(noyear_amt, total_all_amt)}）
+　年份品 <b>{year_amt:,.0f}</b> 元（{safe_pct_2(year_amt, total_all_amt)}），非年份品 <b>{noyear_amt}</b> 元（{safe_pct_2(noyear_amt, total_all_amt)}）
 </div>
 """, unsafe_allow_html=True)
 
 with col_right:
-    st.markdown("#### 🥧 年份品 vs 非年份品 占比")
-    c_pie1, c_pie2, c_pie3 = st.columns(3)
+    c1, c2, c3 = st.columns(3, gap="small")
 
-    with c_pie1:
-        pie_amt = pd.DataFrame({"类型":["年份品","非年份品"],"值":[year_amt, noyear_amt]})
-        fig_amt = px.pie(pie_amt, names="类型", values="值", title="滞销金额占比")
-        fig_amt.update_layout(height=240, showlegend=False)
-        st.plotly_chart(fig_amt, use_container_width=True)
+    # 左1：SKU占比
+    with c1:
+        pie_sku = pd.DataFrame({
+            "类型": ["年份品", "非年份品"],
+            "值": [year_sku, noyear_sku]
+        })
+        fig = px.pie(pie_sku, names="类型", values="值", title="滞销SKU占比")
+        fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+        st.plotly_chart(fig, use_container_width=True)
 
-    with c_pie2:
-        pie_qty = pd.DataFrame({"类型":["年份品","非年份品"],"值":[year_qty, noyear_qty]})
-        fig_qty = px.pie(pie_qty, names="类型", values="值", title="滞销数量占比")
-        fig_qty.update_layout(height=240, showlegend=False)
-        st.plotly_chart(fig_qty, use_container_width=True)
+    # 左2：数量占比
+    with c2:
+        pie_qty = pd.DataFrame({
+            "类型": ["年份品", "非年份品"],
+            "值": [year_qty, noyear_qty]
+        })
+        fig = px.pie(pie_qty, names="类型", values="值", title="滞销数量占比")
+        fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+        st.plotly_chart(fig, use_container_width=True)
 
-    with c_pie3:
-        pie_sku = pd.DataFrame({"类型":["年份品","非年份品"],"值":[year_sku, noyear_sku]})
-        fig_sku = px.pie(pie_sku, names="类型", values="值", title="滞销SKU占比")
-        fig_sku.update_layout(height=240, showlegend=False)
-        st.plotly_chart(fig_sku, use_container_width=True)
+    # 左3：金额占比
+    with c3:
+        pie_amt = pd.DataFrame({
+            "类型": ["年份品", "非年份品"],
+            "值": [year_amt, noyear_amt]
+        })
+        fig = px.pie(pie_amt, names="类型", values="值", title="滞销金额占比")
+        fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+        st.plotly_chart(fig, use_container_width=True)

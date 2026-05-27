@@ -964,7 +964,7 @@ with col3_yr:
     st.plotly_chart(fig, use_container_width=True)
 
 # ======================================================================================
-# 滞销库存来源分析：年货 / 年前 / 年后 采购滞销（先进先出匹配版）
+# 滞销库存来源分析：年货 / 年前 / 年后 采购滞销（占比+环比终极版）
 # ======================================================================================
 st.divider()
 st.subheader("📦 滞销库存来源分析（按采购类型）")
@@ -973,11 +973,11 @@ st.subheader("📦 滞销库存来源分析（按采购类型）")
 # 自动获取当前库存日期
 stock_date = pd.to_datetime(df_curr["时间"].iloc[0])
 
-# 只保留：低/中/高滞销风险的商品，且用「总滞销库存」字段
+# 只保留：低/中/高滞销风险的商品
 risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
 df_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_unsale)].copy()
 
-# ===================== 2. 清洗采购数据（只统计库存日期之前的采购） =====================
+# ===================== 2. 清洗采购数据 =====================
 pur_clean = df_pur.copy()
 pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
 pur_before = pur_clean[pur_clean["采购日期"] < stock_date].copy()
@@ -989,74 +989,112 @@ for col in ["年前采购", "年后采购"]:
         msku_pur[col] = 0
 
 # ===================== 3. 匹配滞销库存 =====================
-# 汇总滞销商品的核心字段
 inv_full = df_unsale.groupby("MSKU").agg(
     店铺=("店铺", "first"),
     品名=("品名", "first"),
     FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
     本地库存=("本地库存", "sum"),
-    滞销总库存=("总滞销库存", "sum")  # 用你真实的「总滞销库存」字段！
+    滞销总库存=("总滞销库存", "sum")
 ).reset_index()
 
-# 合并采购数据
 df_merge = inv_full.merge(msku_pur, on="MSKU", how="left").fillna(0)
 
 
-# ===================== 4. 核心逻辑：先进先出匹配（年后→年前→年货） =====================
+# ===================== 4. 核心逻辑：先进先出匹配 =====================
 def allocate_stock(row):
     unsale = row["滞销总库存"]
     after_pur = row["年后采购"]
     before_pur = row["年前采购"]
 
-    # 1. 先扣年后采购
     after_unsale = min(unsale, after_pur)
     remaining = unsale - after_unsale
-
-    # 2. 再扣年前采购
     before_unsale = min(remaining, before_pur)
     remaining = remaining - before_unsale
-
-    # 3. 剩下的就是年货采购
     new_year_unsale = remaining
 
     return pd.Series([before_unsale, after_unsale, new_year_unsale])
 
 
-# 应用函数
 df_merge[["年前采购滞销", "年后采购滞销", "年货采购滞销"]] = df_merge.apply(allocate_stock, axis=1)
 
-# ===================== 5. 汇总总数 =====================
+# ===================== 5. 汇总计算（含占比+环比） =====================
+# 当前月总数
 total_new_year = int(df_merge["年货采购滞销"].sum())
 total_before = int(df_merge["年前采购滞销"].sum())
 total_after = int(df_merge["年后采购滞销"].sum())
+total_unsale = total_new_year + total_before + total_after
 
-# ===================== 6. 3张卡纸 =====================
+# 计算占比
+pct_new_year = total_new_year / total_unsale * 100
+pct_before = total_before / total_unsale * 100
+pct_after = total_after / total_unsale * 100
+
+# 环比计算（和你整体报表逻辑一致，上个月用df_prev）
+# 先计算上个月的对应数值
+df_unsale_prev = df_prev[df_prev["滞销风险等级"].isin(risk_unsale)].copy()
+inv_full_prev = df_unsale_prev.groupby("MSKU").agg(
+    滞销总库存=("总滞销库存", "sum")
+).reset_index()
+df_merge_prev = inv_full_prev.merge(msku_pur, on="MSKU", how="left").fillna(0)
+df_merge_prev[["年前采购滞销", "年后采购滞销", "年货采购滞销"]] = df_merge_prev.apply(allocate_stock, axis=1)
+
+# 上个月总数
+prev_new_year = int(df_merge_prev["年货采购滞销"].sum())
+prev_before = int(df_merge_prev["年前采购滞销"].sum())
+prev_after = int(df_merge_prev["年后采购滞销"].sum())
+
+# 环比差值
+diff_new_year = total_new_year - prev_new_year
+diff_before = total_before - prev_before
+diff_after = total_after - prev_after
+
+
+# 环比颜色函数
+def fmt_diff(v):
+    if v > 0:
+        return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
+    elif v < 0:
+        return f'<span style="color:#388e3c">↓ {v:,}</span>'
+    else:
+        return f'<span style="color:#666">持平</span>'
+
+
+# ===================== 6. 3张升级卡纸（加占比+环比） =====================
 c1, c2, c3 = st.columns(3)
 
 with c1:
     st.markdown(f"""
-    <div style="background:#fff9e6; padding:24px; border-radius:12px; text-align:center;">
-        <h3 style="margin:0; color:#e65100;">🧧 年货采购滞销</h3>
-        <h1 style="font-size:44px; margin:12px 0 0;">{total_new_year:,}</h1>
-        <p style="margin:0; color:#555;">件</p>
+    <div style="background:#fff9e6; padding:28px; border-radius:16px; text-align:center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+        <h3 style="margin:0; color:#e65100; font-size:24px;">🧧 年货采购滞销</h3>
+        <h1 style="font-size:52px; margin:16px 0 8px; font-weight:700;">{total_new_year:,}</h1>
+        <p style="margin:4px 0; color:#555; font-size:15px;">
+            滞销数量占比：<b>{pct_new_year:.2f}%</b><br>
+            环比差值：{fmt_diff(diff_new_year)}，上个月：{prev_new_year:,}
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
 with c2:
     st.markdown(f"""
-    <div style="background:#ffebee; padding:24px; border-radius:12px; text-align:center;">
-        <h3 style="margin:0; color:#c62828;">🧨 年前采购滞销</h3>
-        <h1 style="font-size:44px; margin:12px 0 0;">{total_before:,}</h1>
-        <p style="margin:0; color:#555;">件</p>
+    <div style="background:#ffebee; padding:28px; border-radius:16px; text-align:center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+        <h3 style="margin:0; color:#c62828; font-size:24px;">🧨 年前采购滞销</h3>
+        <h1 style="font-size:52px; margin:16px 0 8px; font-weight:700;">{total_before:,}</h1>
+        <p style="margin:4px 0; color:#555; font-size:15px;">
+            滞销数量占比：<b>{pct_before:.2f}%</b><br>
+            环比差值：{fmt_diff(diff_before)}，上个月：{prev_before:,}
+        </p>
     </div>
     """, unsafe_allow_html=True)
 
 with c3:
     st.markdown(f"""
-    <div style="background:#e3f2fd; padding:24px; border-radius:12px; text-align:center;">
-        <h3 style="margin:0; color:#1565c0;">🧊 年后采购滞销</h3>
-        <h1 style="font-size:44px; margin:12px 0 0;">{total_after:,}</h1>
-        <p style="margin:0; color:#555;">件</p>
+    <div style="background:#e3f2fd; padding:28px; border-radius:16px; text-align:center; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+        <h3 style="margin:0; color:#1565c0; font-size:24px;">🧊 年后采购滞销</h3>
+        <h1 style="font-size:52px; margin:16px 0 8px; font-weight:700;">{total_after:,}</h1>
+        <p style="margin:4px 0; color:#555; font-size:15px;">
+            滞销数量占比：<b>{pct_after:.2f}%</b><br>
+            环比差值：{fmt_diff(diff_after)}，上个月：{prev_after:,}
+        </p>
     </div>
     """, unsafe_allow_html=True)
 

@@ -544,5 +544,73 @@ with col3:
     fig_sku.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
     st.plotly_chart(fig_sku, use_container_width=True)
 
+# ===================== 年份品 / 非年份品 滞销拆分占比分析 =====================
+st.divider()
+st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
+# 1. 按【是否年份】拆分数据
+df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()    # 年份品
+df_noyear_curr = df_curr[df_curr["是否年份"] == "否"].copy()  # 非年份品
+
+# 滞销风险范围：低/中/高
+risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
+
+# 2. 封装统计函数：自动算 滞销SKU、滞销数量、滞销金额
+def get_unsold_stat(df):
+    # 只筛选滞销商品
+    df_unsale = df[df["滞销风险等级"].isin(risk_unsale)]
+    sku_cnt = df_unsale["MSKU"].nunique()
+    qty_cnt = df_unsale["总滞销库存"].sum()
+    amt_cnt = df_unsale["总滞销金额"].sum()
+    return sku_cnt, qty_cnt, amt_cnt
+
+# 3. 分别统计
+year_sku, year_qty, year_amt = get_unsold_stat(df_year_curr)
+noyear_sku, noyear_qty, noyear_amt = get_unsold_stat(df_noyear_curr)
+
+# 4. 全部滞销合计（用于算占比）
+total_all_sku = year_sku + noyear_sku
+total_all_qty = year_qty + noyear_qty
+total_all_amt = year_amt + noyear_amt
+
+# 防除0报错
+def safe_pct(val, total):
+    return f"{(val / total):.1%}" if total > 0 else "0.0%"
+
+# 5. 一行两列布局
+col_y, col_n = st.columns(2)
+
+# ---------------------- 左列：年份品 ----------------------
+with col_y:
+    st.markdown("#### 📆 年份品 滞销情况")
+    html_year = f"""
+<div style="line-height:1.8;font-size:14px;">
+• 滞销SKU个数：<b>{year_sku}</b> 个<br>
+　占整体滞销SKU：<b>{safe_pct(year_sku, total_all_sku)}</b><br>
+<br>
+• 滞销库存数量：<b>{year_qty:,.0f}</b> 件<br>
+　占整体滞销数量：<b>{safe_pct(year_qty, total_all_qty)}</b><br>
+<br>
+• 滞销库存金额：<b>{year_amt:,.0f}</b> 元<br>
+　占整体滞销金额：<b>{safe_pct(year_amt, total_all_amt)}</b>
+</div>
+"""
+    st.markdown(html_year, unsafe_allow_html=True)
+
+# ---------------------- 右列：非年份品 ----------------------
+with col_n:
+    st.markdown("#### 📦 非年份品 滞销情况")
+    html_noyear = f"""
+<div style="line-height:1.8;font-size:14px;">
+• 滞销SKU个数：<b>{noyear_sku}</b> 个<br>
+　占整体滞销SKU：<b>{safe_pct(noyear_sku, total_all_sku)}</b><br>
+<br>
+• 滞销库存数量：<b>{noyear_qty:,.0f}</b> 件<br>
+　占整体滞销数量：<b>{safe_pct(noyear_qty, total_all_qty)}</b><br>
+<br>
+• 滞销库存金额：<b>{noyear_amt:,.0f}</b> 元<br>
+　占整体滞销金额：<b>{safe_pct(noyear_amt, total_all_amt)}</b>
+</div>
+"""
+    st.markdown(html_noyear, unsafe_allow_html=True)
 

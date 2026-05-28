@@ -1265,7 +1265,7 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
         use_container_width=True, height=600
     )
 
-# ===================== 【最终完美版】一行8列 · 滞销结构分析（年份品/非年份品） =====================
+# ===================== 【最终格式化版】一行8列 · 滞销结构分析（年份品/非年份品） =====================
 st.divider()
 st.subheader("🍰 滞销结构分析（年份品 / 非年份品）")
 
@@ -1346,67 +1346,144 @@ def pie_chart(df, title):
     return fig
 
 
-# 4. 格式化环比显示
-def fmt_fluc(curr, prev):
-    diff = curr - prev
+# 4. 【核心优化】格式化环比显示：保留整数+颜色区分
+def fmt_fluc(curr, prev, is_qty=True):
+    diff = int(round(curr - prev, 0))
     if diff > 0:
-        return f"↑ +{diff:,}"
+        color = "#d32f2f"  # 上升用红色
+        arrow = "↑ +"
     elif diff < 0:
-        return f"↓ {diff:,}"
+        color = "#2e7d32"  # 下降用绿色
+        arrow = "↓ "
     else:
-        return "持平"
+        color = "#666666"  # 持平用灰色
+        arrow = ""
+
+    # 上月数值保留整数
+    prev_fmt = f"{int(round(prev, 0)):,}"
+    # 环比差值带颜色
+    fluc_text = f'<span style="color:{color}">{arrow}{diff:,}</span>'
+    return fluc_text, prev_fmt
 
 
-# -------------------- 第一行：4个分类的优化版总结文字（和上面卡片100%对齐） --------------------
+# -------------------- 第一行：4个分类的优化版总结文字 --------------------
 c_text1, c_text2, c_text3, c_text4 = st.columns(4)
 
 # 1. 年货前
 with c_text1:
+    # 总数量
+    fluc_pre_qty, prev_pre_qty_fmt = fmt_fluc(total_pre_qty, prev_pre_qty)
+    # 年份品数量
+    fluc_pre_year_qty, prev_pre_year_qty_fmt = fmt_fluc(sum_pre.loc['年份品', '滞销数量'],
+                                                        sum_pre_prev.loc['年份品', '滞销数量'])
+    # 非年份品数量
+    fluc_pre_non_qty, prev_pre_non_qty_fmt = fmt_fluc(sum_pre.loc['非年份品', '滞销数量'],
+                                                      sum_pre_prev.loc['非年份品', '滞销数量'])
+    # 总金额
+    fluc_pre_amt, prev_pre_amt_fmt = fmt_fluc(total_pre_amt, prev_pre_amt)
+    # 年份品金额
+    fluc_pre_year_amt, prev_pre_year_amt_fmt = fmt_fluc(sum_pre.loc['年份品', '滞销金额'],
+                                                        sum_pre_prev.loc['年份品', '滞销金额'])
+    # 非年份品金额
+    fluc_pre_non_amt, prev_pre_non_amt_fmt = fmt_fluc(sum_pre.loc['非年份品', '滞销金额'],
+                                                      sum_pre_prev.loc['非年份品', '滞销金额'])
+
     st.markdown(f"""
     **⏳ 年货前采购**
-    - 滞销数量：**{total_pre_qty:,}件**（滞销总占比 {pct_pre:.2f}%），环比 {fmt_fluc(total_pre_qty, prev_pre_qty)}，上月：{prev_pre_qty:,}件
-      - 年份品：{sum_pre.loc['年份品', '滞销数量']:,}件（占比 {sum_pre.loc['年份品', '滞销数量'] / total_pre_qty * 100:.2f}%），环比 {fmt_fluc(sum_pre.loc['年份品', '滞销数量'], sum_pre_prev.loc['年份品', '滞销数量'])}，上月：{sum_pre_prev.loc['年份品', '滞销数量']:,}件
-      - 非年份品：{sum_pre.loc['非年份品', '滞销数量']:,}件（占比 {sum_pre.loc['非年份品', '滞销数量'] / total_pre_qty * 100:.2f}%），环比 {fmt_fluc(sum_pre.loc['非年份品', '滞销数量'], sum_pre_prev.loc['非年份品', '滞销数量'])}，上月：{sum_pre_prev.loc['非年份品', '滞销数量']:,}件
-    - 滞销金额：**{total_pre_amt:,.2f}元**，环比 {fmt_fluc(total_pre_amt, prev_pre_amt)}，上月：{prev_pre_amt:,.2f}元
-      - 年份品：{sum_pre.loc['年份品', '滞销金额']:,.2f}元（占比 {sum_pre.loc['年份品', '滞销金额'] / total_pre_amt * 100:.2f}%），环比 {fmt_fluc(sum_pre.loc['年份品', '滞销金额'], sum_pre_prev.loc['年份品', '滞销金额'])}，上月：{sum_pre_prev.loc['年份品', '滞销金额']:,.2f}元
-      - 非年份品：{sum_pre.loc['非年份品', '滞销金额']:,.2f}元（占比 {sum_pre.loc['非年份品', '滞销金额'] / total_pre_amt * 100:.2f}%），环比 {fmt_fluc(sum_pre.loc['非年份品', '滞销金额'], sum_pre_prev.loc['非年份品', '滞销金额'])}，上月：{sum_pre_prev.loc['非年份品', '滞销金额']:,.2f}元
-    """)
+    - 滞销数量：**{int(round(total_pre_qty, 0)):,}件**（滞销总占比 {pct_pre:.2f}%），环比 {fluc_pre_qty}，上月：{prev_pre_qty_fmt}件
+      - 年份品：{int(round(sum_pre.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_pre.loc['年份品', '滞销数量'] / total_pre_qty * 100:.2f}%），环比 {fluc_pre_year_qty}，上月：{prev_pre_year_qty_fmt}件
+      - 非年份品：{int(round(sum_pre.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_pre.loc['非年份品', '滞销数量'] / total_pre_qty * 100:.2f}%），环比 {fluc_pre_non_qty}，上月：{prev_pre_non_qty_fmt}件
+    - 滞销金额：**{int(round(total_pre_amt, 0)):,}元**，环比 {fluc_pre_amt}，上月：{prev_pre_amt_fmt}元
+      - 年份品：{int(round(sum_pre.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_pre.loc['年份品', '滞销金额'] / total_pre_amt * 100:.2f}%），环比 {fluc_pre_year_amt}，上月：{prev_pre_year_amt_fmt}元
+      - 非年份品：{int(round(sum_pre.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_pre.loc['非年份品', '滞销金额'] / total_pre_amt * 100:.2f}%），环比 {fluc_pre_non_amt}，上月：{prev_pre_non_amt_fmt}元
+    """, unsafe_allow_html=True)
 
 # 2. 年货
 with c_text2:
+    # 总数量
+    fluc_goods_qty, prev_goods_qty_fmt = fmt_fluc(total_goods_qty, prev_goods_qty)
+    # 年份品数量
+    fluc_goods_year_qty, prev_goods_year_qty_fmt = fmt_fluc(sum_goods.loc['年份品', '滞销数量'],
+                                                            sum_goods_prev.loc['年份品', '滞销数量'])
+    # 非年份品数量
+    fluc_goods_non_qty, prev_goods_non_qty_fmt = fmt_fluc(sum_goods.loc['非年份品', '滞销数量'],
+                                                          sum_goods_prev.loc['非年份品', '滞销数量'])
+    # 总金额
+    fluc_goods_amt, prev_goods_amt_fmt = fmt_fluc(total_goods_amt, prev_goods_amt)
+    # 年份品金额
+    fluc_goods_year_amt, prev_goods_year_amt_fmt = fmt_fluc(sum_goods.loc['年份品', '滞销金额'],
+                                                            sum_goods_prev.loc['年份品', '滞销金额'])
+    # 非年份品金额
+    fluc_goods_non_amt, prev_goods_non_amt_fmt = fmt_fluc(sum_goods.loc['非年份品', '滞销金额'],
+                                                          sum_goods_prev.loc['非年份品', '滞销金额'])
+
     st.markdown(f"""
     **🧧 年货采购**
-    - 滞销数量：**{total_goods_qty:,}件**（滞销总占比 {pct_goods:.2f}%），环比 {fmt_fluc(total_goods_qty, prev_goods_qty)}，上月：{prev_goods_qty:,}件
-      - 年份品：{sum_goods.loc['年份品', '滞销数量']:,}件（占比 {sum_goods.loc['年份品', '滞销数量'] / total_goods_qty * 100:.2f}%），环比 {fmt_fluc(sum_goods.loc['年份品', '滞销数量'], sum_goods_prev.loc['年份品', '滞销数量'])}，上月：{sum_goods_prev.loc['年份品', '滞销数量']:,}件
-      - 非年份品：{sum_goods.loc['非年份品', '滞销数量']:,}件（占比 {sum_goods.loc['非年份品', '滞销数量'] / total_goods_qty * 100:.2f}%），环比 {fmt_fluc(sum_goods.loc['非年份品', '滞销数量'], sum_goods_prev.loc['非年份品', '滞销数量'])}，上月：{sum_goods_prev.loc['非年份品', '滞销数量']:,}件
-    - 滞销金额：**{total_goods_amt:,.2f}元**，环比 {fmt_fluc(total_goods_amt, prev_goods_amt)}，上月：{prev_goods_amt:,.2f}元
-      - 年份品：{sum_goods.loc['年份品', '滞销金额']:,.2f}元（占比 {sum_goods.loc['年份品', '滞销金额'] / total_goods_amt * 100:.2f}%），环比 {fmt_fluc(sum_goods.loc['年份品', '滞销金额'], sum_goods_prev.loc['年份品', '滞销金额'])}，上月：{sum_goods_prev.loc['年份品', '滞销金额']:,.2f}元
-      - 非年份品：{sum_goods.loc['非年份品', '滞销金额']:,.2f}元（占比 {sum_goods.loc['非年份品', '滞销金额'] / total_goods_amt * 100:.2f}%），环比 {fmt_fluc(sum_goods.loc['非年份品', '滞销金额'], sum_goods_prev.loc['非年份品', '滞销金额'])}，上月：{sum_goods_prev.loc['非年份品', '滞销金额']:,.2f}元
-    """)
+    - 滞销数量：**{int(round(total_goods_qty, 0)):,}件**（滞销总占比 {pct_goods:.2f}%），环比 {fluc_goods_qty}，上月：{prev_goods_qty_fmt}件
+      - 年份品：{int(round(sum_goods.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_goods.loc['年份品', '滞销数量'] / total_goods_qty * 100:.2f}%），环比 {fluc_goods_year_qty}，上月：{prev_goods_year_qty_fmt}件
+      - 非年份品：{int(round(sum_goods.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_goods.loc['非年份品', '滞销数量'] / total_goods_qty * 100:.2f}%），环比 {fluc_goods_non_qty}，上月：{prev_goods_non_qty_fmt}件
+    - 滞销金额：**{int(round(total_goods_amt, 0)):,}元**，环比 {fluc_goods_amt}，上月：{prev_goods_amt_fmt}元
+      - 年份品：{int(round(sum_goods.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_goods.loc['年份品', '滞销金额'] / total_goods_amt * 100:.2f}%），环比 {fluc_goods_year_amt}，上月：{prev_goods_year_amt_fmt}元
+      - 非年份品：{int(round(sum_goods.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_goods.loc['非年份品', '滞销金额'] / total_goods_amt * 100:.2f}%），环比 {fluc_goods_non_amt}，上月：{prev_goods_non_amt_fmt}元
+    """, unsafe_allow_html=True)
 
 # 3. 年前
 with c_text3:
+    # 总数量
+    fluc_before_qty, prev_before_qty_fmt = fmt_fluc(total_before_qty, prev_before_qty)
+    # 年份品数量
+    fluc_before_year_qty, prev_before_year_qty_fmt = fmt_fluc(sum_before.loc['年份品', '滞销数量'],
+                                                              sum_before_prev.loc['年份品', '滞销数量'])
+    # 非年份品数量
+    fluc_before_non_qty, prev_before_non_qty_fmt = fmt_fluc(sum_before.loc['非年份品', '滞销数量'],
+                                                            sum_before_prev.loc['非年份品', '滞销数量'])
+    # 总金额
+    fluc_before_amt, prev_before_amt_fmt = fmt_fluc(total_before_amt, prev_before_amt)
+    # 年份品金额
+    fluc_before_year_amt, prev_before_year_amt_fmt = fmt_fluc(sum_before.loc['年份品', '滞销金额'],
+                                                              sum_before_prev.loc['年份品', '滞销金额'])
+    # 非年份品金额
+    fluc_before_non_amt, prev_before_non_amt_fmt = fmt_fluc(sum_before.loc['非年份品', '滞销金额'],
+                                                            sum_before_prev.loc['非年份品', '滞销金额'])
+
     st.markdown(f"""
     **🧨 年前采购**
-    - 滞销数量：**{total_before_qty:,}件**（滞销总占比 {pct_before:.2f}%），环比 {fmt_fluc(total_before_qty, prev_before_qty)}，上月：{prev_before_qty:,}件
-      - 年份品：{sum_before.loc['年份品', '滞销数量']:,}件（占比 {sum_before.loc['年份品', '滞销数量'] / total_before_qty * 100:.2f}%），环比 {fmt_fluc(sum_before.loc['年份品', '滞销数量'], sum_before_prev.loc['年份品', '滞销数量'])}，上月：{sum_before_prev.loc['年份品', '滞销数量']:,}件
-      - 非年份品：{sum_before.loc['非年份品', '滞销数量']:,}件（占比 {sum_before.loc['非年份品', '滞销数量'] / total_before_qty * 100:.2f}%），环比 {fmt_fluc(sum_before.loc['非年份品', '滞销数量'], sum_before_prev.loc['非年份品', '滞销数量'])}，上月：{sum_before_prev.loc['非年份品', '滞销数量']:,}件
-    - 滞销金额：**{total_before_amt:,.2f}元**，环比 {fmt_fluc(total_before_amt, prev_before_amt)}，上月：{prev_before_amt:,.2f}元
-      - 年份品：{sum_before.loc['年份品', '滞销金额']:,.2f}元（占比 {sum_before.loc['年份品', '滞销金额'] / total_before_amt * 100:.2f}%），环比 {fmt_fluc(sum_before.loc['年份品', '滞销金额'], sum_before_prev.loc['年份品', '滞销金额'])}，上月：{sum_before_prev.loc['年份品', '滞销金额']:,.2f}元
-      - 非年份品：{sum_before.loc['非年份品', '滞销金额']:,.2f}元（占比 {sum_before.loc['非年份品', '滞销金额'] / total_before_amt * 100:.2f}%），环比 {fmt_fluc(sum_before.loc['非年份品', '滞销金额'], sum_before_prev.loc['非年份品', '滞销金额'])}，上月：{sum_before_prev.loc['非年份品', '滞销金额']:,.2f}元
-    """)
+    - 滞销数量：**{int(round(total_before_qty, 0)):,}件**（滞销总占比 {pct_before:.2f}%），环比 {fluc_before_qty}，上月：{prev_before_qty_fmt}件
+      - 年份品：{int(round(sum_before.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_before.loc['年份品', '滞销数量'] / total_before_qty * 100:.2f}%），环比 {fluc_before_year_qty}，上月：{prev_before_year_qty_fmt}件
+      - 非年份品：{int(round(sum_before.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_before.loc['非年份品', '滞销数量'] / total_before_qty * 100:.2f}%），环比 {fluc_before_non_qty}，上月：{prev_before_non_qty_fmt}件
+    - 滞销金额：**{int(round(total_before_amt, 0)):,}元**，环比 {fluc_before_amt}，上月：{prev_before_amt_fmt}元
+      - 年份品：{int(round(sum_before.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_before.loc['年份品', '滞销金额'] / total_before_amt * 100:.2f}%），环比 {fluc_before_year_amt}，上月：{prev_before_year_amt_fmt}元
+      - 非年份品：{int(round(sum_before.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_before.loc['非年份品', '滞销金额'] / total_before_amt * 100:.2f}%），环比 {fluc_before_non_amt}，上月：{prev_before_non_amt_fmt}元
+    """, unsafe_allow_html=True)
 
 # 4. 年后
 with c_text4:
+    # 总数量
+    fluc_after_qty, prev_after_qty_fmt = fmt_fluc(total_after_qty, prev_after_qty)
+    # 年份品数量
+    fluc_after_year_qty, prev_after_year_qty_fmt = fmt_fluc(sum_after.loc['年份品', '滞销数量'],
+                                                            sum_after_prev.loc['年份品', '滞销数量'])
+    # 非年份品数量
+    fluc_after_non_qty, prev_after_non_qty_fmt = fmt_fluc(sum_after.loc['非年份品', '滞销数量'],
+                                                          sum_after_prev.loc['非年份品', '滞销数量'])
+    # 总金额
+    fluc_after_amt, prev_after_amt_fmt = fmt_fluc(total_after_amt, prev_after_amt)
+    # 年份品金额
+    fluc_after_year_amt, prev_after_year_amt_fmt = fmt_fluc(sum_after.loc['年份品', '滞销金额'],
+                                                            sum_after_prev.loc['年份品', '滞销金额'])
+    # 非年份品金额
+    fluc_after_non_amt, prev_after_non_amt_fmt = fmt_fluc(sum_after.loc['非年份品', '滞销金额'],
+                                                          sum_after_prev.loc['非年份品', '滞销金额'])
+
     st.markdown(f"""
     **🧊 年后采购**
-    - 滞销数量：**{total_after_qty:,}件**（滞销总占比 {pct_after:.2f}%），环比 {fmt_fluc(total_after_qty, prev_after_qty)}，上月：{prev_after_qty:,}件
-      - 年份品：{sum_after.loc['年份品', '滞销数量']:,}件（占比 {sum_after.loc['年份品', '滞销数量'] / total_after_qty * 100:.2f}%），环比 {fmt_fluc(sum_after.loc['年份品', '滞销数量'], sum_after_prev.loc['年份品', '滞销数量'])}，上月：{sum_after_prev.loc['年份品', '滞销数量']:,}件
-      - 非年份品：{sum_after.loc['非年份品', '滞销数量']:,}件（占比 {sum_after.loc['非年份品', '滞销数量'] / total_after_qty * 100:.2f}%），环比 {fmt_fluc(sum_after.loc['非年份品', '滞销数量'], sum_after_prev.loc['非年份品', '滞销数量'])}，上月：{sum_after_prev.loc['非年份品', '滞销数量']:,}件
-    - 滞销金额：**{total_after_amt:,.2f}元**，环比 {fmt_fluc(total_after_amt, prev_after_amt)}，上月：{prev_after_amt:,.2f}元
-      - 年份品：{sum_after.loc['年份品', '滞销金额']:,.2f}元（占比 {sum_after.loc['年份品', '滞销金额'] / total_after_amt * 100:.2f}%），环比 {fmt_fluc(sum_after.loc['年份品', '滞销金额'], sum_after_prev.loc['年份品', '滞销金额'])}，上月：{sum_after_prev.loc['年份品', '滞销金额']:,.2f}元
-      - 非年份品：{sum_after.loc['非年份品', '滞销金额']:,.2f}元（占比 {sum_after.loc['非年份品', '滞销金额'] / total_after_amt * 100:.2f}%），环比 {fmt_fluc(sum_after.loc['非年份品', '滞销金额'], sum_after_prev.loc['非年份品', '滞销金额'])}，上月：{sum_after_prev.loc['非年份品', '滞销金额']:,.2f}元
-    """)
+    - 滞销数量：**{int(round(total_after_qty, 0)):,}件**（滞销总占比 {pct_after:.2f}%），环比 {fluc_after_qty}，上月：{prev_after_qty_fmt}件
+      - 年份品：{int(round(sum_after.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_after.loc['年份品', '滞销数量'] / total_after_qty * 100:.2f}%），环比 {fluc_after_year_qty}，上月：{prev_after_year_qty_fmt}件
+      - 非年份品：{int(round(sum_after.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_after.loc['非年份品', '滞销数量'] / total_after_qty * 100:.2f}%），环比 {fluc_after_non_qty}，上月：{prev_after_non_qty_fmt}件
+    - 滞销金额：**{int(round(total_after_amt, 0)):,}元**，环比 {fluc_after_amt}，上月：{prev_after_amt_fmt}元
+      - 年份品：{int(round(sum_after.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_after.loc['年份品', '滞销金额'] / total_after_amt * 100:.2f}%），环比 {fluc_after_year_amt}，上月：{prev_after_year_amt_fmt}元
+      - 非年份品：{int(round(sum_after.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_after.loc['非年份品', '滞销金额'] / total_after_amt * 100:.2f}%），环比 {fluc_after_non_amt}，上月：{prev_after_non_amt_fmt}元
+    """, unsafe_allow_html=True)
 
 # -------------------- 第二行：一行8列饼图，和上面卡片完美对齐 --------------------
 c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
@@ -1434,3 +1511,5 @@ fig_after_qty = pie_chart(sum_after, "年后\n数量占比")
 fig_after_amt = pie_chart(sum_after, "年后\n金额占比")
 with c7: st.plotly_chart(fig_after_qty, use_container_width=True)
 with c8: st.plotly_chart(fig_after_amt, use_container_width=True)
+
+

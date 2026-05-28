@@ -8,7 +8,6 @@ from io import BytesIO
 import base64
 import math
 
-# ====================== 页面基础配置 ======================
 st.set_page_config(page_title="物流成本分析看板", layout="wide", initial_sidebar_state="expanded")
 
 st.title("📊 物流成本分析")
@@ -19,7 +18,7 @@ def load_cost_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_cost = pd.read_excel(url, sheet_name="数据")
 
-    need_cols = ["周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "报关费",
+    need_cols = ["年份","周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "报关费",
                  "运输方式", "总费用", "总运费", "入库配置费折算RMB"]
     df_cost = df_cost[[col for col in need_cols if col in df_cost.columns]]
 
@@ -40,7 +39,14 @@ def load_cost_data():
     # 时间字段标准化
     df_cost["周期"] = pd.to_numeric(df_cost["周期"], errors="coerce").astype(int)
     df_cost["月份"] = pd.to_numeric(df_cost["月份"], errors="coerce").astype(int)
-    df_cost = df_cost.sort_values("周期").reset_index(drop=True)
+    df_cost["年份"] = pd.to_numeric(df_cost["年份"], errors="coerce").astype(int)
+
+    # ====================== 【关键新增】生成带年份的周期/月份 ======================
+    df_cost["年份周期"] = df_cost["年份"].astype(str) + "年" + df_cost["周期"].astype(str) + "周"
+    df_cost["年份月份"] = df_cost["年份"].astype(str) + "年" + df_cost["月份"].apply(lambda x: f"{x:02d}") + "月"
+
+    # 正确排序：先年份，再周期/月份
+    df_cost = df_cost.sort_values(by=["年份", "周期", "月份"], ascending=[True, True, True]).reset_index(drop=True)
     return df_cost
 
 df_cost = load_cost_data()
@@ -65,19 +71,19 @@ card_bg_map = {
     "总重量": "#e3f2fd"
 }
 
-# ====================== 2. 视图模式 & 筛选器 ======================
+# ====================== 2. 视图模式 & 筛选器（已修改支持25+26年） ======================
 view_mode = st.radio("筛选维度", ["按周期", "按月份"], horizontal=True)
 
 with st.expander("🔎 筛选条件", expanded=True):
     col1, col2 = st.columns(2)
     with col1:
         if view_mode == "按周期":
-            period_list = sorted(df_cost["周期"].unique())
-            max_p = max(period_list) if len(period_list) else 0
-            default_val = [p for p in period_list if p >= max_p - 3] if len(period_list) >=4 else period_list
+            # 排序规则：年份 + 周期数字
+            period_list = sorted(df_cost["年份周期"].unique(), key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("周",""))))
+            default_val = period_list[-4:] if len(period_list) >=4 else period_list
             selected = st.multiselect("周期", period_list, default=default_val)
         else:
-            month_list = sorted(df_cost["月份"].dropna().unique())
+            month_list = sorted(df_cost["年份月份"].unique(), key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("月",""))))
             default_val = month_list[-3:] if len(month_list) >= 3 else month_list
             selected = st.multiselect("月份", month_list, default=default_val)
 
@@ -85,15 +91,15 @@ with st.expander("🔎 筛选条件", expanded=True):
         area_list = ["全部"] + sorted(df_cost["区域"].dropna().unique())
         selected_area = st.selectbox("区域", area_list)
 
-# ====================== 3. 筛选后数据处理 ======================
+# ====================== 3. 筛选后数据处理（已修改） ======================
 df = df_cost.copy()
-group_col = "周期" if view_mode == "按周期" else "月份"
+group_col = "年份周期" if view_mode == "按周期" else "年份月份"
 
 # 时间筛选
 if view_mode == "按周期":
-    df = df[df["周期"].isin(selected)] if selected else df
+    df = df[df["年份周期"].isin(selected)] if selected else df
 else:
-    df = df[df["月份"].isin(selected)] if selected else df
+    df = df[df["年份月份"].isin(selected)] if selected else df
 
 # 区域筛选
 if selected_area != "全部":
@@ -103,9 +109,12 @@ if df.empty:
     st.warning("无数据")
     st.stop()
 
-# 最新周期/月份 & 上月数据
-latest_period = max(selected) if selected else max(df[group_col])
-prev_period = sorted(df[group_col].unique())[-2] if len(df[group_col].unique()) >=2 else latest_period
+# 最新 & 上期（自动兼容25+26年）
+sorted_selected = sorted(selected, key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("周","").replace("月",""))))
+latest_period = sorted_selected[-1] if sorted_selected else None
+prev_period = sorted_selected[-2] if len(sorted_selected) >= 2 else latest_period
+
+# ====================== 以下是你原有代码（无需改动，直接保留） ======================
 
 # ====================== 4. 环比计算工具函数 ======================
 def get_vs_prev(latest_val, prev_val):

@@ -689,7 +689,7 @@ st.plotly_chart(fig, use_container_width=True)
 st.markdown("### 📋 全维度明细")
 
 
-# 1. 【新增】同比周期计算函数
+# 1. 同比周期计算函数
 def get_yy_period(latest_period_str, view_mode):
     try:
         if view_mode == "按月份":
@@ -708,7 +708,7 @@ def get_yy_period(latest_period_str, view_mode):
         return None
 
 
-# 2. 【新增】数值格式化+双对比生成函数
+# 2. 数值格式化+双对比生成函数
 def format_value_with_compare(current_val, prev_val, yy_val, is_ratio=False):
     """
     生成带环比+同比的格式化字符串，自动加颜色标签
@@ -737,13 +737,13 @@ def format_value_with_compare(current_val, prev_val, yy_val, is_ratio=False):
         yoy_text = f'<span style="color:#666">同比：无去年同期数据</span>'
     else:
         diff_text = f"{yoy_sign}{abs(yoy_diff):.2f}%" if is_ratio else f"{yoy_sign}{abs(yoy_diff):,.2f}"
-        yoy_text = f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:.2f}%（占比）</span>' if is_ratio else f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:,.2f}</span>'
+        yoy_text = f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:.2f}%</span>' if is_ratio else f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:,.2f}</span>'
 
     # 最终拼接
     return f"{val_format}<br>({mom_text}，{yoy_text})"
 
 
-# 3. 构建表格数据（精简版）
+# 3. 构建表格数据（同比从全量数据加载）
 table_data = []
 for logi in final_order:
     for period in period_list:
@@ -753,7 +753,7 @@ for logi in final_order:
             "周期/月份": period
         }
 
-        # 获取本期数据
+        # 获取本期数据（从当前筛选后的df_pie）
         current_data = df_pie[(df_pie[group_col] == period) & (df_pie["实际物流方式"] == logi)]
         current_amount = current_data["总费用"].values[0] if len(current_data) > 0 else 0
         current_weight = current_data["总重量"].values[0] if len(current_data) > 0 else 0
@@ -762,7 +762,7 @@ for logi in final_order:
         current_weight_ratio = current_data["重量占比"].values[0] if len(current_data) > 0 else 0
         current_price_ratio = current_data["单价占比"].values[0] if len(current_data) > 0 else 0
 
-        # 计算上期数据（环比）
+        # 计算上期数据（环比，从当前筛选后的df_pie）
         period_idx = period_list.index(period)
         prev_amount = 0
         prev_weight = 0
@@ -780,7 +780,7 @@ for logi in final_order:
             prev_weight_ratio = prev_data["重量占比"].values[0] if len(prev_data) > 0 else 0
             prev_price_ratio = prev_data["单价占比"].values[0] if len(prev_data) > 0 else 0
 
-        # 计算去年同期数据（同比）
+        # ====================== 【关键修复】同比数据：从全量df_cost加载，不受筛选器限制 ======================
         yy_period = get_yy_period(period, view_mode)
         yy_amount = 0
         yy_weight = 0
@@ -788,14 +788,21 @@ for logi in final_order:
         yy_amount_ratio = 0
         yy_weight_ratio = 0
         yy_price_ratio = 0
-        if yy_period is not None and yy_period in df_pie[group_col].values:
-            yy_data = df_pie[(df_pie[group_col] == yy_period) & (df_pie["实际物流方式"] == logi)]
-            yy_amount = yy_data["总费用"].values[0] if len(yy_data) > 0 else 0
-            yy_weight = yy_data["总重量"].values[0] if len(yy_data) > 0 else 0
-            yy_price = yy_data["单价"].values[0] if len(yy_data) > 0 else 0
-            yy_amount_ratio = yy_data["费用占比"].values[0] if len(yy_data) > 0 else 0
-            yy_weight_ratio = yy_data["重量占比"].values[0] if len(yy_data) > 0 else 0
-            yy_price_ratio = yy_data["单价占比"].values[0] if len(yy_data) > 0 else 0
+        if yy_period is not None and yy_period in df_cost[group_col].values:
+            yy_data = df_cost[(df_cost[group_col] == yy_period) & (df_cost["实际物流方式"] == logi)]
+            yy_amount = yy_data["总费用"].sum()
+            yy_weight = yy_data["重量"].sum()
+            # 同比单价计算：总费用 / 总重量
+            yy_price = yy_amount / yy_weight if yy_weight > 0 else 0
+            # 同比占比计算：该物流方式费用 / 该周期总费用
+            yy_period_total = df_cost[df_cost[group_col] == yy_period]["总费用"].sum()
+            yy_amount_ratio = yy_amount / yy_period_total * 100 if yy_period_total > 0 else 0
+            yy_period_weight_total = df_cost[df_cost[group_col] == yy_period]["重量"].sum()
+            yy_weight_ratio = yy_weight / yy_period_weight_total * 100 if yy_period_weight_total > 0 else 0
+            yy_price_period_avg = (df_cost[df_cost[group_col] == yy_period]["总费用"].sum() /
+                                   df_cost[df_cost[group_col] == yy_period][
+                                       "重量"].sum()) if yy_period_weight_total > 0 else 0
+            yy_price_ratio = yy_price / yy_price_period_avg * 100 if yy_price_period_avg > 0 else 0
 
         # 填充8列数据（带环比+同比）
         row["总费用_金额"] = format_value_with_compare(current_amount, prev_amount, yy_amount, is_ratio=False)
@@ -842,7 +849,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 用st.markdown渲染HTML表格，完美支持内嵌颜色和换行
+# 用HTML表格渲染，完美支持内嵌颜色和换行
 html_table = pv_display.to_html(escape=False, index=False)
 st.markdown(html_table, unsafe_allow_html=True)
 

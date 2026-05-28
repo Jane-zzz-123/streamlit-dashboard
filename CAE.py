@@ -594,8 +594,8 @@ df_pie["实际物流方式"] = pd.Categorical(
     ordered=True
 )
 
-# ====================== ✅ 修复 1：按数字正确排序（不会乱） ======================
-period_list = sorted(df_pie[group_col].unique(), key=lambda x: int(x))
+# ====================== ✅ 已修复：去掉 int(x)，支持年月格式 ======================
+period_list = sorted(df_pie[group_col].unique())
 num_periods = len(period_list)
 
 # ====================== 第一部分：全宽图表 ======================

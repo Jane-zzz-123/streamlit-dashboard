@@ -1003,39 +1003,49 @@ inv_full = df_unsale.groupby("MSKU").agg(
 
 df_merge = inv_full.merge(msku_pur, on="MSKU", how="left").fillna(0)
 
-# ===================== 5. 核心分配：滞销 → 年后 → 年前 → 年货（先进先出） =====================
-def allocate_stock(row):
-    unsale = row["滞销总库存"]
-    after  = row["年后采购"]
-    before = row["年前采购"]
-    goods  = row["年货采购"]
+# ===================== 5. 【核心修改】按你的逻辑分配：滞销 → 年后 → 年前 → 年货 → 年货前 =====================
+def allocate_stour(row):
+    unsale = row["滞销总库存"]  # 总滞销
+    after  = row["年后采购"]    # 年后采购
+    before = row["年前采购"]    # 年前采购
+    goods  = row["年货采购"]    # 年货采购
 
-    # 1. 年后
-    a = min(unsale, after)
-    unsale -= a
+    # 你的逻辑：
+    # 1. 先扣年后
+    alloc_after = min(unsale, after)
+    unsale -= alloc_after
 
-    # 2. 年前
-    b = min(unsale, before)
-    unsale -= b
+    # 2. 再扣年前
+    alloc_before = min(unsale, before)
+    unsale -= alloc_before
 
-    # 3. 年货
-    c = min(unsale, goods)
-    return pd.Series([b, a, c])
+    # 3. 再扣年货
+    alloc_goods = min(unsale, goods)
+    unsale -= alloc_goods
 
-df_merge[["年前采购滞销", "年后采购滞销", "年货采购滞销"]] = df_merge.apply(allocate_stock, axis=1)
+    # 4. 最后剩下的 = 年货前采购滞销
+    alloc_pre_new_year = unsale
 
-# ===================== 6. 全部真实采购量（直接从df_pur取） =====================
+    return pd.Series([alloc_pre_new_year, alloc_goods, alloc_before, alloc_after])
+
+# 生成4类滞销（新增：年货前采购滞销）
+df_merge[["年货前采购滞销", "年货采购滞销", "年前采购滞销", "年后采购滞销"]] = df_merge.apply(allocate_stour, axis=1)
+
+# ===================== 6. 全部真实采购量 =====================
+total_pur_pre_new_year = 0  # 年货前 = 分配剩下的，不需要从采购表取
 total_pur_year = msku_pur["年货采购"].sum()
 total_pur_before = msku_pur["年前采购"].sum()
 total_pur_after = msku_pur["年后采购"].sum()
 
-# ===================== 7. 滞销总数 =====================
+# ===================== 7. 滞销总数（4类） =====================
+total_pre_new_year = int(df_merge["年货前采购滞销"].sum())
 total_goods = int(df_merge["年货采购滞销"].sum())
 total_before = int(df_merge["年前采购滞销"].sum())
 total_after = int(df_merge["年后采购滞销"].sum())
-total_all = total_goods + total_before + total_after
+total_all = total_pre_new_year + total_goods + total_before + total_after
 
 # 占比
+pct_pre_new_year = total_pre_new_year / total_all * 100 if total_all else 0
 pct_goods = total_goods / total_all * 100 if total_all else 0
 pct_before = total_before / total_all * 100 if total_all else 0
 pct_after = total_after / total_all * 100 if total_all else 0
@@ -1049,10 +1059,21 @@ def fmt_diff(v):
     else:
         return '<span style="color:#666">持平</span>'
 
-# ===================== 9. 三张卡片（真实采购量 + 滞销 + 占比 + 环比） =====================
-c1, c2, c3 = st.columns(3)
+# ===================== 9. 【四张卡片】展示4类采购滞销 =====================
+c1, c2, c3, c4 = st.columns(4)
 
 with c1:
+    st.markdown(f"""
+    <div style="background:#f3f4f6; padding:24px; border-radius:12px; text-align:center;">
+        <h3 style="margin:0; color:#444;">⏳ 年货前采购滞销</h3>
+        <h1 style="font-size:42px; margin:10px 0;">{total_pre_new_year:,}</h1>
+        <p style="font-size:14px; line-height:1.6;">
+            滞销占比：{pct_pre_new_year:.2f}%
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with c2:
     st.markdown(f"""
     <div style="background:#fff9e6; padding:24px; border-radius:12px; text-align:center;">
         <h3 style="margin:0; color:#e65100;">🧧 年货采购滞销</h3>
@@ -1064,7 +1085,7 @@ with c1:
     </div>
     """, unsafe_allow_html=True)
 
-with c2:
+with c3:
     st.markdown(f"""
     <div style="background:#ffebee; padding:24px; border-radius:12px; text-align:center;">
         <h3 style="margin:0; color:#c62828;">🧨 年前采购滞销</h3>
@@ -1076,7 +1097,7 @@ with c2:
     </div>
     """, unsafe_allow_html=True)
 
-with c3:
+with c4:
     st.markdown(f"""
     <div style="background:#e3f2fd; padding:24px; border-radius:12px; text-align:center;">
         <h3 style="margin:0; color:#1565c0;">🧊 年后采购滞销</h3>
@@ -1088,14 +1109,14 @@ with c3:
     </div>
     """, unsafe_allow_html=True)
 
-# ===================== 10. 明细表（完美追溯） =====================
+# ===================== 10. 明细表（已加入4类滞销，完美追溯） =====================
 with st.expander("📄 查看 MSKU 滞销来源明细（100%准确）"):
     st.dataframe(
         df_merge[[
             "MSKU", "店铺", "品名",
             "FBA_AWD_在途库存", "本地库存", "滞销总库存",
             "年货采购", "年前采购", "年后采购",
-            "年货采购滞销", "年前采购滞销", "年后采购滞销"
+            "年货前采购滞销", "年货采购滞销", "年前采购滞销", "年后采购滞销"
         ]].sort_values("滞销总库存", ascending=False),
         use_container_width=True, height=600
     )

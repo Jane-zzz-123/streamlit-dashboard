@@ -458,8 +458,8 @@ def render_detail_section(col, title, df_unit, df_amt):
 
         all_logi = sorted(df["实际物流方式"].unique())
 
-        # ====================== ✅ 唯一修改：确保周期/月份正确排序 ======================
-        sorted_vals = sorted(df_unit[group_col].unique(), key=lambda x: int(x))
+        # ====================== ✅ 修复：年月格式不转int，直接排序 ======================
+        sorted_vals = sorted(df_unit[group_col].unique())
 
         # 单价图表
         st.markdown("##### 📈 单价趋势（元/kg）")

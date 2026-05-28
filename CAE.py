@@ -128,9 +128,41 @@ def get_vs_prev(latest_val, prev_val):
 st.markdown("## 🎯 核心指标")
 st.markdown(f"**统计周期：{view_mode} {latest_period}**")
 
-# 计算最新值 & 上月值
+
+# ====================== 【新增】同比周期自动计算逻辑 ======================
+def get_yy_period(latest_period_str, view_mode):
+    """
+    自动计算同比周期：
+    - 月份视图：2026年04月 → 2025年04月
+    - 周期视图：2026年15周 → 2025年15周
+    """
+    try:
+        if view_mode == "按月份":
+            # 月份格式："2026年04月" → 提取年份+月份，年份-1
+            year_part = latest_period_str[:4]
+            month_part = latest_period_str[5:]
+            yy_year = str(int(year_part) - 1)
+            return f"{yy_year}年{month_part}"
+        elif view_mode == "按周期":
+            # 周期格式："2026年15周" → 提取年份+周数，年份-1
+            year_part = latest_period_str[:4]
+            week_part = latest_period_str[5:]
+            yy_year = str(int(year_part) - 1)
+            return f"{yy_year}年{week_part}"
+        else:
+            return None
+    except:
+        return None
+
+
+# 自动获取同比周期
+yy_period = get_yy_period(latest_period, view_mode)
+
+# 计算最新值 & 上月值 & 去年同期值
 latest_data = df[df[group_col] == latest_period]
 prev_data = df[df[group_col] == prev_period] if prev_period in df[group_col].values else pd.DataFrame()
+yy_data = df[df[group_col] == yy_period] if (
+            yy_period is not None and yy_period in df[group_col].values) else pd.DataFrame()
 
 # 核心指标
 metrics = [
@@ -138,6 +170,7 @@ metrics = [
         "name": "总费用",
         "latest": latest_data["总费用"].sum(),
         "prev": prev_data["总费用"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["总费用"].sum() if not yy_data.empty else 0,
         "unit": "¥",
         "bg": card_bg_map["总费用"]
     },
@@ -145,6 +178,7 @@ metrics = [
         "name": "总运费",
         "latest": latest_data["总运费"].sum(),
         "prev": prev_data["总运费"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["总运费"].sum() if not yy_data.empty else 0,
         "unit": "¥",
         "bg": card_bg_map["总运费"]
     },
@@ -152,6 +186,7 @@ metrics = [
         "name": "入库配置费",
         "latest": latest_data["入库配置费折算RMB"].sum(),
         "prev": prev_data["入库配置费折算RMB"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["入库配置费折算RMB"].sum() if not yy_data.empty else 0,
         "unit": "¥",
         "bg": card_bg_map["入库配置费"]
     },
@@ -159,6 +194,7 @@ metrics = [
         "name": "报关费",
         "latest": latest_data["报关费"].sum(),
         "prev": prev_data["报关费"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["报关费"].sum() if not yy_data.empty else 0,
         "unit": "¥",
         "bg": card_bg_map["报关费"]
     },
@@ -166,23 +202,39 @@ metrics = [
         "name": "总重量",
         "latest": latest_data["重量"].sum(),
         "prev": prev_data["重量"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["重量"].sum() if not yy_data.empty else 0,
         "unit": "kg",
         "bg": card_bg_map["总重量"]
     }
 ]
 
-# 渲染5张指标卡
+# 渲染5张指标卡（新增同比行）
 cols = st.columns(5)
 for i, metric in enumerate(metrics):
     with cols[i]:
-        sign, color, diff, pct = get_vs_prev(metric["latest"], metric["prev"])
-        # 自定义卡片HTML
+        # 环比计算
+        mom_sign, mom_color, mom_diff, mom_pct = get_vs_prev(metric["latest"], metric["prev"])
+        # 同比计算
+        yoy_sign, yoy_color, yoy_diff, yoy_pct = get_vs_prev(metric["latest"], metric["yy"])
+
+        # 同比文案：无数据时友好显示
+        if metric["yy"] == 0:
+            yoy_text = f"→ 无去年同期数据"
+        else:
+            yoy_text = f"{yoy_sign} {abs(yoy_diff):,.0f} (去年同期: {metric['unit']}{metric['yy']:,.0f})"
+
+        # 自定义卡片HTML（新增同比行，布局更紧凑）
         card_html = f"""
-        <div style="background-color:{metric['bg']}; padding:20px; border-radius:12px; text-align:center; height:220px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <div style="background-color:{metric['bg']}; padding:20px; border-radius:12px; text-align:center; min-height:280px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
             <div style="font-size:28px; font-weight:bold; margin-bottom:15px;">{metric['name']}</div>
             <div style="font-size:42px; font-weight:900; margin-bottom:15px;">{metric['unit']}{metric['latest']:,.0f}</div>
-            <div style="font-size:20px; color:{color};">
-                {sign} {abs(diff):,.0f} (上期: {metric['unit']}{metric['prev']:,.0f})
+            <!-- 环比行 -->
+            <div style="font-size:18px; color:{mom_color}; margin-bottom:8px;">
+                环比 {mom_sign} {abs(mom_diff):,.0f} (上期: {metric['unit']}{metric['prev']:,.0f})
+            </div>
+            <!-- 同比行 -->
+            <div style="font-size:18px; color:{yoy_color};">
+                同比 {yoy_text}
             </div>
         </div>
         """
@@ -594,7 +646,7 @@ df_pie["实际物流方式"] = pd.Categorical(
     ordered=True
 )
 
-# ====================== ✅ 已修复：去掉 int(x)，支持年月格式 ======================
+# 已修复：去掉 int(x)，支持年月格式
 period_list = sorted(df_pie[group_col].unique())
 num_periods = len(period_list)
 
@@ -609,7 +661,7 @@ for i, period in enumerate(period_list):
         y=df_period["费用占比"],
         name=f"{period}",
         marker_color=bar_colors,
-        text=df_period.apply(lambda row: f"{row[group_col]}{dim_label}<br>{row['费用占比']:.2f}%", axis=1),
+        text=df_period.apply(lambda row: f"{row[group_col]}<br>{row['费用占比']:.2f}%", axis=1),
         textposition="outside",
         textfont=dict(size=10),
         width=0.7 / num_periods
@@ -636,9 +688,10 @@ st.markdown("### 📋 全维度明细")
 table_data = []
 for logi in final_order:
     for period in period_list:
+        # ====================== ✅ 修复1：直接用period本身，不额外加后缀，彻底解决重复 ======================
         row = {
             "实际物流方式": logi,
-            "周期/月份": f"{period}{dim_label}"
+            "周期/月份": period
         }
 
         # 获取本期数据

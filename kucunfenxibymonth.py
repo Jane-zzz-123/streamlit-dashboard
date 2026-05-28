@@ -1265,13 +1265,13 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
         use_container_width=True, height=600
     )
 
-# ===================== 【新增】滞销结构分析：年份品 vs 非年份品（4类 × 数量+金额 饼图） =====================
+# ===================== 【最终版】一行8列 · 滞销结构分析（年份品/非年份品） =====================
 st.divider()
 st.subheader("🍰 滞销结构分析（年份品 / 非年份品）")
 
-# 1. 从 df_prod 匹配【是否年份】字段（正确数据源）
+# 1. 从 df_prod 匹配【是否年份】字段
 df_temp = df_merge_curr.merge(
-    df_prod[["MSKU", "是否年份"]],  # 只取需要的列
+    df_prod[["MSKU", "是否年份"]],
     on="MSKU",
     how="left"
 ).fillna("否")
@@ -1297,66 +1297,66 @@ sum_goods, total_goods_qty, total_goods_amt = get_type_summary(df_temp, "年货�
 sum_before, total_before_qty, total_before_amt = get_type_summary(df_temp, "年前采购滞销数量", "年前采购滞销金额")
 sum_after, total_after_qty, total_after_amt = get_type_summary(df_temp, "年后采购滞销数量", "年后采购滞销金额")
 
-# 绘图函数
+# 3. 饼图绘图函数（适配一行8列的小尺寸）
 import plotly.express as px
 
 
-def pie_chart(df, title_qty, title_amt):
+def pie_chart(df, title):
     labels = df.index.tolist()
     colors = ["#ff9999", "#66b3ff"]
 
-    # 数量饼图
-    fig1 = px.pie(names=labels, values=df["滞销数量"],
-                  color_discrete_sequence=colors)
-    fig1.update_traces(textposition="inside", textinfo="percent+label", showlegend=False)
-    fig1.update_layout(height=180, margin=dict(l=10, r=10, t=25, b=10),
-                       title=dict(text=title_qty, font=dict(size=12)))
-
-    # 金额饼图
-    fig2 = px.pie(names=labels, values=df["滞销金额"],
-                  color_discrete_sequence=colors)
-    fig2.update_traces(textposition="inside", textinfo="percent+label", showlegend=False)
-    fig2.update_layout(height=180, margin=dict(l=10, r=10, t=25, b=10),
-                       title=dict(text=title_amt, font=dict(size=12)))
-    return fig1, fig2
+    fig = px.pie(names=labels, values=df["滞销数量"],
+                 color_discrete_sequence=colors)
+    fig.update_traces(textposition="inside", textinfo="percent", showlegend=False)
+    fig.update_layout(
+        height=160,
+        margin=dict(l=5, r=5, t=30, b=5),
+        title=dict(text=title, font=dict(size=11)),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+    return fig
 
 
-# -------------------- 年货前 --------------------
-st.markdown(f"#### ⏳ 年货前采购滞销 · 结构分析")
-st.info(f"滞销总量 {total_pre_qty:,.0f} 件 / {total_pre_amt:,.2f} 元，"
-        f"年份品占比 {sum_pre.loc['年份品', '滞销数量'] / total_pre_qty * 100:.1f}%，"
-        f"非年份品占比 {sum_pre.loc['非年份品', '滞销数量'] / total_pre_qty * 100:.1f}%")
-c1_1, c1_2 = st.columns(2)
-fig1_qty, fig1_amt = pie_chart(sum_pre, "年货前滞销数量占比", "年货前滞销金额占比")
-with c1_1: st.plotly_chart(fig1_qty, use_container_width=True)
-with c1_2: st.plotly_chart(fig1_amt, use_container_width=True)
+# -------------------- 【核心修改】一行8列，和上面卡片完美对齐 --------------------
+# 先在最上方放4个分类的总结文字（和上面4张卡片一一对应）
+c_text1, c_text2, c_text3, c_text4 = st.columns(4)
+with c_text1:
+    st.info(
+        f"⏳ 年货前采购\n总量 {total_pre_qty:,.0f}件 / {total_pre_amt:,.0f}元\n年份品占比 {sum_pre.loc['年份品', '滞销数量'] / total_pre_qty * 100:.1f}%")
+with c_text2:
+    st.info(
+        f"🧧 年货采购\n总量 {total_goods_qty:,.0f}件 / {total_goods_amt:,.0f}元\n年份品占比 {sum_goods.loc['年份品', '滞销数量'] / total_goods_qty * 100:.1f}%")
+with c_text3:
+    st.info(
+        f"🧨 年前采购\n总量 {total_before_qty:,.0f}件 / {total_before_amt:,.0f}元\n年份品占比 {sum_before.loc['年份品', '滞销数量'] / total_before_qty * 100:.1f}%")
+with c_text4:
+    st.info(
+        f"🧊 年后采购\n总量 {total_after_qty:,.0f}件 / {total_after_amt:,.0f}元\n年份品占比 {sum_after.loc['年份品', '滞销数量'] / total_after_qty * 100:.1f}%")
 
-# -------------------- 年货 --------------------
-st.markdown(f"#### 🧧 年货采购滞销 · 结构分析")
-st.info(f"滞销总量 {total_goods_qty:,.0f} 件 / {total_goods_amt:,.2f} 元，"
-        f"年份品占比 {sum_goods.loc['年份品', '滞销数量'] / total_goods_qty * 100:.1f}%，"
-        f"非年份品占比 {sum_goods.loc['非年份品', '滞销数量'] / total_goods_qty * 100:.1f}%")
-c2_1, c2_2 = st.columns(2)
-fig2_qty, fig2_amt = pie_chart(sum_goods, "年货滞销数量占比", "年货滞销金额占比")
-with c2_1: st.plotly_chart(fig2_qty, use_container_width=True)
-with c2_2: st.plotly_chart(fig2_amt, use_container_width=True)
+# 一行8列：4类 × 数量饼 + 金额饼
+c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
 
-# -------------------- 年前 --------------------
-st.markdown(f"#### 🧨 年前采购滞销 · 结构分析")
-st.info(f"滞销总量 {total_before_qty:,.0f} 件 / {total_before_amt:,.2f} 元，"
-        f"年份品占比 {sum_before.loc['年份品', '滞销数量'] / total_before_qty * 100:.1f}%，"
-        f"非年份品占比 {sum_before.loc['非年份品', '滞销数量'] / total_before_qty * 100:.1f}%")
-c3_1, c3_2 = st.columns(2)
-fig3_qty, fig3_amt = pie_chart(sum_before, "年前滞销数量占比", "年前滞销金额占比")
-with c3_1: st.plotly_chart(fig3_qty, use_container_width=True)
-with c3_2: st.plotly_chart(fig3_amt, use_container_width=True)
+# 年货前
+fig_pre_qty = pie_chart(sum_pre, "年货前\n数量占比")
+fig_pre_amt = pie_chart(sum_pre, "年货前\n金额占比")
+with c1: st.plotly_chart(fig_pre_qty, use_container_width=True)
+with c2: st.plotly_chart(fig_pre_amt, use_container_width=True)
 
-# -------------------- 年后 --------------------
-st.markdown(f"#### 🧊 年后采购滞销 · 结构分析")
-st.info(f"滞销总量 {total_after_qty:,.0f} 件 / {total_after_amt:,.2f} 元，"
-        f"年份品占比 {sum_after.loc['年份品', '滞销数量'] / total_after_qty * 100:.1f}%，"
-        f"非年份品占比 {sum_after.loc['非年份品', '滞销数量'] / total_after_qty * 100:.1f}%")
-c4_1, c4_2 = st.columns(2)
-fig4_qty, fig4_amt = pie_chart(sum_after, "年后滞销数量占比", "年后滞销金额占比")
-with c4_1: st.plotly_chart(fig4_qty, use_container_width=True)
-with c4_2: st.plotly_chart(fig4_amt, use_container_width=True)
+# 年货
+fig_goods_qty = pie_chart(sum_goods, "年货\n数量占比")
+fig_goods_amt = pie_chart(sum_goods, "年货\n金额占比")
+with c3: st.plotly_chart(fig_goods_qty, use_container_width=True)
+with c4: st.plotly_chart(fig_goods_amt, use_container_width=True)
+
+# 年前
+fig_before_qty = pie_chart(sum_before, "年前\n数量占比")
+fig_before_amt = pie_chart(sum_before, "年前\n金额占比")
+with c5: st.plotly_chart(fig_before_qty, use_container_width=True)
+with c6: st.plotly_chart(fig_before_amt, use_container_width=True)
+
+# 年后
+fig_after_qty = pie_chart(sum_after, "年后\n数量占比")
+fig_after_amt = pie_chart(sum_after, "年后\n金额占比")
+with c7: st.plotly_chart(fig_after_qty, use_container_width=True)
+with c8: st.plotly_chart(fig_after_amt, use_container_width=True)

@@ -12,13 +12,14 @@ st.set_page_config(page_title="物流成本分析看板", layout="wide", initial
 
 st.title("📊 物流成本分析")
 
+
 # ====================== 1. 加载数据 ======================
 @st.cache_data(show_spinner="加载成本数据中...")
 def load_cost_data():
     url = "https://raw.githubusercontent.com/Jane-zzz-123/Logistics/main/CAE.xlsx"
     df_cost = pd.read_excel(url, sheet_name="数据")
 
-    need_cols = ["年份","周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "报关费",
+    need_cols = ["年份", "周期", "月份", "目的仓", "仓库", "区域", "实际物流方式", "货代", "货代渠道", "重量", "报关费",
                  "运输方式", "总费用", "总运费", "入库配置费折算RMB"]
     df_cost = df_cost[[col for col in need_cols if col in df_cost.columns]]
 
@@ -41,24 +42,25 @@ def load_cost_data():
     df_cost["月份"] = pd.to_numeric(df_cost["月份"], errors="coerce").astype(int)
     df_cost["年份"] = pd.to_numeric(df_cost["年份"], errors="coerce").astype(int)
 
-    # ====================== 【关键新增】生成带年份的周期/月份 ======================
+    # 生成带年份的周期/月份
     df_cost["年份周期"] = df_cost["年份"].astype(str) + "年" + df_cost["周期"].astype(str) + "周"
     df_cost["年份月份"] = df_cost["年份"].astype(str) + "年" + df_cost["月份"].apply(lambda x: f"{x:02d}") + "月"
 
-    # 正确排序：先年份，再周期/月份
+    # 正确排序
     df_cost = df_cost.sort_values(by=["年份", "周期", "月份"], ascending=[True, True, True]).reset_index(drop=True)
     return df_cost
+
 
 df_cost = load_cost_data()
 
 # ====================== 全局配置 ======================
 # 颜色映射
 color_map = {
-    "空派": "#1f77b4",        # 蓝色
-    "以星特快": "#2ca02c",    # 绿色
-    "以星": "#ff7f0e",        # 橙色
-    "正班": "#7f7f7f",        # 灰色
-    "普船": "#ffdd00"         # 黄色
+    "空派": "#1f77b4",  # 蓝色
+    "以星特快": "#2ca02c",  # 绿色
+    "以星": "#ff7f0e",  # 橙色
+    "正班": "#7f7f7f",  # 灰色
+    "普船": "#ffdd00"  # 黄色
 }
 default_color = "#9467bd"
 
@@ -71,7 +73,7 @@ card_bg_map = {
     "总重量": "#e3f2fd"
 }
 
-# ====================== 2. 视图模式 & 筛选器（已修改支持25+26年） ======================
+# ====================== 2. 视图模式 & 筛选器 ======================
 view_mode = st.radio("筛选维度", ["按周期", "按月份"], horizontal=True)
 
 with st.expander("🔎 筛选条件", expanded=True):
@@ -79,11 +81,13 @@ with st.expander("🔎 筛选条件", expanded=True):
     with col1:
         if view_mode == "按周期":
             # 排序规则：年份 + 周期数字
-            period_list = sorted(df_cost["年份周期"].unique(), key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("周",""))))
-            default_val = period_list[-4:] if len(period_list) >=4 else period_list
+            period_list = sorted(df_cost["年份周期"].unique(),
+                                 key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("周", ""))))
+            default_val = period_list[-4:] if len(period_list) >= 4 else period_list
             selected = st.multiselect("周期", period_list, default=default_val)
         else:
-            month_list = sorted(df_cost["年份月份"].unique(), key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("月",""))))
+            month_list = sorted(df_cost["年份月份"].unique(),
+                                key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("月", ""))))
             default_val = month_list[-3:] if len(month_list) >= 3 else month_list
             selected = st.multiselect("月份", month_list, default=default_val)
 
@@ -91,7 +95,7 @@ with st.expander("🔎 筛选条件", expanded=True):
         area_list = ["全部"] + sorted(df_cost["区域"].dropna().unique())
         selected_area = st.selectbox("区域", area_list)
 
-# ====================== 3. 筛选后数据处理（已修改） ======================
+# ====================== 3. 筛选后数据处理 ======================
 df = df_cost.copy()
 group_col = "年份周期" if view_mode == "按周期" else "年份月份"
 
@@ -110,9 +114,11 @@ if df.empty:
     st.stop()
 
 # 最新 & 上期（自动兼容25+26年）
-sorted_selected = sorted(selected, key=lambda x: (int(x.split("年")[0]), int(x.split("年")[1].replace("周","").replace("月",""))))
+sorted_selected = sorted(selected, key=lambda x: (int(x.split("年")[0]),
+                                                  int(x.split("年")[1].replace("周", "").replace("月", ""))))
 latest_period = sorted_selected[-1] if sorted_selected else None
 prev_period = sorted_selected[-2] if len(sorted_selected) >= 2 else latest_period
+
 
 # ====================== 4. 环比计算工具函数 ======================
 def get_vs_prev(latest_val, prev_val):
@@ -121,6 +127,124 @@ def get_vs_prev(latest_val, prev_val):
     sign = "↓" if diff < 0 else "↑" if diff > 0 else "→"
     color = "green" if diff < 0 else "red" if diff > 0 else "#888"
     return sign, color, diff, pct
+
+
+# ====================== 5. 核心指标（修复同比计算） ======================
+st.markdown("## 🎯 核心指标")
+st.markdown(f"**统计周期：{view_mode} {latest_period}**")
+
+
+# 【修复】同比周期自动计算逻辑
+def get_yy_period(latest_period_str, view_mode):
+    """
+    自动计算同比周期：
+    - 月份视图：2026年04月 → 2025年04月
+    - 周期视图：2026年18周 → 2025年18周
+    """
+    try:
+        if view_mode == "按月份":
+            year_part = latest_period_str[:4]
+            month_part = latest_period_str[5:]
+            yy_year = str(int(year_part) - 1)
+            return f"{yy_year}年{month_part}"
+        elif view_mode == "按周期":
+            year_part = latest_period_str[:4]
+            week_part = latest_period_str[5:]
+            yy_year = str(int(year_part) - 1)
+            return f"{yy_year}年{week_part}"
+        else:
+            return None
+    except:
+        return None
+
+
+# 自动获取同比周期
+yy_period = get_yy_period(latest_period, view_mode)
+
+# 【关键修复】同比数据：用全量数据匹配，不受筛选器限制
+latest_data = df[df[group_col] == latest_period]
+prev_data = df[df[group_col] == prev_period] if prev_period in df[group_col].values else pd.DataFrame()
+# 同比数据：从全量df_cost中匹配，只要表里有就显示，不受当前多选筛选限制
+yy_data = df_cost[df_cost[group_col] == yy_period] if (
+            yy_period is not None and yy_period in df_cost[group_col].values) else pd.DataFrame()
+
+# 核心指标
+metrics = [
+    {
+        "name": "总费用",
+        "latest": latest_data["总费用"].sum(),
+        "prev": prev_data["总费用"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["总费用"].sum() if not yy_data.empty else 0,
+        "unit": "¥",
+        "bg": card_bg_map["总费用"]
+    },
+    {
+        "name": "总运费",
+        "latest": latest_data["总运费"].sum(),
+        "prev": prev_data["总运费"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["总运费"].sum() if not yy_data.empty else 0,
+        "unit": "¥",
+        "bg": card_bg_map["总运费"]
+    },
+    {
+        "name": "入库配置费",
+        "latest": latest_data["入库配置费折算RMB"].sum(),
+        "prev": prev_data["入库配置费折算RMB"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["入库配置费折算RMB"].sum() if not yy_data.empty else 0,
+        "unit": "¥",
+        "bg": card_bg_map["入库配置费"]
+    },
+    {
+        "name": "报关费",
+        "latest": latest_data["报关费"].sum(),
+        "prev": prev_data["报关费"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["报关费"].sum() if not yy_data.empty else 0,
+        "unit": "¥",
+        "bg": card_bg_map["报关费"]
+    },
+    {
+        "name": "总重量",
+        "latest": latest_data["重量"].sum(),
+        "prev": prev_data["重量"].sum() if not prev_data.empty else 0,
+        "yy": yy_data["重量"].sum() if not yy_data.empty else 0,
+        "unit": "kg",
+        "bg": card_bg_map["总重量"]
+    }
+]
+
+# 渲染5张指标卡（环比+同比双对比）
+cols = st.columns(5)
+for i, metric in enumerate(metrics):
+    with cols[i]:
+        # 环比计算
+        mom_sign, mom_color, mom_diff, mom_pct = get_vs_prev(metric["latest"], metric["prev"])
+        # 同比计算
+        yoy_sign, yoy_color, yoy_diff, yoy_pct = get_vs_prev(metric["latest"], metric["yy"])
+
+        # 同比文案：无数据时友好显示
+        if metric["yy"] == 0:
+            yoy_text = f"→ 无去年同期数据"
+        else:
+            yoy_text = f"{yoy_sign} {abs(yoy_diff):,.0f} (去年同期: {metric['unit']}{metric['yy']:,.0f})"
+
+        # 自定义卡片HTML
+        card_html = f"""
+        <div style="background-color:{metric['bg']}; padding:20px; border-radius:12px; text-align:center; min-height:280px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+            <div style="font-size:28px; font-weight:bold; margin-bottom:15px;">{metric['name']}</div>
+            <div style="font-size:42px; font-weight:900; margin-bottom:15px;">{metric['unit']}{metric['latest']:,.0f}</div>
+            <!-- 环比行 -->
+            <div style="font-size:18px; color:{mom_color}; margin-bottom:8px;">
+                环比 {mom_sign} {abs(mom_diff):,.0f} (上期: {metric['unit']}{metric['prev']:,.0f})
+            </div>
+            <!-- 同比行 -->
+            <div style="font-size:18px; color:{yoy_color};">
+                同比 {yoy_text}
+            </div>
+        </div>
+        """
+        st.markdown(card_html, unsafe_allow_html=True)
+
+st.markdown("---")
 
 # ==============================================================================
 # 🔴 第一部分：核心指标卡（完全复刻你的样式）

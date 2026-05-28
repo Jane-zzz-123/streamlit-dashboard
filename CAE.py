@@ -247,126 +247,6 @@ for i, metric in enumerate(metrics):
 st.markdown("---")
 
 # ==============================================================================
-# 🔴 第一部分：核心指标卡（完全复刻你的样式）
-# ==============================================================================
-st.markdown("## 🎯 核心指标")
-st.markdown(f"**统计周期：{view_mode} {latest_period}**")
-
-
-# ====================== 【新增】同比周期自动计算逻辑 ======================
-def get_yy_period(latest_period_str, view_mode):
-    """
-    自动计算同比周期：
-    - 月份视图：2026年04月 → 2025年04月
-    - 周期视图：2026年15周 → 2025年15周
-    """
-    try:
-        if view_mode == "按月份":
-            # 月份格式："2026年04月" → 提取年份+月份，年份-1
-            year_part = latest_period_str[:4]
-            month_part = latest_period_str[5:]
-            yy_year = str(int(year_part) - 1)
-            return f"{yy_year}年{month_part}"
-        elif view_mode == "按周期":
-            # 周期格式："2026年15周" → 提取年份+周数，年份-1
-            year_part = latest_period_str[:4]
-            week_part = latest_period_str[5:]
-            yy_year = str(int(year_part) - 1)
-            return f"{yy_year}年{week_part}"
-        else:
-            return None
-    except:
-        return None
-
-
-# 自动获取同比周期
-yy_period = get_yy_period(latest_period, view_mode)
-
-# 计算最新值 & 上月值 & 去年同期值
-latest_data = df[df[group_col] == latest_period]
-prev_data = df[df[group_col] == prev_period] if prev_period in df[group_col].values else pd.DataFrame()
-yy_data = df[df[group_col] == yy_period] if (
-            yy_period is not None and yy_period in df[group_col].values) else pd.DataFrame()
-
-# 核心指标
-metrics = [
-    {
-        "name": "总费用",
-        "latest": latest_data["总费用"].sum(),
-        "prev": prev_data["总费用"].sum() if not prev_data.empty else 0,
-        "yy": yy_data["总费用"].sum() if not yy_data.empty else 0,
-        "unit": "¥",
-        "bg": card_bg_map["总费用"]
-    },
-    {
-        "name": "总运费",
-        "latest": latest_data["总运费"].sum(),
-        "prev": prev_data["总运费"].sum() if not prev_data.empty else 0,
-        "yy": yy_data["总运费"].sum() if not yy_data.empty else 0,
-        "unit": "¥",
-        "bg": card_bg_map["总运费"]
-    },
-    {
-        "name": "入库配置费",
-        "latest": latest_data["入库配置费折算RMB"].sum(),
-        "prev": prev_data["入库配置费折算RMB"].sum() if not prev_data.empty else 0,
-        "yy": yy_data["入库配置费折算RMB"].sum() if not yy_data.empty else 0,
-        "unit": "¥",
-        "bg": card_bg_map["入库配置费"]
-    },
-    {
-        "name": "报关费",
-        "latest": latest_data["报关费"].sum(),
-        "prev": prev_data["报关费"].sum() if not prev_data.empty else 0,
-        "yy": yy_data["报关费"].sum() if not yy_data.empty else 0,
-        "unit": "¥",
-        "bg": card_bg_map["报关费"]
-    },
-    {
-        "name": "总重量",
-        "latest": latest_data["重量"].sum(),
-        "prev": prev_data["重量"].sum() if not prev_data.empty else 0,
-        "yy": yy_data["重量"].sum() if not yy_data.empty else 0,
-        "unit": "kg",
-        "bg": card_bg_map["总重量"]
-    }
-]
-
-# 渲染5张指标卡（新增同比行）
-cols = st.columns(5)
-for i, metric in enumerate(metrics):
-    with cols[i]:
-        # 环比计算
-        mom_sign, mom_color, mom_diff, mom_pct = get_vs_prev(metric["latest"], metric["prev"])
-        # 同比计算
-        yoy_sign, yoy_color, yoy_diff, yoy_pct = get_vs_prev(metric["latest"], metric["yy"])
-
-        # 同比文案：无数据时友好显示
-        if metric["yy"] == 0:
-            yoy_text = f"→ 无去年同期数据"
-        else:
-            yoy_text = f"{yoy_sign} {abs(yoy_diff):,.0f} (去年同期: {metric['unit']}{metric['yy']:,.0f})"
-
-        # 自定义卡片HTML（新增同比行，布局更紧凑）
-        card_html = f"""
-        <div style="background-color:{metric['bg']}; padding:20px; border-radius:12px; text-align:center; min-height:280px; display:flex; flex-direction:column; justify-content:center; align-items:center;">
-            <div style="font-size:28px; font-weight:bold; margin-bottom:15px;">{metric['name']}</div>
-            <div style="font-size:42px; font-weight:900; margin-bottom:15px;">{metric['unit']}{metric['latest']:,.0f}</div>
-            <!-- 环比行 -->
-            <div style="font-size:18px; color:{mom_color}; margin-bottom:8px;">
-                环比 {mom_sign} {abs(mom_diff):,.0f} (上期: {metric['unit']}{metric['prev']:,.0f})
-            </div>
-            <!-- 同比行 -->
-            <div style="font-size:18px; color:{yoy_color};">
-                同比 {yoy_text}
-            </div>
-        </div>
-        """
-        st.markdown(card_html, unsafe_allow_html=True)
-
-st.markdown("---")
-
-# ==============================================================================
 # 📊 第二部分：整体成本趋势（一行五列，数值100%完整显示）
 # ==============================================================================
 st.markdown("## 📈 整体趋势（与核心指标卡一一对应）")
@@ -808,11 +688,66 @@ st.plotly_chart(fig, use_container_width=True)
 # ====================== 第二部分：双层表头明细表格 ======================
 st.markdown("### 📋 全维度明细")
 
-# 1. 构建表格数据，1:1复刻Excel结构
+
+# 1. 【新增】同比周期计算函数
+def get_yy_period(latest_period_str, view_mode):
+    try:
+        if view_mode == "按月份":
+            year_part = latest_period_str[:4]
+            month_part = latest_period_str[5:]
+            yy_year = str(int(year_part) - 1)
+            return f"{yy_year}年{month_part}"
+        elif view_mode == "按周期":
+            year_part = latest_period_str[:4]
+            week_part = latest_period_str[5:]
+            yy_year = str(int(year_part) - 1)
+            return f"{yy_year}年{week_part}"
+        else:
+            return None
+    except:
+        return None
+
+
+# 2. 【新增】数值格式化+双对比生成函数
+def format_value_with_compare(current_val, prev_val, yy_val, is_ratio=False):
+    """
+    生成带环比+同比的格式化字符串，自动加颜色标签
+    """
+    # 环比计算
+    mom_diff = current_val - prev_val
+    mom_sign = "↑" if mom_diff > 0 else "↓" if mom_diff < 0 else "→"
+    mom_color = "#e63946" if mom_diff > 0 else "#2a9d8f" if mom_diff < 0 else "#666"
+    # 同比计算
+    yoy_diff = current_val - yy_val
+    yoy_sign = "↑" if yoy_diff > 0 else "↓" if yoy_diff < 0 else "→"
+    yoy_color = "#e63946" if yoy_diff > 0 else "#2a9d8f" if yoy_diff < 0 else "#666"
+
+    # 数值格式：占比保留2位+%，金额/重量保留2位
+    val_format = f"{current_val:.2f}%" if is_ratio else f"{current_val:,.2f}"
+
+    # 环比文案
+    if prev_val == 0:
+        mom_text = f'<span style="color:#666">环比：无上期数据</span>'
+    else:
+        diff_text = f"{mom_sign}{abs(mom_diff):.2f}%" if is_ratio else f"{mom_sign}{abs(mom_diff):,.2f}"
+        mom_text = f'<span style="color:{mom_color}">环比变化：{diff_text}</span>'
+
+    # 同比文案
+    if yy_val == 0:
+        yoy_text = f'<span style="color:#666">同比：无去年同期数据</span>'
+    else:
+        diff_text = f"{yoy_sign}{abs(yoy_diff):.2f}%" if is_ratio else f"{yoy_sign}{abs(yoy_diff):,.2f}"
+        yoy_text = f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:.2f}%（占比）</span>' if is_ratio else f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:,.2f}</span>'
+
+    # 最终拼接
+    return f"{val_format}<br>({mom_text}，{yoy_text})"
+
+
+# 3. 构建表格数据（精简版）
 table_data = []
 for logi in final_order:
     for period in period_list:
-        # ====================== ✅ 修复1：直接用period本身，不额外加后缀，彻底解决重复 ======================
+        # 基础行
         row = {
             "实际物流方式": logi,
             "周期/月份": period
@@ -827,16 +762,15 @@ for logi in final_order:
         current_weight_ratio = current_data["重量占比"].values[0] if len(current_data) > 0 else 0
         current_price_ratio = current_data["单价占比"].values[0] if len(current_data) > 0 else 0
 
-        # 计算环比差值
+        # 计算上期数据（环比）
         period_idx = period_list.index(period)
-        if period_idx == 0:
-            amount_diff = "→ 0.00"
-            amount_ratio_diff = "→ 0.00%"
-            weight_diff = "→ 0.00"
-            weight_ratio_diff = "→ 0.00%"
-            price_diff = "→ 0.00"
-            price_ratio_diff = "→ 0.00%"
-        else:
+        prev_amount = 0
+        prev_weight = 0
+        prev_price = 0
+        prev_amount_ratio = 0
+        prev_weight_ratio = 0
+        prev_price_ratio = 0
+        if period_idx > 0:
             prev_period = period_list[period_idx - 1]
             prev_data = df_pie[(df_pie[group_col] == prev_period) & (df_pie["实际物流方式"] == logi)]
             prev_amount = prev_data["总费用"].values[0] if len(prev_data) > 0 else 0
@@ -846,74 +780,49 @@ for logi in final_order:
             prev_weight_ratio = prev_data["重量占比"].values[0] if len(prev_data) > 0 else 0
             prev_price_ratio = prev_data["单价占比"].values[0] if len(prev_data) > 0 else 0
 
-            # 计算差值
-            amount_diff_val = current_amount - prev_amount
-            amount_ratio_diff_val = current_amount_ratio - prev_amount_ratio
-            weight_diff_val = current_weight - prev_weight
-            weight_ratio_diff_val = current_weight_ratio - prev_weight_ratio
-            price_diff_val = current_price - prev_price
-            price_ratio_diff_val = current_price_ratio - prev_price_ratio
+        # 计算去年同期数据（同比）
+        yy_period = get_yy_period(period, view_mode)
+        yy_amount = 0
+        yy_weight = 0
+        yy_price = 0
+        yy_amount_ratio = 0
+        yy_weight_ratio = 0
+        yy_price_ratio = 0
+        if yy_period is not None and yy_period in df_pie[group_col].values:
+            yy_data = df_pie[(df_pie[group_col] == yy_period) & (df_pie["实际物流方式"] == logi)]
+            yy_amount = yy_data["总费用"].values[0] if len(yy_data) > 0 else 0
+            yy_weight = yy_data["总重量"].values[0] if len(yy_data) > 0 else 0
+            yy_price = yy_data["单价"].values[0] if len(yy_data) > 0 else 0
+            yy_amount_ratio = yy_data["费用占比"].values[0] if len(yy_data) > 0 else 0
+            yy_weight_ratio = yy_data["重量占比"].values[0] if len(yy_data) > 0 else 0
+            yy_price_ratio = yy_data["单价占比"].values[0] if len(yy_data) > 0 else 0
 
-            # 格式化差值
-            amount_diff = f"{'↑' if amount_diff_val > 0 else '↓' if amount_diff_val < 0 else '→'} {amount_diff_val:,.2f}"
-            amount_ratio_diff = f"{'↑' if amount_ratio_diff_val > 0 else '↓' if amount_ratio_diff_val < 0 else '→'} {amount_ratio_diff_val:.2f}%"
-            weight_diff = f"{'↑' if weight_diff_val > 0 else '↓' if weight_diff_val < 0 else '→'} {weight_diff_val:,.2f}"
-            weight_ratio_diff = f"{'↑' if weight_ratio_diff_val > 0 else '↓' if weight_ratio_diff_val < 0 else '→'} {weight_ratio_diff_val:.2f}%"
-            price_diff = f"{'↑' if price_diff_val > 0 else '↓' if price_diff_val < 0 else '→'} {price_diff_val:,.2f}"
-            price_ratio_diff = f"{'↑' if price_ratio_diff_val > 0 else '↓' if price_ratio_diff_val < 0 else '→'} {price_ratio_diff_val:.2f}%"
-
-        # 填充总费用维度
-        row["总费用_金额"] = f"{current_amount:,.2f}"
-        row["总费用_金额差值"] = amount_diff
-        row["总费用_占比"] = f"{current_amount_ratio:.2f}%"
-        row["总费用_占比差值"] = amount_ratio_diff
-
-        # 填充总重量维度
-        row["总重量_重量"] = f"{current_weight:,.2f}"
-        row["总重量_重量差值"] = weight_diff
-        row["总重量_占比"] = f"{current_weight_ratio:.2f}%"
-        row["总重量_占比差值"] = weight_ratio_diff
-
-        # 填充单价维度
-        row["单价_金额"] = f"{current_price:,.2f}"
-        row["单价_金额差值"] = price_diff
-        row["单价_占比"] = f"{current_price_ratio:.2f}%"
-        row["单价_占比差值"] = price_ratio_diff
+        # 填充8列数据（带环比+同比）
+        row["总费用_金额"] = format_value_with_compare(current_amount, prev_amount, yy_amount, is_ratio=False)
+        row["总费用_占比"] = format_value_with_compare(current_amount_ratio, prev_amount_ratio, yy_amount_ratio,
+                                                       is_ratio=True)
+        row["总重量_重量"] = format_value_with_compare(current_weight, prev_weight, yy_weight, is_ratio=False)
+        row["总重量_占比"] = format_value_with_compare(current_weight_ratio, prev_weight_ratio, yy_weight_ratio,
+                                                       is_ratio=True)
+        row["单价_金额"] = format_value_with_compare(current_price, prev_price, yy_price, is_ratio=False)
+        row["单价_占比"] = format_value_with_compare(current_price_ratio, prev_price_ratio, yy_price_ratio,
+                                                     is_ratio=True)
 
         table_data.append(row)
 
-# 2. 转成DataFrame
+# 4. 转成DataFrame
 pv_display = pd.DataFrame(table_data)
 
-# 3. 高亮：上涨红，下跌绿
-def highlight_changes(val):
-    val_str = str(val)
-    if "↑" in val_str:
-        return "color: #e63946; font-weight: bold;"
-    elif "↓" in val_str:
-        return "color: #2a9d8f; font-weight: bold;"
-    elif "→" in val_str:
-        return "color: #666;"
-    return ""
-
-change_cols = [c for c in pv_display.columns if "差值" in c]
-pv_styled = pv_display.style.applymap(highlight_changes, subset=change_cols)
-
-# 4. 渲染表格，冻结首列，动态高度
-st.dataframe(
-    pv_styled,
-    use_container_width=True,
-    height=min(800, len(pv_display) * 35 + 50),
-    hide_index=True
-)
-
-# 5. CSS优化：冻结前两列
+# 5. 渲染表格（支持HTML颜色，自动换行）
 st.markdown("""
 <style>
+    /* 表格基础样式 */
     [data-testid="stDataFrame"] div[role="cell"] {
-        padding: 4px 6px !important;
+        padding: 8px 6px !important;
         font-size: 13px !important;
+        line-height: 1.5 !important;
     }
+    /* 冻结前两列 */
     [data-testid="stDataFrame"] div[role="columnheader"][data-colindex="0"],
     [data-testid="stDataFrame"] div[role="cell"][data-colindex="0"] {
         position: sticky !important;
@@ -932,6 +841,10 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# 用st.markdown渲染HTML表格，完美支持内嵌颜色和换行
+html_table = pv_display.to_html(escape=False, index=False)
+st.markdown(html_table, unsafe_allow_html=True)
 
 st.markdown("---")
 

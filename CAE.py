@@ -708,10 +708,10 @@ def get_yy_period(latest_period_str, view_mode):
         return None
 
 
-# 2. 数值格式化+双对比生成函数
+# 2. 【优化】数值格式化+分层样式生成函数
 def format_value_with_compare(current_val, prev_val, yy_val, is_ratio=False):
     """
-    生成带环比+同比的格式化字符串，自动加颜色标签
+    分层样式：主数值放大加粗，对比文案缩小，自动加颜色标签
     """
     # 环比计算
     mom_diff = current_val - prev_val
@@ -727,20 +727,20 @@ def format_value_with_compare(current_val, prev_val, yy_val, is_ratio=False):
 
     # 环比文案
     if prev_val == 0:
-        mom_text = f'<span style="color:#666">环比：无上期数据</span>'
+        mom_text = f'<span style="font-size:12px; color:#666">环比：无上期数据</span>'
     else:
         diff_text = f"{mom_sign}{abs(mom_diff):.2f}%" if is_ratio else f"{mom_sign}{abs(mom_diff):,.2f}"
-        mom_text = f'<span style="color:{mom_color}">环比变化：{diff_text}</span>'
+        mom_text = f'<span style="font-size:12px; color:{mom_color}">环比变化：{diff_text}</span>'
 
     # 同比文案
     if yy_val == 0:
-        yoy_text = f'<span style="color:#666">同比：无去年同期数据</span>'
+        yoy_text = f'<span style="font-size:12px; color:#666">同比：无去年同期数据</span>'
     else:
         diff_text = f"{yoy_sign}{abs(yoy_diff):.2f}%" if is_ratio else f"{yoy_sign}{abs(yoy_diff):,.2f}"
-        yoy_text = f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:.2f}%</span>' if is_ratio else f'<span style="color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:,.2f}</span>'
+        yoy_text = f'<span style="font-size:12px; color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:.2f}%</span>' if is_ratio else f'<span style="font-size:12px; color:{yoy_color}">同比变化：{diff_text}，去年同期：{yy_val:,.2f}</span>'
 
-    # 最终拼接
-    return f"{val_format}<br>({mom_text}，{yoy_text})"
+    # 最终拼接：主数值放大加粗，对比文案缩小换行
+    return f'<span style="font-size:18px; font-weight:bold; line-height:1.6;">{val_format}</span><br>{mom_text}<br>{yoy_text}'
 
 
 # 3. 构建表格数据（同比从全量数据加载）
@@ -780,7 +780,7 @@ for logi in final_order:
             prev_weight_ratio = prev_data["重量占比"].values[0] if len(prev_data) > 0 else 0
             prev_price_ratio = prev_data["单价占比"].values[0] if len(prev_data) > 0 else 0
 
-        # ====================== 【关键修复】同比数据：从全量df_cost加载，不受筛选器限制 ======================
+        # 同比数据：从全量df_cost加载，不受筛选器限制
         yy_period = get_yy_period(period, view_mode)
         yy_amount = 0
         yy_weight = 0
@@ -820,14 +820,20 @@ for logi in final_order:
 # 4. 转成DataFrame
 pv_display = pd.DataFrame(table_data)
 
-# 5. 渲染表格（支持HTML颜色，自动换行）
+# 5. 渲染表格（优化样式）
 st.markdown("""
 <style>
     /* 表格基础样式 */
     [data-testid="stDataFrame"] div[role="cell"] {
-        padding: 8px 6px !important;
-        font-size: 13px !important;
-        line-height: 1.5 !important;
+        padding: 12px 6px !important;
+        line-height: 1.6 !important;
+        vertical-align: middle !important;
+    }
+    /* 表头样式 */
+    [data-testid="stDataFrame"] div[role="columnheader"] {
+        font-size: 14px !important;
+        font-weight: 600 !important;
+        background: #f8f9fa !important;
     }
     /* 冻结前两列 */
     [data-testid="stDataFrame"] div[role="columnheader"][data-colindex="0"],
@@ -849,7 +855,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 用HTML表格渲染，完美支持内嵌颜色和换行
+# 用HTML表格渲染，完美支持内嵌样式
 html_table = pv_display.to_html(escape=False, index=False)
 st.markdown(html_table, unsafe_allow_html=True)
 

@@ -1269,8 +1269,14 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
 st.divider()
 st.subheader("🍰 滞销结构分析（年份品 / 非年份品）")
 
-# 1. 从 df_merge_curr 中直接取【是否年份】列（你商品表里的标准字段）
-df_merge_curr["商品类型"] = df_merge_curr["是否年份"].apply(
+# 1. 从 df_prod 匹配【是否年份】字段（正确数据源）
+df_temp = df_merge_curr.merge(
+    df_prod[["MSKU", "是否年份"]],  # 只取需要的列
+    on="MSKU",
+    how="left"
+).fillna("否")
+
+df_temp["商品类型"] = df_temp["是否年份"].apply(
     lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
 )
 
@@ -1286,10 +1292,10 @@ def get_type_summary(df, col_qty, col_amt):
     return summary, total_qty, total_amt
 
 
-sum_pre, total_pre_qty, total_pre_amt = get_type_summary(df_merge_curr, "年货前采购滞销数量", "年货前采购滞销金额")
-sum_goods, total_goods_qty, total_goods_amt = get_type_summary(df_merge_curr, "年货采购滞销数量", "年货采购滞销金额")
-sum_before, total_before_qty, total_before_amt = get_type_summary(df_merge_curr, "年前采购滞销数量", "年前采购滞销金额")
-sum_after, total_after_qty, total_after_amt = get_type_summary(df_merge_curr, "年后采购滞销数量", "年后采购滞销金额")
+sum_pre, total_pre_qty, total_pre_amt = get_type_summary(df_temp, "年货前采购滞销数量", "年货前采购滞销金额")
+sum_goods, total_goods_qty, total_goods_amt = get_type_summary(df_temp, "年货采购滞销数量", "年货采购滞销金额")
+sum_before, total_before_qty, total_before_amt = get_type_summary(df_temp, "年前采购滞销数量", "年前采购滞销金额")
+sum_after, total_after_qty, total_after_amt = get_type_summary(df_temp, "年后采购滞销数量", "年后采购滞销金额")
 
 # 绘图函数
 import plotly.express as px

@@ -1115,6 +1115,11 @@ pct_goods = safe_pct(curr_sum["goods_qty"], total_curr_qty)
 pct_before = safe_pct(curr_sum["before_qty"], total_curr_qty)
 pct_after = safe_pct(curr_sum["after_qty"], total_curr_qty)
 
+# ===================== 【新增】滞销占采购量比例 =====================
+pct_of_pur_goods = safe_pct(curr_sum["goods_qty"], total_pur_year)
+pct_of_pur_before = safe_pct(curr_sum["before_qty"], total_pur_before)
+pct_of_pur_after = safe_pct(curr_sum["after_qty"], total_pur_after)
+
 # ===================== 7. 环比格式化 =====================
 def fmt_num_curr(curr,prev):
     diff = curr - prev
@@ -1134,7 +1139,7 @@ def fmt_amt_curr(curr,prev):
     else:
         return f"{curr:,.2f}", '<span style="color:#666">持平</span>'
 
-# ===================== 8. 四张卡片：数量+金额+环比+占比 =====================
+# ===================== 8. 四张卡片：已加上【滞销占采购量】 =====================
 c1, c2, c3, c4 = st.columns(4)
 
 # 1.年货前
@@ -1160,7 +1165,8 @@ with c2:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str2} 件 {qty_fluc2}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str2} 元 {amt_fluc2}</div>
         <div style="font-size:14px;color:#666;">采购总量：{total_pur_year:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占比：{pct_goods:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_goods:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_goods:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1174,7 +1180,8 @@ with c3:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str3} 件 {qty_fluc3}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str3} 元 {amt_fluc3}</div>
         <div style="font-size:14px;color:#666;">采购总量：{total_pur_before:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占比：{pct_before:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_before:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_before:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1188,7 +1195,8 @@ with c4:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str4} 件 {qty_fluc4}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str4} 元 {amt_fluc4}</div>
         <div style="font-size:14px;color:#666;">采购总量：{total_pur_after:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占比：{pct_after:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_after:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_after:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 

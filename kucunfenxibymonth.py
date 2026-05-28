@@ -1003,6 +1003,7 @@ def merge_inv_pur(df_unsale_df, msku_pur_df):
         头程费用=("头程费用", "first"),
         FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
         本地库存=("本地库存", "sum"),
+        总库存=("总库存", "sum"),
         滞销总库存=("总滞销库存", "sum")
     ).reset_index()
     df_merge = inv_full.merge(msku_pur_df, on="MSKU", how="left").fillna(0)
@@ -1010,6 +1011,11 @@ def merge_inv_pur(df_unsale_df, msku_pur_df):
 
 df_merge_curr = merge_inv_pur(df_unsale, msku_pur_curr)
 df_merge_prev = merge_inv_pur(df_unsale_prev, msku_pur_prev)
+
+# ===================== 【新增】计算年货前采购总库存 =====================
+# 逻辑：年货前采购总库存 = 总库存 - 年货采购 - 年前采购 - 年后采购，负数自动归0
+df_merge_curr["年货前采购总库存"] = (df_merge_curr["总库存"] - df_merge_curr["年货采购"] - df_merge_curr["年前采购"] - df_merge_curr["年后采购"]).clip(lower=0)
+df_merge_prev["年货前采购总库存"] = (df_merge_prev["总库存"] - df_merge_prev["年货采购"] - df_merge_prev["年前采购"] - df_merge_prev["年后采购"]).clip(lower=0)
 
 # ===================== 4. 第一步：按年后→年前→年货→年货前 分摊滞销数量 =====================
 def alloc_qty_by_purchase(row):
@@ -1090,6 +1096,7 @@ def sum_all_data(df):
         "goods_amt": round(df["年货采购滞销金额"].sum(),2),
         "before_amt": round(df["年前采购滞销金额"].sum(),2),
         "after_amt": round(df["年后采购滞销金额"].sum(),2),
+        "pre_total_stock": int(df["年货前采购总库存"].sum()),
     }
 
 curr_sum = sum_all_data(df_merge_curr)
@@ -1115,7 +1122,8 @@ pct_goods = safe_pct(curr_sum["goods_qty"], total_curr_qty)
 pct_before = safe_pct(curr_sum["before_qty"], total_curr_qty)
 pct_after = safe_pct(curr_sum["after_qty"], total_curr_qty)
 
-# ===================== 【新增】滞销占采购量比例 =====================
+# 滞销占采购量比例
+pct_of_pur_pre = safe_pct(curr_sum["pre_qty"], curr_sum["pre_total_stock"])
 pct_of_pur_goods = safe_pct(curr_sum["goods_qty"], total_pur_year)
 pct_of_pur_before = safe_pct(curr_sum["before_qty"], total_pur_before)
 pct_of_pur_after = safe_pct(curr_sum["after_qty"], total_pur_after)
@@ -1139,10 +1147,10 @@ def fmt_amt_curr(curr,prev):
     else:
         return f"{curr:,.2f}", '<span style="color:#666">持平</span>'
 
-# ===================== 8. 四张卡片：已加上【滞销占采购量】 =====================
+# ===================== 8. 四张卡片：年货前已加上总库存+滞销占采购量 =====================
 c1, c2, c3, c4 = st.columns(4)
 
-# 1.年货前
+# 1.年货前（已新增 年货前采购总库存 + 滞销占采购量）
 qty_str1, qty_fluc1 = fmt_num_curr(curr_sum["pre_qty"], prev_sum["pre_qty"])
 amt_str1, amt_fluc1 = fmt_amt_curr(curr_sum["pre_amt"], prev_sum["pre_amt"])
 with c1:
@@ -1151,7 +1159,9 @@ with c1:
         <h4 style="margin:0;color:#444;">⏳ 年货前采购滞销</h4>
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str1} 件 {qty_fluc1}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str1} 元 {amt_fluc1}</div>
-        <div style="font-size:14px;color:#666;">滞销占比：{pct_pre:.2f}%</div>
+        <div style="font-size:14px;color:#666;">年货前采购总库存：{curr_sum['pre_total_stock']:,.0f} 件</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_pre:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_pre:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1200,10 +1210,11 @@ with c4:
     </div>
     """, unsafe_allow_html=True)
 
-# ===================== 9. 明细表格（数量+金额全带出） =====================
+# ===================== 9. 明细表格（已新增年货前采购总库存列） =====================
 with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA口径）"):
     show_cols = [
         "MSKU", "店铺", "品名",
+        "总库存", "年货前采购总库存",
         "本地库存", "FBA_AWD_在途库存", "滞销总库存",
         "年货采购", "年前采购", "年后采购",
         "年货前采购滞销数量","年货采购滞销数量","年前采购滞销数量","年后采购滞销数量",

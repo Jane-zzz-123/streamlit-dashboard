@@ -2115,11 +2115,11 @@ with c2:
     fig.update_traces(textinfo="label+percent", textposition="inside")
     st.plotly_chart(fig, use_container_width=True)
 
-# ===================== 全品类汇总 - 店铺整体滞销（数量+金额） =====================
+# ===================== 全店铺总滞销汇总（按店铺 · 文字+双饼图） =====================
 st.divider()
-st.subheader("📊 全品类汇总 - 店铺整体滞销分析")
+st.subheader("📊 全店铺总滞销汇总分析")
 
-# 关联年份品/非年份品标签
+# 1. 合并年份品标签（用你现有的字段）
 df_shop_curr = df_merge_curr.merge(
     df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
 ).fillna("否")
@@ -2134,41 +2134,67 @@ df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(
     lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
 )
 
-# 筛选有滞销数据的行（汇总所有滞销）
-df_shop_curr = df_shop_curr[df_shop_curr["滞销数量"] > 0].copy()
-df_shop_prev = df_shop_prev[df_shop_prev["滞销数量"] > 0].copy()
+# 2. 计算【总滞销数量/金额】（你真正存在的字段求和）
+df_shop_curr["总滞销数量"] = (
+    df_shop_curr["年前采购滞销数量"] +
+    df_shop_curr["年货前采购滞销数量"] +
+    df_shop_curr["年货采购滞销数量"] +
+    df_shop_curr["年后采购滞销数量"]
+)
+df_shop_curr["总滞销金额"] = (
+    df_shop_curr["年前采购滞销金额"] +
+    df_shop_curr["年货前采购滞销金额"] +
+    df_shop_curr["年货采购滞销金额"] +
+    df_shop_curr["年后采购滞销金额"]
+)
 
-# 1. 店铺整体汇总（当月+上月）
+df_shop_prev["总滞销数量"] = (
+    df_shop_prev["年前采购滞销数量"] +
+    df_shop_prev["年货前采购滞销数量"] +
+    df_shop_prev["年货采购滞销数量"] +
+    df_shop_prev["年后采购滞销数量"]
+)
+df_shop_prev["总滞销金额"] = (
+    df_shop_prev["年前采购滞销金额"] +
+    df_shop_prev["年货前采购滞销金额"] +
+    df_shop_prev["年货采购滞销金额"] +
+    df_shop_prev["年后采购滞销金额"]
+)
+
+# 只保留有滞销的行
+df_shop_curr = df_shop_curr[df_shop_curr["总滞销数量"] > 0].copy()
+df_shop_prev = df_shop_prev[df_shop_prev["总滞销数量"] > 0].copy()
+
+# 3. 按店铺聚合
 shop_total_curr = df_shop_curr.groupby("店铺").agg(
-    总数量=("滞销数量", "sum"),
-    总金额=("滞销金额", "sum")
+    总数量=("总滞销数量", "sum"),
+    总金额=("总滞销金额", "sum")
 ).reset_index()
 
 shop_total_prev = df_shop_prev.groupby("店铺").agg(
-    总数量_上月=("滞销数量", "sum"),
-    总金额_上月=("滞销金额", "sum")
+    总数量_上月=("总滞销数量", "sum"),
+    总金额_上月=("总滞销金额", "sum")
 ).reset_index()
 
-# 2. 店铺+商品类型 明细汇总
+# 4. 按店铺+类型聚合
 shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(
-    数量=("滞销数量", "sum"),
-    金额=("滞销金额", "sum")
+    数量=("总滞销数量", "sum"),
+    金额=("总滞销金额", "sum")
 ).reset_index()
 
 shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(
-    数量_上月=("滞销数量", "sum"),
-    金额_上月=("滞销金额", "sum")
+    数量_上月=("总滞销数量", "sum"),
+    金额_上月=("总滞销金额", "sum")
 ).reset_index()
 
-# 合并数据
+# 合并
 shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
 shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
 
-# 全局合计（计算整体占比）
 total_qty = shop_all["总数量"].sum()
 total_amt = shop_all["总金额"].sum()
 
-# 环比格式化函数（红升绿降）
+# 环比函数
 def fmt_fluc(curr, prev):
     curr_int = int(round(curr, 0))
     prev_int = int(round(prev, 0))
@@ -2180,10 +2206,10 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
+# 5. 一行五列文字总结
 import plotly.express as px
 shops = shop_all["店铺"].unique().tolist()
 
-# 每行最多5个店铺，自适应列数
 for idx in range(0, len(shops), 5):
     batch = shops[idx:idx+5]
     cols = st.columns(len(batch))
@@ -2191,13 +2217,12 @@ for idx in range(0, len(shops), 5):
         d = shop_all[shop_all["店铺"] == shop].iloc[0]
         t = shop_type_all[shop_type_all["店铺"] == shop]
 
-        # 整体数量、金额及环比
         qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
         af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
         qpct = q / total_qty * 100 if total_qty else 0
         apct = a / total_amt * 100 if total_amt else 0
 
-        # 年份品数据
+        # 年份品
         year_data = t[t["商品类型"] == "年份品"]
         yq = int(year_data["数量"].iloc[0]) if not year_data.empty else 0
         ya = int(year_data["金额"].iloc[0]) if not year_data.empty else 0
@@ -2208,7 +2233,7 @@ for idx in range(0, len(shops), 5):
         yqpct = yq / q * 100 if q else 0
         yapct = ya / a * 100 if a else 0
 
-        # 非年份品数据
+        # 非年份品
         non_year_data = t[t["商品类型"] == "非年份品"]
         nq = int(non_year_data["数量"].iloc[0]) if not non_year_data.empty else 0
         na = int(non_year_data["金额"].iloc[0]) if not non_year_data.empty else 0
@@ -2219,7 +2244,6 @@ for idx in range(0, len(shops), 5):
         nqpct = nq / q * 100 if q else 0
         napct = na / a * 100 if a else 0
 
-        # 渲染文字（格式同前面所有模块）
         with cols[i]:
             st.markdown(f"""
 **🏪 {shop}**
@@ -2238,26 +2262,15 @@ for idx in range(0, len(shops), 5):
 </small>
 """, unsafe_allow_html=True)
 
-# 下方一行两列饼图
+# 6. 下方一行两列饼图
 st.divider()
-c_pie1, c_pie2 = st.columns(2)
-with c_pie1:
-    fig_qty = px.pie(
-        shop_all,
-        names="店铺",
-        values="总数量",
-        title="整体滞销数量 - 店铺占比"
-    )
-    fig_qty.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig_qty, use_container_width=True)
-
-with c_pie2:
-    fig_amt = px.pie(
-        shop_all,
-        names="店铺",
-        values="总金额",
-        title="整体滞销金额 - 店铺占比"
-    )
-    fig_amt.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig_amt, use_container_width=True)
+c1, c2 = st.columns(2)
+with c1:
+    fig = px.pie(shop_all, names="店铺", values="总数量", title="店铺总滞销数量占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+with c2:
+    fig = px.pie(shop_all, names="店铺", values="总金额", title="店铺总滞销金额占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
 

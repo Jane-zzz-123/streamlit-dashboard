@@ -2414,52 +2414,102 @@ for shop in shops:
 st.markdown("---")
 
 # ======================================
-# 📋 全量库存&滞销明细总表（独立不受筛选控制）
-# 列：时间、店铺、MSKU、品名、开售时间、是否年份、采购成本、头程费用、日均、
-# FBA_AWD_在途库存、本地库存、总库存、周转天数、预计总库存用完时间、滞销风险等级、
-# FBA+AWD+在途滞销数量、总滞销库存、本地滞销数量、FBA金额、本地金额、总库存金额、
-# FBA滞销金额、本地滞销金额、总滞销金额、年货前采购总库存、年货采购、年前采购、年后采购、
-# 年货前采购滞销数量、年货采购滞销数量、年前采购滞销数量、年后采购滞销数量、
-# 年货前采购滞销金额、年货采购滞销金额、年前采购滞销金额、年后采购滞销金额
+# 📋 全量库存&滞销明细总表（补全四类采购数据 · 100%适配你的项目）
 # ======================================
 st.divider()
 st.subheader("📋 全量库存&滞销明细总表（所有月份 · 不受筛选器控制）")
 
-# 直接使用你最原始、全量、未筛选的数据：df_merge
+# 1. 先基于你已有的数据，计算四类采购的总库存和滞销数据
 df_final = df_merge.copy()
 
-# 严格按照你要求的列顺序
+# 从采购数据中计算四类采购总量（按MSKU聚合）
+pur_pivot = df_pur.pivot_table(
+    index="MSKU",
+    columns="采购类型",
+    values="采购量",
+    aggfunc="sum",
+    fill_value=0
+).reset_index()
+
+# 统一重命名，确保列名一致
+pur_rename = {
+    "年前采购": "年前采购总量",
+    "年后采购": "年后采购总量",
+    "年货采购": "年货采购总量",
+    "年货前采购": "年货前采购总量"
+}
+pur_pivot = pur_pivot.rename(columns=pur_rename)
+
+# 确保所有四类采购列都存在，缺失的补0
+for col in ["年前采购总量", "年后采购总量", "年货采购总量", "年货前采购总量"]:
+    if col not in pur_pivot.columns:
+        pur_pivot[col] = 0
+
+# 把四类采购总量合并回主表
+df_final = df_final.merge(pur_pivot, on="MSKU", how="left")
+df_final = df_final.fillna({
+    "年前采购总量": 0,
+    "年后采购总量": 0,
+    "年货采购总量": 0,
+    "年货前采购总量": 0
+})
+
+# 2. 计算四类采购的滞销数量（用你同样的滞销逻辑：总库存-日均*基准天数，取0）
+# 这里复用你之前的风险等级基准天数逻辑
+is_year = df_final["是否年份"].astype(str).str.strip() == "是"
+target_days_common = 100
+target_days_year = (pd.to_datetime(TARGET_CLEAR_DATE) - df_final["时间"]).dt.days
+df_final["目标基准天数"] = np.where(
+    is_year, target_days_year, target_days_common
+)
+
+# 四类采购滞销数量
+df_final["年前采购滞销数量"] = (df_final["年前采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
+df_final["年后采购滞销数量"] = (df_final["年后采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
+df_final["年货采购滞销数量"] = (df_final["年货采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
+df_final["年货前采购滞销数量"] = (df_final["年货前采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
+
+# 四类采购滞销金额（滞销数量 × (采购成本+头程费用)）
+df_final["年前采购滞销金额"] = df_final["年前采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
+df_final["年后采购滞销金额"] = df_final["年后采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
+df_final["年货采购滞销金额"] = df_final["年货采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
+df_final["年货前采购滞销金额"] = df_final["年货前采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
+
+# 3. 严格按你要求的列顺序整理
 target_cols = [
     "时间", "店铺", "MSKU", "品名", "开售时间", "是否年份",
-    "采购成本", "头程费用", "日均", "FBA+AWD+在途库存", "本地库存", "总库存",
-    "周转天数", "预计总库存用完时间", "滞销风险等级", "FBA+AWD+在途滞销数量",
-    "总滞销库存", "本地滞销数量", "FBA金额", "本地金额", "总库存金额",
+    "采购成本", "头程费用", "日均",
+    "FBA+AWD+在途库存", "本地库存", "总库存",
+    "周转天数", "预计总库存用完时间", "滞销风险等级",
+    "FBA+AWD+在途滞销数量", "总滞销库存", "本地滞销数量",
+    "FBA金额", "本地金额", "总库存金额",
     "FBA滞销金额", "本地滞销金额", "总滞销金额",
-    "年货前采购总库存", "年货采购", "年前采购总量", "年后采购总量",
+    "年货前采购总量", "年货采购总量", "年前采购总量", "年后采购总量",
     "年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量",
     "年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"
 ]
 
-# 重命名为你想要的显示名（和你说的一模一样）
+# 重命名为你要的显示名
 rename_map = {
     "年前采购总量": "年前采购",
     "年后采购总量": "年后采购",
+    "年货采购总量": "年货采购",
+    "年货前采购总量": "年货前采购总库存"
 }
-
-# 只保留需要的列 + 重命名
 df_final = df_final.reindex(columns=target_cols, fill_value=0)
 df_final = df_final.rename(columns=rename_map)
 
-# 时间格式化（好看）
+# 4. 格式优化
+# 日期格式化
 df_final["时间"] = pd.to_datetime(df_final["时间"]).dt.strftime("%Y-%m-%d")
 df_final["预计总库存用完时间"] = pd.to_datetime(df_final["预计总库存用完时间"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-# 数值全部转整数，不显示小数
+# 数值全部转整数
 int_cols = [col for col in df_final.columns if col not in ["时间", "店铺", "MSKU", "品名", "开售时间", "是否年份", "预计总库存用完时间", "滞销风险等级"]]
 for c in int_cols:
     df_final[c] = df_final[c].fillna(0).astype(float).round(0).astype(int)
 
-# 展示表格
+# 5. 展示表格
 st.dataframe(
     df_final,
     use_container_width=True,
@@ -2467,7 +2517,7 @@ st.dataframe(
     hide_index=True
 )
 
-# 下载 Excel 按钮
+# 6. 下载Excel按钮
 import io
 buffer = io.BytesIO()
 with pd.ExcelWriter(buffer, engine="openpyxl") as writer:

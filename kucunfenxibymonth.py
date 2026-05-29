@@ -2273,4 +2273,139 @@ with c2:
     fig = px.pie(shop_all, names="店铺", values="总金额", title="店铺总滞销金额占比")
     fig.update_traces(textinfo="label+percent", textposition="inside")
     st.plotly_chart(fig, use_container_width=True)
+# ===================== 【每个店铺单独分析】年前/年货前/年货/年后 滞销（文字+双饼图） =====================
+st.divider()
+st.subheader("🏪 各店铺四类采购滞销明细分析")
+
+# 1. 数据准备（全量字段 + 年份标签）
+df_shop_all = df_merge_curr.merge(
+    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
+).fillna("否")
+df_shop_all["商品类型"] = df_shop_all["是否年份"].apply(
+    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
+)
+
+df_shop_prev_all = df_merge_prev.merge(
+    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
+).fillna("否")
+df_shop_prev_all["商品类型"] = df_shop_prev_all["是否年份"].apply(
+    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
+)
+
+# 2. 定义4类滞销的字段（名称映射）
+report_types = [
+    ("年前采购滞销", "年前采购滞销数量", "年前采购滞销金额"),
+    ("年货前采购滞销", "年货前采购滞销数量", "年货前采购滞销金额"),
+    ("年货采购滞销", "年货采购滞销数量", "年货采购滞销金额"),
+    ("年后采购滞销", "年后采购滞销数量", "年后采购滞销金额")
+]
+
+# 3. 环比函数（复用）
+def fmt_fluc(curr, prev):
+    curr_int = int(round(curr, 0))
+    prev_int = int(round(prev, 0))
+    diff = curr_int - prev_int
+    if diff > 0:
+        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
+    elif diff < 0:
+        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
+    else:
+        return '<span style="color:#666">持平</span>', curr_int, prev_int
+
+# 4. 遍历每个店铺
+import plotly.express as px
+shops = sorted(df_shop_all["店铺"].unique())
+
+for shop in shops:
+    st.markdown(f"---\n### 🏪 {shop}")
+    curr_data = df_shop_all[df_shop_all["店铺"] == shop].copy()
+    prev_data = df_shop_prev_all[df_shop_prev_all["店铺"] == shop].copy()
+
+    # 遍历4类滞销
+    for title, qty_col, amt_col in report_types:
+        st.markdown(f"#### 📌 {title}")
+
+        # 当月汇总
+        curr = curr_data.agg(
+            数量=(qty_col, "sum"),
+            金额=(amt_col, "sum")
+        )
+        # 上月汇总
+        prev = prev_data.agg(
+            数量=(qty_col, "sum"),
+            金额=(amt_col, "sum")
+        )
+
+        # 类型拆分（年份/非年份）
+        curr_type = curr_data.groupby("商品类型").agg(
+            数量=(qty_col, "sum"),
+            金额=(amt_col, "sum")
+        )
+        prev_type = prev_data.groupby("商品类型").agg(
+            数量=(qty_col, "sum"),
+            金额=(amt_col, "sum")
+        )
+
+        # 取值
+        q_val = curr["数量"]
+        a_val = curr["金额"]
+        q_prev_val = prev["数量"]
+        a_prev_val = prev["金额"]
+
+        # 环比
+        q_fluc, q, qp = fmt_fluc(q_val, q_prev_val)
+        a_fluc, a, ap = fmt_fluc(a_val, a_prev_val)
+
+        # 年份品
+        y_q = curr_type.loc["年份品", "数量"] if "年份品" in curr_type.index else 0
+        y_a = curr_type.loc["年份品", "金额"] if "年份品" in curr_type.index else 0
+        y_qp = prev_type.loc["年份品", "数量"] if "年份品" in prev_type.index else 0
+        y_ap = prev_type.loc["年份品", "金额"] if "年份品" in prev_type.index else 0
+        y_q_fluc, _, _ = fmt_fluc(y_q, y_qp)
+        y_a_fluc, _, _ = fmt_fluc(y_a, y_ap)
+        y_q_pct = (y_q / q * 100) if q else 0
+        y_a_pct = (y_a / a * 100) if a else 0
+
+        # 非年份品
+        n_q = curr_type.loc["非年份品", "数量"] if "非年份品" in curr_type.index else 0
+        n_a = curr_type.loc["非年份品", "金额"] if "非年份品" in curr_type.index else 0
+        n_qp = prev_type.loc["非年份品", "数量"] if "非年份品" in prev_type.index else 0
+        n_ap = prev_type.loc["非年份品", "金额"] if "非年份品" in prev_type.index else 0
+        n_q_fluc, _, _ = fmt_fluc(n_q, n_qp)
+        n_a_fluc, _, _ = fmt_fluc(n_a, n_ap)
+        n_q_pct = (n_q / q * 100) if q else 0
+        n_a_pct = (n_a / a * 100) if a else 0
+
+        # —— 文字总结（你要的最终版格式）——
+        st.markdown(f"""
+滞销数量：{q:,} 件，环比 {q_fluc}，上月：{qp:,} 件
+<small style="color:#888;">
+其中：
+年份品数量：{y_q:,}（{y_q_pct:.2f}%），环比 {y_q_fluc}，上月：{y_qp:,} 件
+非年份品数量：{n_q:,}（{n_q_pct:.2f}%），环比 {n_q_fluc}，上月：{n_qp:,} 件
+</small>
+
+滞销金额：{a:,} 元，环比 {a_fluc}，上月：{ap:,} 元
+<small style="color:#888;">
+其中：
+年份品金额：{y_a:,}（{y_a_pct:.2f}%），环比 {y_a_fluc}，上月：{y_ap:,} 元
+非年份品金额：{n_a:,}（{n_a_pct:.2f}%），环比 {n_a_fluc}，上月：{n_ap:,} 元
+</small>
+        """, unsafe_allow_html=True)
+
+        # —— 一行两列饼图 ——
+        pie_df = curr_data.groupby("商品类型")[[qty_col, amt_col]].sum().reset_index()
+        pie_df.columns = ["商品类型", "数量", "金额"]
+
+        c1, c2 = st.columns(2)
+        with c1:
+            fig1 = px.pie(pie_df, names="商品类型", values="数量", title=f"{title}（数量占比）")
+            fig1.update_traces(textinfo="percent+label", textposition="inside")
+            st.plotly_chart(fig1, use_container_width=True)
+        with c2:
+            fig2 = px.pie(pie_df, names="商品类型", values="金额", title=f"{title}（金额占比）")
+            fig2.update_traces(textinfo="percent+label", textposition="inside")
+            st.plotly_chart(fig2, use_container_width=True)
+
+st.markdown("---")
 

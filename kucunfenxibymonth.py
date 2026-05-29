@@ -2274,9 +2274,9 @@ with c2:
     fig.update_traces(textinfo="label+percent", textposition="inside")
     st.plotly_chart(fig, use_container_width=True)
 
-# ===================== 【店铺明细】年前/年货前/年货/年后 滞销 · 文字+双饼图（最终无报错版） =====================
+# ===================== 【店铺明细】按采购类型（年前/年货前/年货/年后）的滞销占比分析 =====================
 st.divider()
-st.subheader("🏪 各店铺四类采购滞销明细分析")
+st.subheader("🏪 各店铺按采购类型的滞销分析（含文字总结+采购类型占比饼图）")
 
 # 1. 数据准备
 df_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
@@ -2285,16 +2285,7 @@ df_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how=
 df_curr["商品类型"] = df_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 df_prev["商品类型"] = df_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 
-# 2. 四类滞销配置
-report_config = [
-    ("年前采购滞销", "年前采购滞销数量", "年前采购滞销金额"),
-    ("年货前采购滞销", "年货前采购滞销数量", "年货前采购滞销金额"),
-    ("年货采购滞销", "年货采购滞销数量", "年货采购滞销金额"),
-    ("年后采购滞销", "年后采购滞销数量", "年后采购滞销金额"),
-]
-
-
-# 3. 环比颜色函数
+# 2. 环比格式化函数（红升绿降）
 def fmt_fluc(curr, prev):
     curr = int(round(curr, 0))
     prev = int(round(prev, 0))
@@ -2306,10 +2297,8 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr, prev
 
-
-# 4. 遍历所有店铺
+# 3. 遍历所有店铺
 import plotly.express as px
-
 shops = sorted(df_curr["店铺"].unique())
 
 for shop in shops:
@@ -2319,7 +2308,42 @@ for shop in shops:
     curr_shop = df_curr[df_curr["店铺"] == shop].copy()
     prev_shop = df_prev[df_prev["店铺"] == shop].copy()
 
-    # 遍历四类滞销
+    # 先计算该店铺四类采购的总滞销数量/金额（用于饼图）
+    curr_shop["年前数量"] = curr_shop["年前采购滞销数量"]
+    curr_shop["年前金额"] = curr_shop["年前采购滞销金额"]
+    curr_shop["年货前数量"] = curr_shop["年货前采购滞销数量"]
+    curr_shop["年货前金额"] = curr_shop["年货前采购滞销金额"]
+    curr_shop["年货数量"] = curr_shop["年货采购滞销数量"]
+    curr_shop["年货金额"] = curr_shop["年货采购滞销金额"]
+    curr_shop["年后数量"] = curr_shop["年后采购滞销数量"]
+    curr_shop["年后金额"] = curr_shop["年后采购滞销金额"]
+
+    # 饼图数据：按采购类型汇总
+    pie_data = pd.DataFrame({
+        "采购类型": ["年前采购", "年货前采购", "年货采购", "年后采购"],
+        "数量": [
+            curr_shop["年前数量"].sum(),
+            curr_shop["年货前数量"].sum(),
+            curr_shop["年货数量"].sum(),
+            curr_shop["年后数量"].sum()
+        ],
+        "金额": [
+            curr_shop["年前金额"].sum(),
+            curr_shop["年货前金额"].sum(),
+            curr_shop["年货金额"].sum(),
+            curr_shop["年后金额"].sum()
+        ]
+    })
+    # 过滤掉0值
+    pie_data = pie_data[pie_data["数量"] > 0]
+
+    # 遍历四类采购类型，输出文字总结
+    report_config = [
+        ("年前采购滞销", "年前采购滞销数量", "年前采购滞销金额"),
+        ("年货前采购滞销", "年货前采购滞销数量", "年货前采购滞销金额"),
+        ("年货采购滞销", "年货采购滞销数量", "年货采购滞销金额"),
+        ("年后采购滞销", "年后采购滞销数量", "年后采购滞销金额"),
+    ]
     for title, q_col, a_col in report_config:
         st.markdown(f"#### 📌 {title}")
 
@@ -2365,7 +2389,7 @@ for shop in shops:
         nq_pct = (n_q / q * 100) if q != 0 else 0
         na_pct = (n_a / a * 100) if a != 0 else 0
 
-        # ===================== 文字总结（你要的样式） =====================
+        # 文字总结（保留你要的格式）
         st.markdown(f"""
 滞销数量：{q:,} 件，环比 {q_str}，上月：{qp:,} 件
 <small style="color:#888;">
@@ -2382,19 +2406,18 @@ for shop in shops:
 </small>
         """, unsafe_allow_html=True)
 
-        # ===================== 一行两列饼图 =====================
-        pie_df = curr_shop.groupby("商品类型")[[q_col, a_col]].sum().reset_index()
-        pie_df.columns = ["商品类型", "滞销数量", "滞销金额"]
-
-        c1, c2 = st.columns(2)
-        with c1:
-            fig1 = px.pie(pie_df, names="商品类型", values="滞销数量", title=f"{title} - 数量占比")
-            fig1.update_traces(textinfo="percent+label", textposition="inside")
-            st.plotly_chart(fig1, use_container_width=True)
-        with c2:
-            fig2 = px.pie(pie_df, names="商品类型", values="滞销金额", title=f"{title} - 金额占比")
-            fig2.update_traces(textinfo="percent+label", textposition="inside")
-            st.plotly_chart(fig2, use_container_width=True)
+    # 该店铺的饼图：按采购类型划分（一行两列）
+    st.divider()
+    st.markdown("#### 📊 该店铺滞销按采购类型占比")
+    c1, c2 = st.columns(2)
+    with c1:
+        fig1 = px.pie(pie_data, names="采购类型", values="数量", title=f"{shop} - 滞销数量按采购类型占比")
+        fig1.update_traces(textinfo="percent+label", textposition="inside")
+        st.plotly_chart(fig1, use_container_width=True)
+    with c2:
+        fig2 = px.pie(pie_data, names="采购类型", values="金额", title=f"{shop} - 滞销金额按采购类型占比")
+        fig2.update_traces(textinfo="percent+label", textposition="inside")
+        st.plotly_chart(fig2, use_container_width=True)
 
 st.markdown("---")
 

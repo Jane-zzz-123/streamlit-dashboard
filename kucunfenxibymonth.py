@@ -1659,6 +1659,320 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
+# ===================== 年货前采购滞销 - 按店铺拆分 =====================
+st.divider()
+st.subheader("🧧 年货前采购滞销 - 按店铺拆分分析")
+
+df_shop_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
+df_shop_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
+df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+
+df_shop_curr = df_shop_curr[df_shop_curr["年货前采购滞销数量"] > 0].copy()
+df_shop_prev = df_shop_prev[df_shop_prev["年货前采购滞销数量"] > 0].copy()
+
+shop_total_curr = df_shop_curr.groupby("店铺").agg(总数量=("年货前采购滞销数量", "sum"),
+                                                   总金额=("年货前采购滞销金额", "sum")).reset_index()
+shop_total_prev = df_shop_prev.groupby("店铺").agg(总数量_上月=("年货前采购滞销数量", "sum"),
+                                                   总金额_上月=("年货前采购滞销金额", "sum")).reset_index()
+shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(数量=("年货前采购滞销数量", "sum"),
+                                                                金额=("年货前采购滞销金额", "sum")).reset_index()
+shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(数量_上月=("年货前采购滞销数量", "sum"),
+                                                                金额_上月=("年货前采购滞销金额", "sum")).reset_index()
+
+shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
+shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
+
+total_qty = shop_all["总数量"].sum()
+total_amt = shop_all["总金额"].sum()
+
+
+def fmt_fluc(curr, prev):
+    curr_int = int(round(curr, 0))
+    prev_int = int(round(prev, 0))
+    diff = curr_int - prev_int
+    if diff > 0:
+        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
+    elif diff < 0:
+        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
+    else:
+        return '<span style="color:#666">持平</span>', curr_int, prev_int
+
+
+import plotly.express as px
+
+shops = shop_all["店铺"].unique().tolist()
+for idx in range(0, len(shops), 5):
+    batch = shops[idx:idx + 5]
+    cols = st.columns(len(batch))
+    for i, shop in enumerate(batch):
+        d = shop_all[shop_all["店铺"] == shop].iloc[0]
+        t = shop_type_all[shop_type_all["店铺"] == shop]
+
+        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
+        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
+        qpct = q / total_qty * 100 if total_qty else 0
+        apct = a / total_amt * 100 if total_amt else 0
+
+        y = t[t["商品类型"] == "年份品"]
+        yq = int(y["数量"].iloc[0]) if not y.empty else 0
+        ya = int(y["金额"].iloc[0]) if not y.empty else 0
+        yqp = int(y["数量_上月"].iloc[0]) if not y.empty else 0
+        yap = int(y["金额_上月"].iloc[0]) if not y.empty else 0
+        yqf, _, _ = fmt_fluc(yq, yqp)
+        yaf, _, _ = fmt_fluc(ya, yap)
+        yqpct = yq / q * 100 if q else 0
+        yapct = ya / a * 100 if a else 0
+
+        n = t[t["商品类型"] == "非年份品"]
+        nq = int(n["数量"].iloc[0]) if not n.empty else 0
+        na = int(n["金额"].iloc[0]) if not n.empty else 0
+        nqp = int(n["数量_上月"].iloc[0]) if not n.empty else 0
+        nap = int(n["金额_上月"].iloc[0]) if not n.empty else 0
+        nqf, _, _ = fmt_fluc(nq, nqp)
+        naf, _, _ = fmt_fluc(na, nap)
+        nqpct = nq / q * 100 if q else 0
+        napct = na / a * 100 if a else 0
+
+        with cols[i]:
+            st.markdown(f"""
+**🏪 {shop}**
+滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
+<small style="color:#888;">
+其中：
+年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
+非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
+</small>
+
+滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
+<small style="color:#888;">
+其中：
+年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
+非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
+</small>
+""", unsafe_allow_html=True)
+
+st.divider()
+c1, c2 = st.columns(2)
+with c1:
+    fig = px.pie(shop_all, names="店铺", values="总数量", title="年货前滞销数量-店铺占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+with c2:
+    fig = px.pie(shop_all, names="店铺", values="总金额", title="年货前滞销金额-店铺占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+
+# ===================== 年货采购滞销 - 按店铺拆分 =====================
+st.divider()
+st.subheader("🧨 年货采购滞销 - 按店铺拆分分析")
+
+df_shop_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
+df_shop_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
+df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+
+df_shop_curr = df_shop_curr[df_shop_curr["年货采购滞销数量"] > 0].copy()
+df_shop_prev = df_shop_prev[df_shop_prev["年货采购滞销数量"] > 0].copy()
+
+shop_total_curr = df_shop_curr.groupby("店铺").agg(总数量=("年货采购滞销数量", "sum"),
+                                                   总金额=("年货采购滞销金额", "sum")).reset_index()
+shop_total_prev = df_shop_prev.groupby("店铺").agg(总数量_上月=("年货采购滞销数量", "sum"),
+                                                   总金额_上月=("年货采购滞销金额", "sum")).reset_index()
+shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(数量=("年货采购滞销数量", "sum"),
+                                                                金额=("年货采购滞销金额", "sum")).reset_index()
+shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(数量_上月=("年货采购滞销数量", "sum"),
+                                                                金额_上月=("年货采购滞销金额", "sum")).reset_index()
+
+shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
+shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
+
+total_qty = shop_all["总数量"].sum()
+total_amt = shop_all["总金额"].sum()
+
+
+def fmt_fluc(curr, prev):
+    curr_int = int(round(curr, 0))
+    prev_int = int(round(prev, 0))
+    diff = curr_int - prev_int
+    if diff > 0:
+        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
+    elif diff < 0:
+        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
+    else:
+        return '<span style="color:#666">持平</span>', curr_int, prev_int
+
+
+import plotly.express as px
+
+shops = shop_all["店铺"].unique().tolist()
+for idx in range(0, len(shops), 5):
+    batch = shops[idx:idx + 5]
+    cols = st.columns(len(batch))
+    for i, shop in enumerate(batch):
+        d = shop_all[shop_all["店铺"] == shop].iloc[0]
+        t = shop_type_all[shop_type_all["店铺"] == shop]
+
+        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
+        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
+        qpct = q / total_qty * 100 if total_qty else 0
+        apct = a / total_amt * 100 if total_amt else 0
+
+        y = t[t["商品类型"] == "年份品"]
+        yq = int(y["数量"].iloc[0]) if not y.empty else 0
+        ya = int(y["金额"].iloc[0]) if not y.empty else 0
+        yqp = int(y["数量_上月"].iloc[0]) if not y.empty else 0
+        yap = int(y["金额_上月"].iloc[0]) if not y.empty else 0
+        yqf, _, _ = fmt_fluc(yq, yqp)
+        yaf, _, _ = fmt_fluc(ya, yap)
+        yqpct = yq / q * 100 if q else 0
+        yapct = ya / a * 100 if a else 0
+
+        n = t[t["商品类型"] == "非年份品"]
+        nq = int(n["数量"].iloc[0]) if not n.empty else 0
+        na = int(n["金额"].iloc[0]) if not n.empty else 0
+        nqp = int(n["数量_上月"].iloc[0]) if not n.empty else 0
+        nap = int(n["金额_上月"].iloc[0]) if not n.empty else 0
+        nqf, _, _ = fmt_fluc(nq, nqp)
+        naf, _, _ = fmt_fluc(na, nap)
+        nqpct = nq / q * 100 if q else 0
+        napct = na / a * 100 if a else 0
+
+        with cols[i]:
+            st.markdown(f"""
+**🏪 {shop}**
+滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
+<small style="color:#888;">
+其中：
+年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
+非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
+</small>
+
+滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
+<small style="color:#888;">
+其中：
+年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
+非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
+</small>
+""", unsafe_allow_html=True)
+
+st.divider()
+c1, c2 = st.columns(2)
+with c1:
+    fig = px.pie(shop_all, names="店铺", values="总数量", title="年货滞销数量-店铺占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+with c2:
+    fig = px.pie(shop_all, names="店铺", values="总金额", title="年货滞销金额-店铺占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+
+# ===================== 年后采购滞销 - 按店铺拆分 =====================
+st.divider()
+st.subheader("🧧 年后采购滞销 - 按店铺拆分分析")
+
+df_shop_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
+df_shop_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
+df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+
+df_shop_curr = df_shop_curr[df_shop_curr["年后采购滞销数量"] > 0].copy()
+df_shop_prev = df_shop_prev[df_shop_prev["年后采购滞销数量"] > 0].copy()
+
+shop_total_curr = df_shop_curr.groupby("店铺").agg(总数量=("年后采购滞销数量", "sum"),
+                                                   总金额=("年后采购滞销金额", "sum")).reset_index()
+shop_total_prev = df_shop_prev.groupby("店铺").agg(总数量_上月=("年后采购滞销数量", "sum"),
+                                                   总金额_上月=("年后采购滞销金额", "sum")).reset_index()
+shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(数量=("年后采购滞销数量", "sum"),
+                                                                金额=("年后采购滞销金额", "sum")).reset_index()
+shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(数量_上月=("年后采购滞销数量", "sum"),
+                                                                金额_上月=("年后采购滞销金额", "sum")).reset_index()
+
+shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
+shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
+
+total_qty = shop_all["总数量"].sum()
+total_amt = shop_all["总金额"].sum()
+
+
+def fmt_fluc(curr, prev):
+    curr_int = int(round(curr, 0))
+    prev_int = int(round(prev, 0))
+    diff = curr_int - prev_int
+    if diff > 0:
+        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
+    elif diff < 0:
+        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
+    else:
+        return '<span style="color:#666">持平</span>', curr_int, prev_int
+
+
+import plotly.express as px
+
+shops = shop_all["店铺"].unique().tolist()
+for idx in range(0, len(shops), 5):
+    batch = shops[idx:idx + 5]
+    cols = st.columns(len(batch))
+    for i, shop in enumerate(batch):
+        d = shop_all[shop_all["店铺"] == shop].iloc[0]
+        t = shop_type_all[shop_type_all["店铺"] == shop]
+
+        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
+        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
+        qpct = q / total_qty * 100 if total_qty else 0
+        apct = a / total_amt * 100 if total_amt else 0
+
+        y = t[t["商品类型"] == "年份品"]
+        yq = int(y["数量"].iloc[0]) if not y.empty else 0
+        ya = int(y["金额"].iloc[0]) if not y.empty else 0
+        yqp = int(y["数量_上月"].iloc[0]) if not y.empty else 0
+        yap = int(y["金额_上月"].iloc[0]) if not y.empty else 0
+        yqf, _, _ = fmt_fluc(yq, yqp)
+        yaf, _, _ = fmt_fluc(ya, yap)
+        yqpct = yq / q * 100 if q else 0
+        yapct = ya / a * 100 if a else 0
+
+        n = t[t["商品类型"] == "非年份品"]
+        nq = int(n["数量"].iloc[0]) if not n.empty else 0
+        na = int(n["金额"].iloc[0]) if not n.empty else 0
+        nqp = int(n["数量_上月"].iloc[0]) if not n.empty else 0
+        nap = int(n["金额_上月"].iloc[0]) if not n.empty else 0
+        nqf, _, _ = fmt_fluc(nq, nqp)
+        naf, _, _ = fmt_fluc(na, nap)
+        nqpct = nq / q * 100 if q else 0
+        napct = na / a * 100 if a else 0
+
+        with cols[i]:
+            st.markdown(f"""
+**🏪 {shop}**
+滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
+<small style="color:#888;">
+其中：
+年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
+非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
+</small>
+
+滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
+<small style="color:#888;">
+其中：
+年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
+非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
+</small>
+""", unsafe_allow_html=True)
+
+st.divider()
+c1, c2 = st.columns(2)
+with c1:
+    fig = px.pie(shop_all, names="店铺", values="总数量", title="年后滞销数量-店铺占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+with c2:
+    fig = px.pie(shop_all, names="店铺", values="总金额", title="年后滞销金额-店铺占比")
+    fig.update_traces(textinfo="label+percent", textposition="inside")
+    st.plotly_chart(fig, use_container_width=True)
+
+
+
 # ===================== 年前采购滞销 - 按店铺拆分（你要的最终文字版） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
@@ -1712,6 +2026,7 @@ shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型
 total_qty = shop_all["总数量"].sum()
 total_amt = shop_all["总金额"].sum()
 
+
 # 环比格式化函数（红升绿降）
 def fmt_fluc(curr, prev):
     curr_int = int(round(curr, 0))
@@ -1724,13 +2039,15 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
+
 # 4. 一行五列自适应布局
 import plotly.express as px
+
 shops = shop_all["店铺"].unique().tolist()
 
 # 分批显示：每5个店铺一行
 for idx in range(0, len(shops), 5):
-    batch = shops[idx:idx+5]
+    batch = shops[idx:idx + 5]
     cols = st.columns(len(batch))
     for i, shop in enumerate(batch):
         shop_data = shop_all[shop_all["店铺"] == shop].iloc[0]

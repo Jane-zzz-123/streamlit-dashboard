@@ -1659,7 +1659,7 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
-# ===================== 年前采购滞销 - 按店铺拆分（一行五列文字总结 + 一行两列饼图） =====================
+# ===================== 年前采购滞销 - 按店铺拆分（一行五列自适应版） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
 
@@ -1724,73 +1724,57 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
-# 4. 【第一行：一行五列店铺文字总结】
+# 4. 【核心修复】一行五列，自适应店铺数量，绝不报错
 import plotly.express as px
-cols = st.columns(5)
-for i, shop in enumerate(shop_all["店铺"].unique()):
-    shop_data = shop_all[shop_all["店铺"] == shop].iloc[0]
-    shop_type_data = shop_type_all[shop_type_all["店铺"] == shop]
+shops = shop_all["店铺"].unique().tolist()
 
-    # 整体数据
-    qty_fluc, qty, qty_prev = fmt_fluc(shop_data["总数量"], shop_data["总数量_上月"])
-    amt_fluc, amt, amt_prev = fmt_fluc(shop_data["总金额"], shop_data["总金额_上月"])
-    qty_pct = (qty / total_qty * 100) if total_qty else 0
-    amt_pct = (amt / total_amt * 100) if total_amt else 0
+# 分批显示：每5个店铺一行
+for idx in range(0, len(shops), 5):
+    batch = shops[idx:idx+5]
+    cols = st.columns(len(batch))  # 自适应列数
+    for i, shop in enumerate(batch):
+        shop_data = shop_all[shop_all["店铺"] == shop].iloc[0]
+        shop_type_data = shop_type_all[shop_type_all["店铺"] == shop]
 
-    # 年份品数据
-    year_data = shop_type_data[shop_type_data["商品类型"] == "年份品"]
-    if not year_data.empty:
-        year_qty = int(year_data["数量"].iloc[0])
-        year_amt = int(year_data["金额"].iloc[0])
+        # 整体数据
+        qty_fluc, qty, qty_prev = fmt_fluc(shop_data["总数量"], shop_data["总数量_上月"])
+        amt_fluc, amt, amt_prev = fmt_fluc(shop_data["总金额"], shop_data["总金额_上月"])
+        qty_pct = (qty / total_qty * 100) if total_qty else 0
+        amt_pct = (amt / total_amt * 100) if total_amt else 0
+
+        # 年份品数据
+        year_data = shop_type_data[shop_type_data["商品类型"] == "年份品"]
+        year_qty = int(year_data["数量"].iloc[0]) if not year_data.empty else 0
+        year_amt = int(year_data["金额"].iloc[0]) if not year_data.empty else 0
         year_pct = (year_qty / qty * 100) if qty else 0
-    else:
-        year_qty, year_amt, year_pct = 0, 0, 0
 
-    # 非年份品数据
-    non_year_data = shop_type_data[shop_type_data["商品类型"] == "非年份品"]
-    if not non_year_data.empty:
-        non_year_qty = int(non_year_data["数量"].iloc[0])
-        non_year_amt = int(non_year_data["金额"].iloc[0])
+        # 非年份品数据
+        non_year_data = shop_type_data[shop_type_data["商品类型"] == "非年份品"]
+        non_year_qty = int(non_year_data["数量"].iloc[0]) if not non_year_data.empty else 0
+        non_year_amt = int(non_year_data["金额"].iloc[0]) if not non_year_data.empty else 0
         non_year_pct = (non_year_qty / qty * 100) if qty else 0
-    else:
-        non_year_qty, non_year_amt, non_year_pct = 0, 0, 0
 
-    # 写入每一列
-    with cols[i]:
-        st.markdown(f"""
-        **🏪 {shop}**
-        - 总数量：{qty:,} 件（占比 {qty_pct:.2f}%）
-          环比：{qty_fluc}
-        - 总金额：{amt:,} 元（占比 {amt_pct:.2f}%）
-          环比：{amt_fluc}
-        - 年份品：{year_qty:,} 件（{year_pct:.1f}%）
-          非年份品：{non_year_qty:,} 件（{non_year_pct:.1f}%）
-        """, unsafe_allow_html=True)
+        # 显示店铺信息
+        with cols[i]:
+            st.markdown(f"""
+            **🏪 {shop}**
+            - 数量：{qty:,} 件（{qty_pct:.1f}%）
+              环比 {qty_fluc}
+            - 金额：{amt:,} 元（{amt_pct:.1f}%）
+              环比 {amt_fluc}
+            - 年份品：{year_qty:,}｜非年份品：{non_year_qty:,}
+            """, unsafe_allow_html=True)
 
-# 5. 【第二行：一行两列饼图】
+# 5. 饼图区域
 st.divider()
 c_pie1, c_pie2 = st.columns(2)
 with c_pie1:
-    fig_qty = px.pie(
-        shop_all,
-        names="店铺",
-        values="总数量",
-        title="年前采购滞销数量 - 店铺占比",
-        color_discrete_sequence=px.colors.qualitative.Set2
-    )
+    fig_qty = px.pie(shop_all, names="店铺", values="总数量", title="年前采购滞销数量 - 店铺占比")
     fig_qty.update_traces(textinfo="label+percent", textposition="inside")
-    fig_qty.update_layout(height=350, margin=dict(t=30,b=20,l=10,r=10))
     st.plotly_chart(fig_qty, use_container_width=True)
 
 with c_pie2:
-    fig_amt = px.pie(
-        shop_all,
-        names="店铺",
-        values="总金额",
-        title="年前采购滞销金额 - 店铺占比",
-        color_discrete_sequence=px.colors.qualitative.Set2
-    )
+    fig_amt = px.pie(shop_all, names="店铺", values="总金额", title="年前采购滞销金额 - 店铺占比")
     fig_amt.update_traces(textinfo="label+percent", textposition="inside")
-    fig_amt.update_layout(height=350, margin=dict(t=30,b=20,l=10,r=10))
     st.plotly_chart(fig_amt, use_container_width=True)
 

@@ -2414,118 +2414,119 @@ for shop in shops:
 st.markdown("---")
 
 # ======================================
-# 📋 全量库存&滞销明细总表（补全四类采购数据 · 100%适配你的项目）
+# ======================================
+# 📋 全量库存&滞销明细总表（照搬你的官方计算逻辑 · 100%正确）
 # ======================================
 st.divider()
 st.subheader("📋 全量库存&滞销明细总表（所有月份 · 不受筛选器控制）")
 
-# 1. 先基于你已有的数据，计算四类采购的总库存和滞销数据
+# 1. 全量原始数据
 df_final = df_merge.copy()
 
-# 从采购数据中计算四类采购总量（按MSKU聚合）
-pur_pivot = df_pur.pivot_table(
-    index="MSKU",
-    columns="采购类型",
-    values="采购量",
-    aggfunc="sum",
-    fill_value=0
-).reset_index()
+# 2. 【照搬你的逻辑】获取采购数据
+def get_pur_before_all(df_pur_raw):
+    pur_clean = df_pur_raw.copy()
+    pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
+    msku_pur = pur_clean.pivot_table(
+        index="MSKU", columns="采购类型", values="采购量", aggfunc="sum"
+    ).fillna(0).reset_index()
+    for c in ["年前采购", "年后采购", "年货采购"]:
+        if c not in msku_pur.columns:
+            msku_pur[c] = 0
+    return msku_pur
 
-# 统一重命名，确保列名一致
-pur_rename = {
-    "年前采购": "年前采购总量",
-    "年后采购": "年后采购总量",
-    "年货采购": "年货采购总量",
-    "年货前采购": "年货前采购总量"
-}
-pur_pivot = pur_pivot.rename(columns=pur_rename)
+msku_pur_all = get_pur_before_all(df_pur)
+df_final = df_final.merge(msku_pur_all, on="MSKU", how="left").fillna(0)
 
-# 确保所有四类采购列都存在，缺失的补0
-for col in ["年前采购总量", "年后采购总量", "年货采购总量", "年货前采购总量"]:
-    if col not in pur_pivot.columns:
-        pur_pivot[col] = 0
+# 3. 【照搬你的逻辑】年货前采购总库存
+df_final["年货前采购总库存"] = (
+    df_final["总库存"] - df_final["年货采购"] - df_final["年前采购"] - df_final["年后采购"]
+).clip(lower=0)
 
-# 把四类采购总量合并回主表
-df_final = df_final.merge(pur_pivot, on="MSKU", how="left")
-df_final = df_final.fillna({
-    "年前采购总量": 0,
-    "年后采购总量": 0,
-    "年货采购总量": 0,
-    "年货前采购总量": 0
-})
+# 4. 【照搬你的逻辑】分摊滞销数量（顺序：年后→年前→年货→年货前）
+def alloc_qty_by_purchase(row):
+    unsale = row["总滞销库存"]
+    after = row["年后采购"]
+    before = row["年前采购"]
+    goods = row["年货采购"]
 
-# 2. 计算四类采购的滞销数量（用你同样的滞销逻辑：总库存-日均*基准天数，取0）
-# 这里复用你之前的风险等级基准天数逻辑
-is_year = df_final["是否年份"].astype(str).str.strip() == "是"
-target_days_common = 100
-target_days_year = (pd.to_datetime(TARGET_CLEAR_DATE) - df_final["时间"]).dt.days
-df_final["目标基准天数"] = np.where(
-    is_year, target_days_year, target_days_common
-)
+    a = min(unsale, after)
+    unsale -= a
+    b = min(unsale, before)
+    unsale -= b
+    c = min(unsale, goods)
+    unsale -= c
+    d = unsale
+    return pd.Series([d, c, b, a])
 
-# 四类采购滞销数量
-df_final["年前采购滞销数量"] = (df_final["年前采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
-df_final["年后采购滞销数量"] = (df_final["年后采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
-df_final["年货采购滞销数量"] = (df_final["年货采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
-df_final["年货前采购滞销数量"] = (df_final["年货前采购总量"] - df_final["日均"] * df_final["目标基准天数"]).clip(lower=0)
+df_final[["年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量"]] = \
+    df_final.apply(alloc_qty_by_purchase, axis=1)
 
-# 四类采购滞销金额（滞销数量 × (采购成本+头程费用)）
-df_final["年前采购滞销金额"] = df_final["年前采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
-df_final["年后采购滞销金额"] = df_final["年后采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
-df_final["年货采购滞销金额"] = df_final["年货采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
-df_final["年货前采购滞销金额"] = df_final["年货前采购滞销数量"] * (df_final["采购成本"] + df_final["头程费用"])
+# 5. 【照搬你的逻辑】计算滞销金额（本地优先）
+def calc_amt_by_local_fba(row):
+    local_total = row["本地库存"]
+    fba_total = row["FBA+AWD+在途库存"]
+    cost = row["采购成本"]
+    freight = row["头程费用"]
 
-# 3. 严格按你要求的列顺序整理
+    q_pre = row["年货前采购滞销数量"]
+    q_goods = row["年货采购滞销数量"]
+    q_before = row["年前采购滞销数量"]
+    q_after = row["年后采购滞销数量"]
+
+    remain_local = local_total
+
+    def calc(qty):
+        nonlocal remain_local
+        if qty <= 0:
+            return 0
+        use_l = min(qty, remain_local)
+        use_f = qty - use_l
+        remain_local -= use_l
+        return round(use_l * cost + use_f * (cost + freight), 2)
+
+    return pd.Series([
+        calc(q_pre), calc(q_goods), calc(q_before), calc(q_after)
+    ])
+
+df_final[["年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"]] = \
+    df_final.apply(calc_amt_by_local_fba, axis=1)
+
+# 6. 【你要求的所有列，一个不差】
 target_cols = [
     "时间", "店铺", "MSKU", "品名", "开售时间", "是否年份",
-    "采购成本", "头程费用", "日均",
-    "FBA+AWD+在途库存", "本地库存", "总库存",
+    "采购成本", "头程费用", "日均", "FBA+AWD+在途库存", "本地库存", "总库存",
     "周转天数", "预计总库存用完时间", "滞销风险等级",
     "FBA+AWD+在途滞销数量", "总滞销库存", "本地滞销数量",
     "FBA金额", "本地金额", "总库存金额",
     "FBA滞销金额", "本地滞销金额", "总滞销金额",
-    "年货前采购总量", "年货采购总量", "年前采购总量", "年后采购总量",
+    "年货前采购总库存", "年货采购", "年前采购", "年后采购",
     "年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量",
     "年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"
 ]
 
-# 重命名为你要的显示名
-rename_map = {
-    "年前采购总量": "年前采购",
-    "年后采购总量": "年后采购",
-    "年货采购总量": "年货采购",
-    "年货前采购总量": "年货前采购总库存"
-}
+# 7. 格式整理
 df_final = df_final.reindex(columns=target_cols, fill_value=0)
-df_final = df_final.rename(columns=rename_map)
-
-# 4. 格式优化
-# 日期格式化
 df_final["时间"] = pd.to_datetime(df_final["时间"]).dt.strftime("%Y-%m-%d")
 df_final["预计总库存用完时间"] = pd.to_datetime(df_final["预计总库存用完时间"], errors="coerce").dt.strftime("%Y-%m-%d")
 
-# 数值全部转整数
-int_cols = [col for col in df_final.columns if col not in ["时间", "店铺", "MSKU", "品名", "开售时间", "是否年份", "预计总库存用完时间", "滞销风险等级"]]
-for c in int_cols:
+# 数字转整数
+num_cols = [c for c in target_cols if c not in ["时间","店铺","MSKU","品名","开售时间","是否年份","预计总库存用完时间","滞销风险等级"]]
+for c in num_cols:
     df_final[c] = df_final[c].fillna(0).astype(float).round(0).astype(int)
 
-# 5. 展示表格
-st.dataframe(
-    df_final,
-    use_container_width=True,
-    height=600,
-    hide_index=True
-)
+# 8. 展示
+st.dataframe(df_final, use_container_width=True, height=600, hide_index=True)
 
-# 6. 下载Excel按钮
+# 9. 下载Excel
 import io
 buffer = io.BytesIO()
 with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-    df_final.to_excel(writer, index=False, sheet_name="全量明细")
+    df_final.to_excel(writer, index=False)
 buffer.seek(0)
 
 st.download_button(
-    label="📥 下载全量明细总表（Excel）",
+    "📥 下载全量明细总表",
     data=buffer,
     file_name="全量库存滞销明细总表.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

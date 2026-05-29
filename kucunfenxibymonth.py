@@ -1659,7 +1659,7 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
-# ===================== 年前采购滞销 - 按店铺拆分（紧凑小字版 · 一行五列） =====================
+# ===================== 年前采购滞销 - 按店铺拆分（你要的最终文字版） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
 
@@ -1724,7 +1724,7 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
-# 4. 一行五列自适应布局（核心：用<small>缩小字体）
+# 4. 一行五列自适应布局
 import plotly.express as px
 shops = shop_all["店铺"].unique().tolist()
 
@@ -1742,7 +1742,7 @@ for idx in range(0, len(shops), 5):
         qty_pct = (qty / total_qty * 100) if total_qty else 0
         amt_pct = (amt / total_amt * 100) if total_amt else 0
 
-        # 年份品数据
+        # 年份品
         year_data = shop_type_data[shop_type_data["商品类型"] == "年份品"]
         year_qty = int(year_data["数量"].iloc[0]) if not year_data.empty else 0
         year_amt = int(year_data["金额"].iloc[0]) if not year_data.empty else 0
@@ -1753,7 +1753,7 @@ for idx in range(0, len(shops), 5):
         year_qty_fluc, _, _ = fmt_fluc(year_qty, year_qty_prev)
         year_amt_fluc, _, _ = fmt_fluc(year_amt, year_amt_prev)
 
-        # 非年份品数据
+        # 非年份品
         non_year_data = shop_type_data[shop_type_data["商品类型"] == "非年份品"]
         non_year_qty = int(non_year_data["数量"].iloc[0]) if not non_year_data.empty else 0
         non_year_amt = int(non_year_data["金额"].iloc[0]) if not non_year_data.empty else 0
@@ -1764,18 +1764,23 @@ for idx in range(0, len(shops), 5):
         non_year_qty_fluc, _, _ = fmt_fluc(non_year_qty, non_year_qty_prev)
         non_year_amt_fluc, _, _ = fmt_fluc(non_year_amt, non_year_amt_prev)
 
-        # 用<small>缩小所有文字
+        # ===================== 你要的最终格式 =====================
         with cols[i]:
             st.markdown(f"""
-            **🏪 {shop}**
-            <small>
-            - 滞销数量：{qty:,} 件（{qty_pct:.1f}%），环比 {qty_fluc}，上月：{qty_prev:,} 件
-            - 滞销金额：{amt:,} 元（{amt_pct:.1f}%），环比 {amt_fluc}，上月：{amt_prev:,} 元
-            - 年份品数量：{year_qty:,}（{year_qty_pct:.2f}%），环比 {year_qty_fluc}，上月：{year_qty_prev:,} 件<br>
-              非年份品数量：{non_year_qty:,}（{non_year_qty_pct:.2f}%），环比 {non_year_qty_fluc}，上月：{non_year_qty_prev:,} 件
-            - 年份品金额：{year_amt:,}（{year_amt_pct:.2f}%），环比 {year_amt_fluc}，上月：{year_amt_prev:,} 元<br>
-              非年份品金额：{non_year_amt:,}（{non_year_amt_pct:.2f}%），环比 {non_year_amt_fluc}，上月：{non_year_amt_prev:,} 元
-            </small>
+**🏪 {shop}**
+滞销数量：{qty:,} 件（{qty_pct:.1f}%），环比 {qty_fluc}，上月：{qty_prev:,} 件
+<small style="color:#888;">
+其中：
+年份品数量：{year_qty:,}（{year_qty_pct:.2f}%），环比 {year_qty_fluc}，上月：{year_qty_prev:,} 件
+非年份品数量：{non_year_qty:,}（{non_year_qty_pct:.2f}%），环比 {non_year_qty_fluc}，上月：{non_year_qty_prev:,} 件
+</small>
+
+滞销金额：{amt:,} 元（{amt_pct:.1f}%），环比 {amt_fluc}，上月：{amt_prev:,} 元
+<small style="color:#888;">
+其中：
+年份品金额：{year_amt:,}（{year_amt_pct:.2f}%），环比 {year_amt_fluc}，上月：{year_amt_prev:,} 元
+非年份品金额：{non_year_amt:,}（{non_year_amt_pct:.2f}%），环比 {non_year_amt_fluc}，上月：{non_year_amt_prev:,} 元
+</small>
             """, unsafe_allow_html=True)
 
 # 5. 饼图区域

@@ -1659,7 +1659,7 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
-# ===================== 年前采购滞销 - 按店铺拆分（一行五列自适应版） =====================
+# ===================== 年前采购滞销 - 按店铺拆分（一行五列 + 完整年份/非年份明细） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
 
@@ -1724,14 +1724,14 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
-# 4. 【核心修复】一行五列，自适应店铺数量，绝不报错
+# 4. 一行五列自适应布局
 import plotly.express as px
 shops = shop_all["店铺"].unique().tolist()
 
 # 分批显示：每5个店铺一行
 for idx in range(0, len(shops), 5):
     batch = shops[idx:idx+5]
-    cols = st.columns(len(batch))  # 自适应列数
+    cols = st.columns(len(batch))
     for i, shop in enumerate(batch):
         shop_data = shop_all[shop_all["店铺"] == shop].iloc[0]
         shop_type_data = shop_type_all[shop_type_all["店铺"] == shop]
@@ -1746,23 +1746,34 @@ for idx in range(0, len(shops), 5):
         year_data = shop_type_data[shop_type_data["商品类型"] == "年份品"]
         year_qty = int(year_data["数量"].iloc[0]) if not year_data.empty else 0
         year_amt = int(year_data["金额"].iloc[0]) if not year_data.empty else 0
-        year_pct = (year_qty / qty * 100) if qty else 0
+        year_qty_prev = int(year_data["数量_上月"].iloc[0]) if not year_data.empty else 0
+        year_amt_prev = int(year_data["金额_上月"].iloc[0]) if not year_data.empty else 0
+        year_qty_pct = (year_qty / qty * 100) if qty else 0
+        year_amt_pct = (year_amt / amt * 100) if amt else 0
+        year_qty_fluc, _, _ = fmt_fluc(year_qty, year_qty_prev)
+        year_amt_fluc, _, _ = fmt_fluc(year_amt, year_amt_prev)
 
         # 非年份品数据
         non_year_data = shop_type_data[shop_type_data["商品类型"] == "非年份品"]
         non_year_qty = int(non_year_data["数量"].iloc[0]) if not non_year_data.empty else 0
         non_year_amt = int(non_year_data["金额"].iloc[0]) if not non_year_data.empty else 0
-        non_year_pct = (non_year_qty / qty * 100) if qty else 0
+        non_year_qty_prev = int(non_year_data["数量_上月"].iloc[0]) if not non_year_data.empty else 0
+        non_year_amt_prev = int(non_year_data["金额_上月"].iloc[0]) if not non_year_data.empty else 0
+        non_year_qty_pct = (non_year_qty / qty * 100) if qty else 0
+        non_year_amt_pct = (non_year_amt / amt * 100) if amt else 0
+        non_year_qty_fluc, _, _ = fmt_fluc(non_year_qty, non_year_qty_prev)
+        non_year_amt_fluc, _, _ = fmt_fluc(non_year_amt, non_year_amt_prev)
 
-        # 显示店铺信息
+        # 按你要求的格式写文字
         with cols[i]:
             st.markdown(f"""
             **🏪 {shop}**
-            - 数量：{qty:,} 件（{qty_pct:.1f}%）
-              环比 {qty_fluc}
-            - 金额：{amt:,} 元（{amt_pct:.1f}%）
-              环比 {amt_fluc}
-            - 年份品：{year_qty:,}｜非年份品：{non_year_qty:,}
+            - 滞销数量：{qty:,} 件（{qty_pct:.1f}%），环比 {qty_fluc}，上月：{qty_prev:,} 件
+            - 滞销金额：{amt:,} 元（{amt_pct:.1f}%），环比 {amt_fluc}，上月：{amt_prev:,} 元
+            - 年份品滞销数量：{year_qty:,}（占比 {year_qty_pct:.2f}%），环比 {year_qty_fluc}，上月：{year_qty_prev:,} 件  
+              非年份品滞销数量：{non_year_qty:,}（占比 {non_year_qty_pct:.2f}%），环比 {non_year_qty_fluc}，上月：{non_year_qty_prev:,} 件
+            - 年份品滞销金额：{year_amt:,}（占比 {year_amt_pct:.2f}%），环比 {year_amt_fluc}，上月：{year_amt_prev:,} 元  
+              非年份品滞销金额：{non_year_amt:,}（占比 {non_year_amt_pct:.2f}%），环比 {non_year_amt_fluc}，上月：{non_year_amt_prev:,} 元
             """, unsafe_allow_html=True)
 
 # 5. 饼图区域

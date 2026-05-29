@@ -1659,7 +1659,7 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
-# ===================== 【新版表格版】年前滞销 · 按店铺拆分（一行三列：数量饼+金额饼+明细环比表格） =====================
+# ===================== 【最终修复版】年前滞销 · 按店铺拆分（一行三列：数量饼+金额饼+格式表格） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
 
@@ -1757,7 +1757,7 @@ with c2:
 # 列3：表格（含格式+小字体环比）
 with c3:
     st.markdown("#### 📋 各店铺年前滞销明细（含环比）")
-    # 用HTML表格实现复杂格式
+    # 用HTML表格实现复杂格式，加上了unsafe_allow_html=True
     html_table = """
     <style>
         .shop-table { width:100%; border-collapse:collapse; font-size:14px; }
@@ -1784,5 +1784,6 @@ with c3:
         </tr>
         """
     html_table += "</tbody></table>"
+    # 关键修复：加上了unsafe_allow_html=True
     st.markdown(html_table, unsafe_allow_html=True)
 

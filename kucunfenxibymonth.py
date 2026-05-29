@@ -1513,39 +1513,89 @@ with c7: st.plotly_chart(fig_after_qty, use_container_width=True)
 with c8: st.plotly_chart(fig_after_amt, use_container_width=True)
 
 # ===================== 【最终版】年份品 / 非年份品 一行4列饼图 =====================
+# ===================== 【最终细化版】年份品 & 非年份品 · 滞销结构占比（含环比+细分总结） =====================
 st.divider()
 st.subheader("🍰 年份品 & 非年份品 · 滞销结构占比")
 
-# 1. 匹配年份品标签
+# 1. 匹配年份品标签 + 上月数据
 df_temp = df_merge_curr.merge(
     df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
 ).fillna("否")
 df_temp["商品类型"] = df_temp["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 
-# 2. 按【商品类型 + 4类滞销】汇总数量 & 金额
-def get_summary_by_type(df, type_name):
-    d = df[df["商品类型"] == type_name]
-    qty = [
-        int(d["年货前采购滞销数量"].sum()),
-        int(d["年货采购滞销数量"].sum()),
-        int(d["年前采购滞销数量"].sum()),
-        int(d["年后采购滞销数量"].sum())
-    ]
-    amt = [
-        round(d["年货前采购滞销金额"].sum(), 0),
-        round(d["年货采购滞销金额"].sum(), 0),
-        round(d["年前采购滞销金额"].sum(), 0),
-        round(d["年后采购滞销金额"].sum(), 0)
-    ]
-    total_qty = sum(qty)
-    total_amt = sum(amt)
-    labels = ["年货前", "年货", "年前", "年后"]
-    return labels, qty, amt, total_qty, total_amt
+df_temp_prev = df_merge_prev.merge(
+    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
+).fillna("否")
+df_temp_prev["商品类型"] = df_temp_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 
-labels, q_non, amt_non, total_non_qty, total_non_amt = get_summary_by_type(df_temp, "非年份品")
-labels, q_year, amt_year, total_year_qty, total_year_amt = get_summary_by_type(df_temp, "年份品")
+# 2. 环比格式化函数（保留整数+颜色区分）
+def fmt_fluc(curr, prev):
+    curr_int = int(round(curr, 0))
+    prev_int = int(round(prev, 0))
+    diff = curr_int - prev_int
+    if diff > 0:
+        color = "#d32f2f"
+        arrow = "↑ +"
+    elif diff < 0:
+        color = "#2e7d32"
+        arrow = "↓ "
+    else:
+        color = "#666666"
+        arrow = ""
+    fluc_html = f'<span style="color:{color}">{arrow}{diff:,}</span>'
+    return curr_int, prev_int, fluc_html
 
-# 3. 统一饼图样式
+# 3. 按【商品类型 + 4类滞销】汇总（当月+上月）
+def get_full_summary(df_curr, df_prev, type_name):
+    curr = df_curr[df_curr["商品类型"] == type_name]
+    prev = df_prev[df_prev["商品类型"] == type_name]
+
+    # 数量数据
+    qty_pre_curr, qty_pre_prev, qty_pre_fluc = fmt_fluc(curr["年货前采购滞销数量"].sum(), prev["年货前采购滞销数量"].sum())
+    qty_goods_curr, qty_goods_prev, qty_goods_fluc = fmt_fluc(curr["年货采购滞销数量"].sum(), prev["年货采购滞销数量"].sum())
+    qty_before_curr, qty_before_prev, qty_before_fluc = fmt_fluc(curr["年前采购滞销数量"].sum(), prev["年前采购滞销数量"].sum())
+    qty_after_curr, qty_after_prev, qty_after_fluc = fmt_fluc(curr["年后采购滞销数量"].sum(), prev["年后采购滞销数量"].sum())
+    total_qty_curr = qty_pre_curr + qty_goods_curr + qty_before_curr + qty_after_curr
+    total_qty_prev = qty_pre_prev + qty_goods_prev + qty_before_prev + qty_after_prev
+    _, _, total_qty_fluc = fmt_fluc(total_qty_curr, total_qty_prev)
+
+    # 金额数据
+    amt_pre_curr, amt_pre_prev, amt_pre_fluc = fmt_fluc(curr["年货前采购滞销金额"].sum(), prev["年货前采购滞销金额"].sum())
+    amt_goods_curr, amt_goods_prev, amt_goods_fluc = fmt_fluc(curr["年货采购滞销金额"].sum(), prev["年货采购滞销金额"].sum())
+    amt_before_curr, amt_before_prev, amt_before_fluc = fmt_fluc(curr["年前采购滞销金额"].sum(), prev["年前采购滞销金额"].sum())
+    amt_after_curr, amt_after_prev, amt_after_fluc = fmt_fluc(curr["年后采购滞销金额"].sum(), prev["年后采购滞销金额"].sum())
+    total_amt_curr = amt_pre_curr + amt_goods_curr + amt_before_curr + amt_after_curr
+    total_amt_prev = amt_pre_prev + amt_goods_prev + amt_before_prev + amt_after_prev
+    _, _, total_amt_fluc = fmt_fluc(total_amt_curr, total_amt_prev)
+
+    return {
+        "labels": ["年货前", "年货", "年前", "年后"],
+        "qty": [qty_pre_curr, qty_goods_curr, qty_before_curr, qty_after_curr],
+        "amt": [amt_pre_curr, amt_goods_curr, amt_before_curr, amt_after_curr],
+        "total_qty_curr": total_qty_curr,
+        "total_qty_prev": total_qty_prev,
+        "total_qty_fluc": total_qty_fluc,
+        "total_amt_curr": total_amt_curr,
+        "total_amt_prev": total_amt_prev,
+        "total_amt_fluc": total_amt_fluc,
+        "detail_qty": [
+            (qty_pre_curr, qty_pre_prev, qty_pre_fluc, qty_pre_curr/total_qty_curr*100 if total_qty_curr else 0),
+            (qty_goods_curr, qty_goods_prev, qty_goods_fluc, qty_goods_curr/total_qty_curr*100 if total_qty_curr else 0),
+            (qty_before_curr, qty_before_prev, qty_before_fluc, qty_before_curr/total_qty_curr*100 if total_qty_curr else 0),
+            (qty_after_curr, qty_after_prev, qty_after_fluc, qty_after_curr/total_qty_curr*100 if total_qty_curr else 0)
+        ],
+        "detail_amt": [
+            (amt_pre_curr, amt_pre_prev, amt_pre_fluc, amt_pre_curr/total_amt_curr*100 if total_amt_curr else 0),
+            (amt_goods_curr, amt_goods_prev, amt_goods_fluc, amt_goods_curr/total_amt_curr*100 if total_amt_curr else 0),
+            (amt_before_curr, amt_before_prev, amt_before_fluc, amt_before_curr/total_amt_curr*100 if total_amt_curr else 0),
+            (amt_after_curr, amt_after_prev, amt_after_fluc, amt_after_curr/total_amt_curr*100 if total_amt_curr else 0)
+        ]
+    }
+
+non_year = get_full_summary(df_temp, df_temp_prev, "非年份品")
+year = get_full_summary(df_temp, df_temp_prev, "年份品")
+
+# 4. 饼图函数
 import plotly.express as px
 def pie(data, names, title):
     fig = px.pie(values=data, names=names, color_discrete_sequence=["#ff9999","#66b3ff","#99ff99","#ffcc99"])
@@ -1557,22 +1607,54 @@ def pie(data, names, title):
 # -------------------- 一行4列布局 --------------------
 col1, col2, col3, col4 = st.columns(4)
 
-# 左1：非年份品 · 数量占比
+# 左1：非年份品 · 数量占比 + 详细总结
 with col1:
-    st.markdown(f"**🔹 非年份品 滞销数量**\n总计：{total_non_qty:,} 件")
-    st.plotly_chart(pie(q_non, labels, "数量占比"), use_container_width=True)
+    st.markdown(f"""
+    **🔹 非年份品 滞销数量**  
+    总计：{non_year['total_qty_curr']:,} 件，环比 {non_year['total_qty_fluc']}，上月：{non_year['total_qty_prev']:,} 件  
+    其中：  
+    - 年货前采购：{non_year['detail_qty'][0][0]:,} 件（占比 {non_year['detail_qty'][0][3]:.2f}%），环比 {non_year['detail_qty'][0][2]}，上月：{non_year['detail_qty'][0][1]:,} 件  
+    - 年货采购：{non_year['detail_qty'][1][0]:,} 件（占比 {non_year['detail_qty'][1][3]:.2f}%），环比 {non_year['detail_qty'][1][2]}，上月：{non_year['detail_qty'][1][1]:,} 件  
+    - 年前采购：{non_year['detail_qty'][2][0]:,} 件（占比 {non_year['detail_qty'][2][3]:.2f}%），环比 {non_year['detail_qty'][2][2]}，上月：{non_year['detail_qty'][2][1]:,} 件  
+    - 年后采购：{non_year['detail_qty'][3][0]:,} 件（占比 {non_year['detail_qty'][3][3]:.2f}%），环比 {non_year['detail_qty'][3][2]}，上月：{non_year['detail_qty'][3][1]:,} 件  
+    """, unsafe_allow_html=True)
+    st.plotly_chart(pie(non_year['qty'], non_year['labels'], "数量占比"), use_container_width=True)
 
-# 左2：非年份品 · 金额占比
+# 左2：非年份品 · 金额占比 + 详细总结
 with col2:
-    st.markdown(f"**🔹 非年份品 滞销金额**\n总计：{int(total_non_amt):,} 元")
-    st.plotly_chart(pie(amt_non, labels, "金额占比"), use_container_width=True)
+    st.markdown(f"""
+    **🔹 非年份品 滞销金额**  
+    总计：{non_year['total_amt_curr']:,} 元，环比 {non_year['total_amt_fluc']}，上月：{non_year['total_amt_prev']:,} 元  
+    其中：  
+    - 年货前采购：{non_year['detail_amt'][0][0]:,} 元（占比 {non_year['detail_amt'][0][3]:.2f}%），环比 {non_year['detail_amt'][0][2]}，上月：{non_year['detail_amt'][0][1]:,} 元  
+    - 年货采购：{non_year['detail_amt'][1][0]:,} 元（占比 {non_year['detail_amt'][1][3]:.2f}%），环比 {non_year['detail_amt'][1][2]}，上月：{non_year['detail_amt'][1][1]:,} 元  
+    - 年前采购：{non_year['detail_amt'][2][0]:,} 元（占比 {non_year['detail_amt'][2][3]:.2f}%），环比 {non_year['detail_amt'][2][2]}，上月：{non_year['detail_amt'][2][1]:,} 元  
+    - 年后采购：{non_year['detail_amt'][3][0]:,} 元（占比 {non_year['detail_amt'][3][3]:.2f}%），环比 {non_year['detail_amt'][3][2]}，上月：{non_year['detail_amt'][3][1]:,} 元  
+    """, unsafe_allow_html=True)
+    st.plotly_chart(pie(non_year['amt'], non_year['labels'], "金额占比"), use_container_width=True)
 
-# 右1：年份品 · 数量占比
+# 右1：年份品 · 数量占比 + 详细总结
 with col3:
-    st.markdown(f"**🔸 年份品 滞销数量**\n总计：{total_year_qty:,} 件")
-    st.plotly_chart(pie(q_year, labels, "数量占比"), use_container_width=True)
+    st.markdown(f"""
+    **🔸 年份品 滞销数量**  
+    总计：{year['total_qty_curr']:,} 件，环比 {year['total_qty_fluc']}，上月：{year['total_qty_prev']:,} 件  
+    其中：  
+    - 年货前采购滞销数量：{year['detail_qty'][0][0]:,} 件（占比 {year['detail_qty'][0][3]:.2f}%），环比 {year['detail_qty'][0][2]}，上月：{year['detail_qty'][0][1]:,} 件  
+    - 年货采购滞销数量：{year['detail_qty'][1][0]:,} 件（占比 {year['detail_qty'][1][3]:.2f}%），环比 {year['detail_qty'][1][2]}，上月：{year['detail_qty'][1][1]:,} 件  
+    - 年前采购滞销数量：{year['detail_qty'][2][0]:,} 件（占比 {year['detail_qty'][2][3]:.2f}%），环比 {year['detail_qty'][2][2]}，上月：{year['detail_qty'][2][1]:,} 件  
+    - 年后采购滞销数量：{year['detail_qty'][3][0]:,} 件（占比 {year['detail_qty'][3][3]:.2f}%），环比 {year['detail_qty'][3][2]}，上月：{year['detail_qty'][3][1]:,} 件  
+    """, unsafe_allow_html=True)
+    st.plotly_chart(pie(year['qty'], year['labels'], "数量占比"), use_container_width=True)
 
-# 右2：年份品 · 金额占比
+# 右2：年份品 · 金额占比 + 详细总结
 with col4:
-    st.markdown(f"**🔸 年份品 滞销金额**\n总计：{int(total_year_amt):,} 元")
-    st.plotly_chart(pie(amt_year, labels, "金额占比"), use_container_width=True)
+    st.markdown(f"""
+    **🔸 年份品 滞销金额**  
+    总计：{year['total_amt_curr']:,} 元，环比 {year['total_amt_fluc']}，上月：{year['total_amt_prev']:,} 元  
+    其中：  
+    - 年货前采购滞销金额：{year['detail_amt'][0][0]:,} 元（占比 {year['detail_amt'][0][3]:.2f}%），环比 {year['detail_amt'][0][2]}，上月：{year['detail_amt'][0][1]:,} 元  
+    - 年货采购滞销金额：{year['detail_amt'][1][0]:,} 元（占比 {year['detail_amt'][1][3]:.2f}%），环比 {year['detail_amt'][1][2]}，上月：{year['detail_amt'][1][1]:,} 元  
+    - 年前采购滞销金额：{year['detail_amt'][2][0]:,} 元（占比 {year['detail_amt'][2][3]:.2f}%），环比 {year['detail_amt'][2][2]}，上月：{year['detail_amt'][2][1]:,} 元  
+    - 年后采购滞销金额：{year['detail_amt'][3][0]:,} 元（占比 {year['detail_amt'][3][3]:.2f}%），环比 {year['detail_amt'][3][2]}，上月：{year['detail_amt'][3][1]:,} 元  
+    """, unsafe_allow_html=True)
+    st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)

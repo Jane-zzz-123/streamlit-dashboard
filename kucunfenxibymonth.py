@@ -1659,7 +1659,7 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
-# ===================== 年前采购滞销 - 按店铺拆分（一行五列 + 完整年份/非年份明细） =====================
+# ===================== 年前采购滞销 - 按店铺拆分（紧凑小字版 · 一行五列） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
 
@@ -1724,7 +1724,7 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
-# 4. 一行五列自适应布局
+# 4. 一行五列自适应布局（核心：用<small>缩小字体）
 import plotly.express as px
 shops = shop_all["店铺"].unique().tolist()
 
@@ -1764,16 +1764,18 @@ for idx in range(0, len(shops), 5):
         non_year_qty_fluc, _, _ = fmt_fluc(non_year_qty, non_year_qty_prev)
         non_year_amt_fluc, _, _ = fmt_fluc(non_year_amt, non_year_amt_prev)
 
-        # 按你要求的格式写文字
+        # 用<small>缩小所有文字
         with cols[i]:
             st.markdown(f"""
             **🏪 {shop}**
+            <small>
             - 滞销数量：{qty:,} 件（{qty_pct:.1f}%），环比 {qty_fluc}，上月：{qty_prev:,} 件
             - 滞销金额：{amt:,} 元（{amt_pct:.1f}%），环比 {amt_fluc}，上月：{amt_prev:,} 元
-            - 年份品滞销数量：{year_qty:,}（占比 {year_qty_pct:.2f}%），环比 {year_qty_fluc}，上月：{year_qty_prev:,} 件  
-              非年份品滞销数量：{non_year_qty:,}（占比 {non_year_qty_pct:.2f}%），环比 {non_year_qty_fluc}，上月：{non_year_qty_prev:,} 件
-            - 年份品滞销金额：{year_amt:,}（占比 {year_amt_pct:.2f}%），环比 {year_amt_fluc}，上月：{year_amt_prev:,} 元  
-              非年份品滞销金额：{non_year_amt:,}（占比 {non_year_amt_pct:.2f}%），环比 {non_year_amt_fluc}，上月：{non_year_amt_prev:,} 元
+            - 年份品数量：{year_qty:,}（{year_qty_pct:.2f}%），环比 {year_qty_fluc}，上月：{year_qty_prev:,} 件<br>
+              非年份品数量：{non_year_qty:,}（{non_year_qty_pct:.2f}%），环比 {non_year_qty_fluc}，上月：{non_year_qty_prev:,} 件
+            - 年份品金额：{year_amt:,}（{year_amt_pct:.2f}%），环比 {year_amt_fluc}，上月：{year_amt_prev:,} 元<br>
+              非年份品金额：{non_year_amt:,}（{non_year_amt_pct:.2f}%），环比 {non_year_amt_fluc}，上月：{non_year_amt_prev:,} 元
+            </small>
             """, unsafe_allow_html=True)
 
 # 5. 饼图区域

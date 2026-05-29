@@ -1745,7 +1745,7 @@ with c3:
         <div style="border-bottom:1px solid #eee;padding:8px 0;">
         <b>{row['店铺']}</b><br>
         • 滞销数量：{int(row['年前滞销数量']):,} 件 （占比 {row['数量占比']:.2f}%） 
-          环比 {qty_fl}  上月：{qty_prev:,} 件<br>
+          环比 {qty_fluc}  上月：{qty_prev:,} 件<br>
         • 滞销金额：{int(row['年前滞销金额']):,} 元 （占比 {row['金额占比']:.2f}%）
           环比 {amt_fluc}  上月：{amt_prev:,} 元
         </div>

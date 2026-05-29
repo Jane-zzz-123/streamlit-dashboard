@@ -2285,6 +2285,7 @@ df_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how=
 df_curr["商品类型"] = df_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 df_prev["商品类型"] = df_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 
+
 # 2. 环比格式化函数（红升绿降，全部取整）
 def fmt_fluc(curr, prev):
     curr = int(round(curr, 0))
@@ -2297,8 +2298,10 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr, prev
 
+
 # 3. 遍历所有店铺
 import plotly.express as px
+
 shops = sorted(df_curr["店铺"].unique())
 
 # 四类采购配置
@@ -2409,4 +2412,88 @@ for shop in shops:
         st.plotly_chart(fig2, use_container_width=True)
 
 st.markdown("---")
+
+# ======================================
+# ✅ 全量明细总表（不受上方月份筛选器控制）
+# 列顺序100%匹配你的要求，带Excel一键下载
+# ======================================
+st.divider()
+st.subheader("📋 全量库存&滞销明细总表（独立不受筛选控制）")
+
+# ========== 1. 【关键】替换成你的原始全量数据变量名 ==========
+# 这里必须用你未经过月份筛选的原始总数据表，比如 df_raw / df_all / df_merge_total
+# 替换成你真实的变量名即可！
+df_full_detail = df_all.copy()
+
+# ========== 2. 严格按你要求的列顺序整理 ==========
+required_columns = [
+    "时间", "店铺", "MSKU", "品名", "开售时间", "是否年份",
+    "采购成本", "头程费用", "日均", "FBA_AWD_在途库存", "本地库存", "总库存",
+    "周转天数", "预计总库存用完时间", "滞销风险等级", "FBA+AWD+在途滞销数量",
+    "总滞销库存", "本地滞销数量", "FBA金额", "本地金额", "总库存金额",
+    "FBA滞销金额", "本地滞销金额", "总滞销金额", "年货前采购总库存", "年货采购",
+    "年前采购", "年后采购", "年货前采购滞销数量", "年货采购滞销数量",
+    "年前采购滞销数量", "年后采购滞销数量", "年货前采购滞销金额",
+    "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"
+]
+
+# 只保留你要的列，缺失的列自动填充0/空
+df_full_detail = df_full_detail.reindex(columns=required_columns, fill_value=0)
+
+# ========== 3. 数据格式优化 ==========
+# 日期/文本列处理
+text_columns = ["时间", "店铺", "MSKU", "品名", "开售时间", "是否年份", "预计总库存用完时间", "滞销风险等级"]
+for col in text_columns:
+    df_full_detail[col] = df_full_detail[col].fillna("").astype(str)
+
+# 数值列全部转成整数（金额/数量）
+number_columns = [col for col in required_columns if col not in text_columns]
+for col in number_columns:
+    df_full_detail[col] = df_full_detail[col].fillna(0).astype(int)
+
+# ========== 4. 交互式明细表展示 ==========
+st.dataframe(
+    df_full_detail,
+    hide_index=True,
+    use_container_width=True,
+    height=600,
+    column_config={
+        # 文本列配置
+        "时间": st.column_config.TextColumn("时间", width=100),
+        "店铺": st.column_config.TextColumn("店铺", width=120),
+        "MSKU": st.column_config.TextColumn("MSKU", width=120),
+        "品名": st.column_config.TextColumn("品名", width=200),
+        "开售时间": st.column_config.TextColumn("开售时间", width=120),
+        "是否年份": st.column_config.TextColumn("是否年份", width=80),
+        "预计总库存用完时间": st.column_config.TextColumn("预计用完时间", width=120),
+        "滞销风险等级": st.column_config.TextColumn("风险等级", width=100),
+        # 数值列统一整数格式
+        **{
+            col: st.column_config.NumberColumn(col, format="%d", width=120)
+            for col in number_columns
+        }
+    }
+)
+
+# ========== 5. 一键下载Excel按钮 ==========
+st.divider()
+col1, col2, col3 = st.columns(3)
+with col2:
+    # 生成Excel文件
+    import io
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_full_detail.to_excel(writer, sheet_name='全量明细总表', index=False)
+    buffer.seek(0)
+
+    # 下载按钮
+    st.download_button(
+        label="📥 下载全量明细Excel",
+        data=buffer,
+        file_name="全量库存&滞销明细总表.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
+st.divider()
 

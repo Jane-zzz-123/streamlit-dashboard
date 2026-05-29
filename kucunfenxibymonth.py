@@ -1658,3 +1658,96 @@ with col4:
     - 年后采购滞销金额：{year['detail_amt'][3][0]:,} 元（占比 {year['detail_amt'][3][3]:.2f}%），环比 {year['detail_amt'][3][2]}，上月：{year['detail_amt'][3][1]:,} 元  
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
+# ===================== 【新增】年前滞销 · 按店铺拆分（一行三列：数量饼+金额饼+明细环比表） =====================
+st.divider()
+st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
+
+# 1. 合并店铺+是否年份+年前滞销字段
+df_shop_curr = df_merge_curr.copy()
+df_shop_prev = df_merge_prev.copy()
+
+# 2. 只筛选【年前采购滞销】有数据的行
+df_shop_curr = df_shop_curr[df_shop_curr["年前采购滞销数量"] > 0].copy()
+df_shop_prev = df_shop_prev[df_shop_prev["年前采购滞销数量"] > 0].copy()
+
+# 3. 按店铺聚合 当月数据
+shop_curr = df_shop_curr.groupby("店铺").agg(
+    年前滞销数量=("年前采购滞销数量", "sum"),
+    年前滞销金额=("年前采购滞销金额", "sum")
+).reset_index()
+
+# 4. 按店铺聚合 上月数据
+shop_prev = df_shop_prev.groupby("店铺").agg(
+    年前滞销数量_上月=("年前采购滞销数量", "sum"),
+    年前滞销金额_上月=("年前采购滞销金额", "sum")
+).reset_index()
+
+# 5. 合并当月+上月店铺数据
+shop_all = shop_curr.merge(shop_prev, on="店铺", how="left").fillna(0)
+
+# 6. 整体合计
+total_qty = shop_all["年前滞销数量"].sum()
+total_amt = shop_all["年前滞销金额"].sum()
+
+# 7. 环比格式化函数（红升绿降、保留整数）
+def fmt_val_curr(curr, prev):
+    diff = int(round(curr - prev, 0))
+    prev_int = int(round(prev, 0))
+    if diff > 0:
+        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', prev_int
+    elif diff < 0:
+        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', prev_int
+    else:
+        return '<span style="color:#666">持平</span>', prev_int
+
+# 8. 生成每店铺占比+环比字段
+shop_all["数量占比"] = (shop_all["年前滞销数量"] / total_qty * 100).round(2)
+shop_all["金额占比"] = (shop_all["年前滞销金额"] / total_amt * 100).round(2)
+
+# 9. 一行三列布局
+c1, c2, c3 = st.columns(3)
+
+# ========== 第一列：年前滞销数量-店铺饼图 ==========
+with c1:
+    import plotly.express as px
+    fig_qty = px.pie(
+        shop_all,
+        names="店铺",
+        values="年前滞销数量",
+        title="年前采购滞销数量 - 店铺占比",
+        color_discrete_sequence=px.colors.qualitative.Set2
+    )
+    fig_qty.update_traces(textinfo="label+percent", textposition="inside")
+    fig_qty.update_layout(height=350, margin=dict(t=30,b=20,l=10,r=10))
+    st.plotly_chart(fig_qty, use_container_width=True)
+
+# ========== 第二列：年前滞销金额-店铺饼图 ==========
+with c2:
+    fig_amt = px.pie(
+        shop_all,
+        names="店铺",
+        values="年前滞销金额",
+        title="年前采购滞销金额 - 店铺占比",
+        color_discrete_sequence=px.colors.qualitative.Set2
+    )
+    fig_amt.update_traces(textinfo="label+percent", textposition="inside")
+    fig_amt.update_layout(height=350, margin=dict(t=30,b=20,l=10,r=10))
+    st.plotly_chart(fig_amt, use_container_width=True)
+
+# ========== 第三列：店铺明细+占比+环比文字说明 ==========
+with c3:
+    st.markdown("#### 📋 各店铺年前滞销明细（含环比）")
+    for _, row in shop_all.iterrows():
+        qty_fluc, qty_prev = fmt_val_curr(row["年前滞销数量"], row["年前滞销数量_上月"])
+        amt_fluc, amt_prev = fmt_val_curr(row["年前滞销金额"], row["年前滞销金额_上月"])
+
+        html = f"""
+        <div style="border-bottom:1px solid #eee;padding:8px 0;">
+        <b>{row['店铺']}</b><br>
+        • 滞销数量：{int(row['年前滞销数量']):,} 件 （占比 {row['数量占比']:.2f}%） 
+          环比 {qty_fl}  上月：{qty_prev:,} 件<br>
+        • 滞销金额：{int(row['年前滞销金额']):,} 元 （占比 {row['金额占比']:.2f}%）
+          环比 {amt_fluc}  上月：{amt_prev:,} 元
+        </div>
+        """
+        st.markdown(html, unsafe_allow_html=True)

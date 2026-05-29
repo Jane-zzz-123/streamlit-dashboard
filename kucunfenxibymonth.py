@@ -1512,4 +1512,67 @@ fig_after_amt = pie_chart(sum_after, "年后\n金额占比")
 with c7: st.plotly_chart(fig_after_qty, use_container_width=True)
 with c8: st.plotly_chart(fig_after_amt, use_container_width=True)
 
+# ===================== 【最终版】年份品 / 非年份品 一行4列饼图 =====================
+st.divider()
+st.subheader("🍰 年份品 & 非年份品 · 滞销结构占比")
 
+# 1. 匹配年份品标签
+df_temp = df_merge_curr.merge(
+    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
+).fillna("否")
+df_temp["商品类型"] = df_temp["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
+
+# 2. 按【商品类型 + 4类滞销】汇总数量 & 金额
+def get_summary_by_type(df, type_name):
+    d = df[df["商品类型"] == type_name]
+    qty = [
+        int(d["年货前采购滞销数量"].sum()),
+        int(d["年货采购滞销数量"].sum()),
+        int(d["年前采购滞销数量"].sum()),
+        int(d["年后采购滞销数量"].sum())
+    ]
+    amt = [
+        round(d["年货前采购滞销金额"].sum(), 0),
+        round(d["年货采购滞销金额"].sum(), 0),
+        round(d["年前采购滞销金额"].sum(), 0),
+        round(d["年后采购滞销金额"].sum(), 0)
+    ]
+    total_qty = sum(qty)
+    total_amt = sum(amt)
+    labels = ["年货前", "年货", "年前", "年后"]
+    return labels, qty, amt, total_qty, total_amt
+
+labels, q_non, amt_non, total_non_qty, total_non_amt = get_summary_by_type(df_temp, "非年份品")
+labels, q_year, amt_year, total_year_qty, total_year_amt = get_summary_by_type(df_temp, "年份品")
+
+# 3. 统一饼图样式
+import plotly.express as px
+def pie(data, names, title):
+    fig = px.pie(values=data, names=names, color_discrete_sequence=["#ff9999","#66b3ff","#99ff99","#ffcc99"])
+    fig.update_traces(textposition="inside", textinfo="percent", showlegend=False)
+    fig.update_layout(height=220, margin=dict(l=10,r=10,t=30,b=10),
+                      title=dict(text=title, font=dict(size=13)))
+    return fig
+
+# -------------------- 一行4列布局 --------------------
+col1, col2, col3, col4 = st.columns(4)
+
+# 左1：非年份品 · 数量占比
+with col1:
+    st.markdown(f"**🔹 非年份品 滞销数量**\n总计：{total_non_qty:,} 件")
+    st.plotly_chart(pie(q_non, labels, "数量占比"), use_container_width=True)
+
+# 左2：非年份品 · 金额占比
+with col2:
+    st.markdown(f"**🔹 非年份品 滞销金额**\n总计：{int(total_non_amt):,} 元")
+    st.plotly_chart(pie(amt_non, labels, "金额占比"), use_container_width=True)
+
+# 右1：年份品 · 数量占比
+with col3:
+    st.markdown(f"**🔸 年份品 滞销数量**\n总计：{total_year_qty:,} 件")
+    st.plotly_chart(pie(q_year, labels, "数量占比"), use_container_width=True)
+
+# 右2：年份品 · 金额占比
+with col4:
+    st.markdown(f"**🔸 年份品 滞销金额**\n总计：{int(total_year_amt):,} 元")
+    st.plotly_chart(pie(amt_year, labels, "金额占比"), use_container_width=True)

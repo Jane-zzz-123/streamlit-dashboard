@@ -2274,7 +2274,7 @@ with c2:
     fig.update_traces(textinfo="label+percent", textposition="inside")
     st.plotly_chart(fig, use_container_width=True)
 
-# ===================== 【最终版】各店铺四类采购滞销分析（一行四列文字+采购类型饼图） =====================
+# ===================== 【最终版·金额数量整数版】各店铺四类采购滞销分析（一行四列文字+采购类型饼图） =====================
 st.divider()
 st.subheader("🏪 各店铺四类采购滞销明细分析")
 
@@ -2285,7 +2285,7 @@ df_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how=
 df_curr["商品类型"] = df_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 df_prev["商品类型"] = df_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
 
-# 2. 环比格式化函数（红升绿降）
+# 2. 环比格式化函数（红升绿降，全部取整）
 def fmt_fluc(curr, prev):
     curr = int(round(curr, 0))
     prev = int(round(prev, 0))
@@ -2320,16 +2320,16 @@ for shop in shops:
     pie_data = pd.DataFrame({
         "采购类型": ["年前采购", "年货前采购", "年货采购", "年后采购"],
         "数量": [
-            curr_shop["年前采购滞销数量"].sum(),
-            curr_shop["年货前采购滞销数量"].sum(),
-            curr_shop["年货采购滞销数量"].sum(),
-            curr_shop["年后采购滞销数量"].sum()
+            int(round(curr_shop["年前采购滞销数量"].sum(), 0)),
+            int(round(curr_shop["年货前采购滞销数量"].sum(), 0)),
+            int(round(curr_shop["年货采购滞销数量"].sum(), 0)),
+            int(round(curr_shop["年后采购滞销数量"].sum(), 0))
         ],
         "金额": [
-            curr_shop["年前采购滞销金额"].sum(),
-            curr_shop["年货前采购滞销金额"].sum(),
-            curr_shop["年货采购滞销金额"].sum(),
-            curr_shop["年后采购滞销金额"].sum()
+            int(round(curr_shop["年前采购滞销金额"].sum(), 0)),
+            int(round(curr_shop["年货前采购滞销金额"].sum(), 0)),
+            int(round(curr_shop["年货采购滞销金额"].sum(), 0)),
+            int(round(curr_shop["年后采购滞销金额"].sum(), 0))
         ]
     })
     pie_data = pie_data[pie_data["数量"] > 0]
@@ -2338,34 +2338,34 @@ for shop in shops:
     cols = st.columns(4)
     for i, (title, q_col, a_col) in enumerate(report_config):
         with cols[i]:
-            # 当月总数
-            q_total = curr_shop[q_col].sum()
-            a_total = curr_shop[a_col].sum()
+            # 当月总数（取整）
+            q_total = int(round(curr_shop[q_col].sum(), 0))
+            a_total = int(round(curr_shop[a_col].sum(), 0))
 
-            # 上月总数
-            q_prev_total = prev_shop[q_col].sum() if not prev_shop.empty else 0
-            a_prev_total = prev_shop[a_col].sum() if not prev_shop.empty else 0
+            # 上月总数（取整）
+            q_prev_total = int(round(prev_shop[q_col].sum(), 0)) if not prev_shop.empty else 0
+            a_prev_total = int(round(prev_shop[a_col].sum(), 0)) if not prev_shop.empty else 0
 
             # 环比
             q_str, q, qp = fmt_fluc(q_total, q_prev_total)
             a_str, a, ap = fmt_fluc(a_total, a_prev_total)
 
-            # 年份品 / 非年份品
+            # 年份品 / 非年份品（取整）
             year_curr = curr_shop[curr_shop["商品类型"] == "年份品"]
             non_curr = curr_shop[curr_shop["商品类型"] == "非年份品"]
 
-            y_q = year_curr[q_col].sum()
-            y_a = year_curr[a_col].sum()
-            n_q = non_curr[q_col].sum()
-            n_a = non_curr[a_col].sum()
+            y_q = int(round(year_curr[q_col].sum(), 0))
+            y_a = int(round(year_curr[a_col].sum(), 0))
+            n_q = int(round(non_curr[q_col].sum(), 0))
+            n_a = int(round(non_curr[a_col].sum(), 0))
 
             year_prev = prev_shop[prev_shop["商品类型"] == "年份品"] if not prev_shop.empty else []
             non_prev = prev_shop[prev_shop["商品类型"] == "非年份品"] if not prev_shop.empty else []
 
-            y_qp = year_prev[q_col].sum() if len(year_prev) > 0 else 0
-            y_ap = year_prev[a_col].sum() if len(year_prev) > 0 else 0
-            n_qp = non_prev[q_col].sum() if len(non_prev) > 0 else 0
-            n_ap = non_prev[a_col].sum() if len(non_prev) > 0 else 0
+            y_qp = int(round(year_prev[q_col].sum(), 0)) if len(year_prev) > 0 else 0
+            y_ap = int(round(year_prev[a_col].sum(), 0)) if len(year_prev) > 0 else 0
+            n_qp = int(round(non_prev[q_col].sum(), 0)) if len(non_prev) > 0 else 0
+            n_ap = int(round(non_prev[a_col].sum(), 0)) if len(non_prev) > 0 else 0
 
             yq_str, _, _ = fmt_fluc(y_q, y_qp)
             ya_str, _, _ = fmt_fluc(y_a, y_ap)
@@ -2377,7 +2377,7 @@ for shop in shops:
             nq_pct = (n_q / q * 100) if q != 0 else 0
             na_pct = (n_a / a * 100) if a != 0 else 0
 
-            # 渲染文字（一行四列内）
+            # 渲染文字（全部取整）
             st.markdown(f"""
 **📌 {title}**
 滞销数量：{q:,} 件，环比 {q_str}，上月：{qp:,} 件

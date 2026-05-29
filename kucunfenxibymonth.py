@@ -2475,25 +2475,71 @@ st.dataframe(
     }
 )
 
-# ========== 5. 一键下载Excel按钮 ==========
+# ======================================
+# 📋 全量库存&滞销明细总表（独立不受筛选控制）
+# 列：时间、店铺、MSKU、品名、开售时间、是否年份、采购成本、头程费用、日均、
+# FBA_AWD_在途库存、本地库存、总库存、周转天数、预计总库存用完时间、滞销风险等级、
+# FBA+AWD+在途滞销数量、总滞销库存、本地滞销数量、FBA金额、本地金额、总库存金额、
+# FBA滞销金额、本地滞销金额、总滞销金额、年货前采购总库存、年货采购、年前采购、年后采购、
+# 年货前采购滞销数量、年货采购滞销数量、年前采购滞销数量、年后采购滞销数量、
+# 年货前采购滞销金额、年货采购滞销金额、年前采购滞销金额、年后采购滞销金额
+# ======================================
 st.divider()
-col1, col2, col3 = st.columns(3)
-with col2:
-    # 生成Excel文件
-    import io
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-        df_full_detail.to_excel(writer, sheet_name='全量明细总表', index=False)
-    buffer.seek(0)
+st.subheader("📋 全量库存&滞销明细总表（所有月份 · 不受筛选器控制）")
 
-    # 下载按钮
-    st.download_button(
-        label="📥 下载全量明细Excel",
-        data=buffer,
-        file_name="全量库存&滞销明细总表.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True
-    )
+# 直接使用你最原始、全量、未筛选的数据：df_merge
+df_final = df_merge.copy()
 
-st.divider()
+# 严格按照你要求的列顺序
+target_cols = [
+    "时间", "店铺", "MSKU", "品名", "开售时间", "是否年份",
+    "采购成本", "头程费用", "日均", "FBA+AWD+在途库存", "本地库存", "总库存",
+    "周转天数", "预计总库存用完时间", "滞销风险等级", "FBA+AWD+在途滞销数量",
+    "总滞销库存", "本地滞销数量", "FBA金额", "本地金额", "总库存金额",
+    "FBA滞销金额", "本地滞销金额", "总滞销金额",
+    "年货前采购总库存", "年货采购", "年前采购总量", "年后采购总量",
+    "年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量",
+    "年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"
+]
+
+# 重命名为你想要的显示名（和你说的一模一样）
+rename_map = {
+    "年前采购总量": "年前采购",
+    "年后采购总量": "年后采购",
+}
+
+# 只保留需要的列 + 重命名
+df_final = df_final.reindex(columns=target_cols, fill_value=0)
+df_final = df_final.rename(columns=rename_map)
+
+# 时间格式化（好看）
+df_final["时间"] = pd.to_datetime(df_final["时间"]).dt.strftime("%Y-%m-%d")
+df_final["预计总库存用完时间"] = pd.to_datetime(df_final["预计总库存用完时间"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+# 数值全部转整数，不显示小数
+int_cols = [col for col in df_final.columns if col not in ["时间", "店铺", "MSKU", "品名", "开售时间", "是否年份", "预计总库存用完时间", "滞销风险等级"]]
+for c in int_cols:
+    df_final[c] = df_final[c].fillna(0).astype(float).round(0).astype(int)
+
+# 展示表格
+st.dataframe(
+    df_final,
+    use_container_width=True,
+    height=600,
+    hide_index=True
+)
+
+# 下载 Excel 按钮
+import io
+buffer = io.BytesIO()
+with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+    df_final.to_excel(writer, index=False, sheet_name="全量明细")
+buffer.seek(0)
+
+st.download_button(
+    label="📥 下载全量明细总表（Excel）",
+    data=buffer,
+    file_name="全量库存滞销明细总表.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
 

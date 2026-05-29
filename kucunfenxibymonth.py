@@ -1659,7 +1659,7 @@ with col4:
     """, unsafe_allow_html=True)
     st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
 
-# ===================== 年前采购滞销 - 按店铺拆分（紧凑版·一行五列+饼图） =====================
+# ===================== 年前采购滞销 - 按店铺拆分（一行五列文字总结 + 一行两列饼图） =====================
 st.divider()
 st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
 
@@ -1724,9 +1724,10 @@ def fmt_fluc(curr, prev):
     else:
         return '<span style="color:#666">持平</span>', curr_int, prev_int
 
-# 4. 遍历每个店铺，生成一行五列的紧凑总结
+# 4. 【第一行：一行五列店铺文字总结】
 import plotly.express as px
-for shop in shop_all["店铺"].unique():
+cols = st.columns(5)
+for i, shop in enumerate(shop_all["店铺"].unique()):
     shop_data = shop_all[shop_all["店铺"] == shop].iloc[0]
     shop_type_data = shop_type_all[shop_type_all["店铺"] == shop]
 
@@ -1754,38 +1755,20 @@ for shop in shop_all["店铺"].unique():
     else:
         non_year_qty, non_year_amt, non_year_pct = 0, 0, 0
 
-    # --- 一行五列紧凑总结 ---
-    st.markdown(f"**🏪 {shop}**")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1:
-        st.metric(label="店铺", value=shop)
-    with c2:
+    # 写入每一列
+    with cols[i]:
         st.markdown(f"""
-        **总数量**：{qty:,} 件  
-        （占比 {qty_pct:.2f}%）  
-        环比：{qty_fluc}
+        **🏪 {shop}**
+        - 总数量：{qty:,} 件（占比 {qty_pct:.2f}%）
+          环比：{qty_fluc}
+        - 总金额：{amt:,} 元（占比 {amt_pct:.2f}%）
+          环比：{amt_fluc}
+        - 年份品：{year_qty:,} 件（{year_pct:.1f}%）
+          非年份品：{non_year_qty:,} 件（{non_year_pct:.1f}%）
         """, unsafe_allow_html=True)
-    with c3:
-        st.markdown(f"""
-        **总金额**：{amt:,} 元  
-        （占比 {amt_pct:.2f}%）  
-        环比：{amt_fluc}
-        """, unsafe_allow_html=True)
-    with c4:
-        st.markdown(f"""
-        **年份品**：{year_qty:,} 件  
-        占比：{year_pct:.1f}%  
-        金额：{year_amt:,} 元
-        """)
-    with c5:
-        st.markdown(f"""
-        **非年份品**：{non_year_qty:,} 件  
-        占比：{non_year_pct:.1f}%  
-        金额：{non_year_amt:,} 元
-        """)
-    st.divider()
 
-# --- 饼图：年前采购滞销数量/金额-店铺占比（一行两列） ---
+# 5. 【第二行：一行两列饼图】
+st.divider()
 c_pie1, c_pie2 = st.columns(2)
 with c_pie1:
     fig_qty = px.pie(

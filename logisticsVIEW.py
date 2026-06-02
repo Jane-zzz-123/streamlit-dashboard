@@ -34,6 +34,11 @@ dashboard_data = [
         "name": "AWD补货看板",
         "url": "https://logisticsdataawdpy-6olhcyqpmqqfu9qwxqrwtj.streamlit.app/",
         "description": "AWD补货物流数据可视化分析"
+    },
+    {
+        "name": "物流成本分析看板",
+        "url": "https://vbm8xr9bg6uwdfsjjdm3ub.streamlit.app/",
+        "description": "AWD补货物流数据可视化分析"
     }
 ]
 

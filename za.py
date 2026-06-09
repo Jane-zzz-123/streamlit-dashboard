@@ -8,6 +8,12 @@ from plotly.subplots import make_subplots
 import plotly.express as px
 
 
+import streamlit as st
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Tuple
+
 # ===================== 页面配置 =====================
 st.set_page_config(page_title="库存滞销复盘看板", layout="wide")
 st.title("📊 整体滞销情况分析")
@@ -94,8 +100,15 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
     df["周转天数"] = (df["总库存"] / df["日均"]).round(2)
     df["周转天数"] = df["周转天数"].clip(upper=36500)
 
+    # ===================== 【追加】FBA 独立周转天数 =====================
+    df["周转天数_FBA"] = (df["FBA+AWD+在途库存"] / df["日均"]).round(2)
+    df["周转天数_FBA"] = df["周转天数_FBA"].clip(upper=36500)
+
     # ===================== 预计用完时间 =====================
     df["预计总库存用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数"], unit="D")
+
+    # ===================== 【追加】FBA 预计用完时间 =====================
+    df["预计FBA用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数_FBA"], unit="D")
 
     # ===================== ✅ 正确金额计算（你要求的版本） =====================
     df["采购成本"] = df["采购成本"].fillna(0)
@@ -136,7 +149,7 @@ def classify_risk_and_unsold(df, year_option, target_date):
     if year_option == "按照库存周转天数口径":
         # 全部按周转天数
         turn = df["周转天数"]
-        risk = np.where(turn <= 100, "健康",
+        risk = np.where(turn <= 120, "健康",
                  np.where(turn <= 150, "低滞销风险",
                  np.where(turn <= 180, "中滞销风险", "高滞销风险")))
     else:
@@ -145,7 +158,7 @@ def classify_risk_and_unsold(df, year_option, target_date):
         mask_non_year = ~is_year
         turn_non_year = df.loc[mask_non_year, "周转天数"]
         risk.loc[mask_non_year] = np.where(
-            turn_non_year <= 100, "健康",
+            turn_non_year <= 120, "健康",
             np.where(turn_non_year <= 150, "低滞销风险",
             np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
         )
@@ -187,6 +200,44 @@ def classify_risk_and_unsold(df, year_option, target_date):
     df["FBA滞销金额"] = (df["FBA+AWD+在途滞销数量"] * (df["采购成本"] + df["头程费用"])).round(2)
     df["本地滞销金额"] = (df["本地滞销数量"] * df["采购成本"]).round(2)
     df["总滞销金额"] = (df["FBA滞销金额"] + df["本地滞销金额"]).round(2)
+
+    # -------------------------------------------------------------------------
+    # 👇👇👇 以下是【只追加】的 FBA 独立风险等级 + 独立滞销（不影响原有代码）
+    # -------------------------------------------------------------------------
+    over_days_fba = (df["预计FBA用完时间"] - target_date).dt.days
+    risk_fba = pd.Series("高滞销风险", index=df.index)
+
+    if year_option == "按照库存周转天数口径":
+        turn_fba = df["周转天数_FBA"]
+        risk_fba = np.where(turn_fba <= 90, "健康",
+                   np.where(turn_fba <= 120, "低滞销风险",
+                   np.where(turn_fba <= 150, "中滞销风险", "高滞销风险")))
+    else:
+        mask_non_year = ~is_year
+        turn_non_year_fba = df.loc[mask_non_year, "周转天数_FBA"]
+        risk_fba.loc[mask_non_year] = np.where(
+            turn_non_year_fba <= 90, "健康",
+            np.where(turn_non_year_fba <= 120, "低滞销风险",
+            np.where(turn_non_year_fba <= 150, "中滞销风险", "高滞销风险"))
+        )
+        mask_year = is_year
+        over_year_fba = over_days_fba.loc[mask_year]
+        risk_fba.loc[mask_year] = np.where(
+            over_year_fba <= 0, "健康",
+            np.where((over_year_fba > 0) & (over_year_fba <= 10), "低滞销风险",
+            np.where((over_year_fba > 10) & (over_year_fba <= 20), "中滞销风险",
+            "高滞销风险"))
+        )
+
+    df["滞销风险等级_FBA"] = risk_fba
+    unhealthy_fba = df["滞销风险等级_FBA"] != "健康"
+
+    df["FBA滞销数量_仅FBA"] = np.where(
+        unhealthy_fba,
+        (df["FBA+AWD+在途库存"] - df["日均"] * base).clip(lower=0).round(2),
+        0
+    )
+    df["FBA滞销金额_仅FBA"] = (df["FBA滞销数量_仅FBA"] * (df["采购成本"] + df["头程费用"])).round(2)
 
     return df
 
@@ -321,23 +372,116 @@ def render_card_compact(title, m):
     parts.append(f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
     st.html("".join(parts))
 
+# ===================== 【新增】FBA+AWD+在途库存 指标计算（和总库存结构完全一样） =====================
+def calc_metrics_fba(df_curr, df_prev, risk_name):
+    # 定义风险等级列表
+    risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
+
+    if risk_name == "整体":
+        # 当前月：筛选当前月的低/中/高SKU
+        curr_unsale = df_curr[df_curr["滞销风险等级_FBA"].isin(risk_list)]
+        # 上月：筛选上月的低/中/高SKU
+        prev_unsale = df_prev[df_prev["滞销风险等级_FBA"].isin(risk_list)]
+
+        # 整体SKU数：当前月所有SKU
+        sku_c = df_curr["MSKU"].nunique()
+        sku_p = df_prev["MSKU"].nunique()
+        sku_diff = sku_c - sku_p
+
+        # 【改成 FBA 库存】
+        stk_c = df_curr["FBA+AWD+在途库存"].sum()
+        stk_p = df_prev["FBA+AWD+在途库存"].sum()
+        stk_diff = stk_c - stk_p
+
+        # 【改成 FBA 金额】
+        amt_c = df_curr["FBA金额"].sum()
+        amt_p = df_prev["FBA金额"].sum()
+        amt_diff = amt_c - amt_p
+
+        # 【改成 FBA 滞销库存】
+        u_stk_c = curr_unsale["FBA滞销数量_仅FBA"].sum()
+        u_stk_p = prev_unsale["FBA滞销数量_仅FBA"].sum()
+        u_stk_diff = u_stk_c - u_stk_p
+        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+
+        # 【改成 FBA 滞销金额】
+        u_amt_c = curr_unsale["FBA滞销金额_仅FBA"].sum()
+        u_amt_p = prev_unsale["FBA滞销金额_仅FBA"].sum()
+        u_amt_diff = u_amt_c - u_amt_p
+        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+
+    else:
+        # 单个风险等级：使用 FBA 风险字段
+        c = df_curr[df_curr["滞销风险等级_FBA"] == risk_name]
+        p = df_prev[df_prev["滞销风险等级_FBA"] == risk_name]
+
+        sku_c = c["MSKU"].nunique()
+        sku_p = p["MSKU"].nunique()
+        sku_diff = sku_c - sku_p
+
+        # 【FBA 库存】
+        stk_c = c["FBA+AWD+在途库存"].sum()
+        stk_p = p["FBA+AWD+在途库存"].sum()
+        stk_diff = stk_c - stk_p
+
+        # 【FBA 金额】
+        amt_c = c["FBA金额"].sum()
+        amt_p = p["FBA金额"].sum()
+        amt_diff = amt_c - amt_p
+
+        # 【FBA 滞销】
+        u_stk_c = c["FBA滞销数量_仅FBA"].sum()
+        u_stk_p = p["FBA滞销数量_仅FBA"].sum()
+        u_stk_diff = u_stk_c - u_stk_p
+        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+
+        u_amt_c = c["FBA滞销金额_仅FBA"].sum()
+        u_amt_p = p["FBA滞销金额_仅FBA"].sum()
+        u_amt_diff = u_amt_c - u_amt_p
+        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+
+    return {
+        "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
+        "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
+        "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
+        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
+    }
+
+
+
 # ===================== 输出 =====================
 st.divider()
-st.subheader("📦 整体滞销情况概览")
+st.subheader("📦 整体滞销情况概览（总库存口径）")
 cols = st.columns(5)
 for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
     with cols[i]:
         render_card_compact(t, calc_metrics(df_curr, df_prev, t))
 
-# ===================== 可选：展示明细 =====================
-with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
+# ===================== 【新增】FBA 卡片（上下分开） =====================
+st.divider()
+st.subheader("🌎 FBA+AWD+在途库存 滞销概览（海外优先清货）")
+cols_fba = st.columns(5)
+for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
+    with cols_fba[i]:
+        render_card_compact(t, calc_metrics_fba(df_curr, df_prev, t))
+
+# ===================== 【合并成一张明细表】所有字段追加在一起 =====================
+with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径统一表）"):
     show_cols = [
+        # 原有基础字段
         "店铺","MSKU", "品名","是否年份", "时间",
-        "FBA+AWD+在途库存", "总库存", "日均", "周转天数",
-        "预计总库存用完时间", "滞销风险等级","采购成本","头程费用",
-        "FBA+AWD+在途滞销数量", "总滞销库存", "本地滞销数量",
-        "FBA金额", "本地金额", "总库存金额",
-        "FBA滞销金额", "本地滞销金额", "总滞销金额"
+        "FBA+AWD+在途库存", "本地库存", "总库存", "日均",
+        # 总库存口径
+        "周转天数", "预计总库存用完时间", "滞销风险等级",
+        "总滞销库存", "总库存金额", "总滞销金额",
+        # FBA口径（直接追加在后面，一张表统一展示）
+        "周转天数_FBA", "预计FBA用完时间", "滞销风险等级_FBA",
+        "FBA滞销数量_仅FBA", "FBA金额", "FBA滞销金额_仅FBA",
+        # 其他细节
+        "采购成本","头程费用",
+        "FBA+AWD+在途滞销数量", "本地滞销数量",
+        "本地金额", "本地滞销金额"
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 

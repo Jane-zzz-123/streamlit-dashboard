@@ -7,13 +7,6 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Tuple
-
 # ===================== 页面配置 =====================
 st.set_page_config(page_title="库存滞销复盘看板", layout="wide")
 st.title("📊 整体滞销情况分析")
@@ -449,7 +442,6 @@ def calc_metrics_fba(df_curr, df_prev, risk_name):
     }
 
 
-
 # ===================== 输出 =====================
 st.divider()
 st.subheader("📦 整体滞销情况概览（总库存口径）")
@@ -466,22 +458,40 @@ for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险",
     with cols_fba[i]:
         render_card_compact(t, calc_metrics_fba(df_curr, df_prev, t))
 
-# ===================== 【合并成一张明细表】所有字段追加在一起 =====================
+# ===================== 【最终完整版明细表】所有字段补齐，不缺项 =====================
 with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径统一表）"):
     show_cols = [
-        # 原有基础字段
-        "店铺","MSKU", "品名","是否年份", "时间",
-        "FBA+AWD+在途库存", "本地库存", "总库存", "日均",
-        # 总库存口径
-        "周转天数", "预计总库存用完时间", "滞销风险等级",
-        "总滞销库存", "总库存金额", "总滞销金额",
-        # FBA口径（直接追加在后面，一张表统一展示）
-        "周转天数_FBA", "预计FBA用完时间", "滞销风险等级_FBA",
-        "FBA滞销数量_仅FBA", "FBA金额", "FBA滞销金额_仅FBA",
-        # 其他细节
-        "采购成本","头程费用",
-        "FBA+AWD+在途滞销数量", "本地滞销数量",
-        "本地金额", "本地滞销金额"
+        # 基础信息
+        "店铺", "MSKU", "品名", "是否年份", "时间",
+
+        # 库存数量（总库存 + FBA + 本地）
+        "FBA+AWD+在途库存", "本地库存", "总库存",
+
+        # 运营指标
+        "日均", "采购成本", "头程费用",
+
+        # ========== FBA 独立口径（完整补齐） ==========
+        "周转天数_FBA",
+        "预计FBA用完时间",
+        "滞销风险等级_FBA",
+        "FBA滞销数量_仅FBA",
+        "FBA金额",
+        "FBA滞销金额_仅FBA",  # FBA口径滞销金额
+
+        # ========== 总库存 口径 ==========
+        "周转天数",
+        "预计总库存用完时间",
+        "滞销风险等级",
+        "总滞销库存",
+        "总库存金额",
+        "总滞销金额",
+
+        # ========== 总库存下的明细拆分（FBA部分 + 本地部分） ==========
+        "FBA+AWD+在途滞销数量",
+        "FBA滞销金额",  # 总库存风险下的FBA滞销金额
+        "本地滞销数量",
+        "本地金额",
+        "本地滞销金额"
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 

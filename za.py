@@ -495,12 +495,10 @@ with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径�
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
-# ===================== 1行3列 滞销分析图表（文字排版+配色+环比完整版） =====================
 # ===================== 图表：3行2列（总库存 + FBA 双口径对比） =====================
 st.divider()
 st.subheader("📊 滞销分析对比（总库存 ↔ FBA+AWD+在途）")
 
-import plotly.express as px
 import plotly.graph_objects as go
 
 # ========== 1. 统一计算两套数据 ==========
@@ -526,21 +524,14 @@ for r in risk_list:
     })
 df_fba = pd.DataFrame(data_fba)
 
-# ========== 汇总指标 ==========
-def get_summary(df):
-    total_amt = df[df["风险等级"] != "健康"]["滞销金额"].sum()
-    total_stk = df[df["风险等级"] != "健康"]["滞销库存"].sum()
-    total_sku = df[df["风险等级"] != "健康"]["SKU数"].sum()
-    return total_amt, total_stk, total_sku
-
-amt_t, stk_t, sku_t = get_summary(df_total)
-amt_f, stk_f, sku_f = get_summary(df_fba)
-
 # ========== 第1行：滞销金额 ==========
 st.markdown("### 💰 滞销金额对比")
 comp_amt = pd.DataFrame({
     "口径": ["总库存", "FBA+AWD+在途"],
-    "滞销总金额": [amt_t, amt_f],
+    "滞销总金额": [
+        df_total[df_total["风险等级"] != "健康"]["滞销金额"].sum(),
+        df_fba[df_fba["风险等级"] != "健康"]["滞销金额"].sum()
+    ],
     "低风险": [df_total.iloc[1]["滞销金额"], df_fba.iloc[1]["滞销金额"]],
     "中风险": [df_total.iloc[2]["滞销金额"], df_fba.iloc[2]["滞销金额"]],
     "高风险": [df_total.iloc[3]["滞销金额"], df_fba.iloc[3]["滞销金额"]]
@@ -551,21 +542,28 @@ c1, c2 = st.columns(2)
 with c1:
     st.caption("总库存口径")
     fig1 = go.Figure(go.Pie(
-        names=["低","中","高"], values=[df_total.iloc[1]["滞销金额"],df_total.iloc[2]["滞销金额"],df_total.iloc[3]["滞销金额"]],
-        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])))
+        labels=["低","中","高"],
+        values=[df_total.iloc[1]["滞销金额"], df_total.iloc[2]["滞销金额"], df_total.iloc[3]["滞销金额"]],
+        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])
+    ))
     st.plotly_chart(fig1, use_container_width=True)
 with c2:
     st.caption("FBA口径")
     fig1f = go.Figure(go.Pie(
-        names=["低","中","高"], values=[df_fba.iloc[1]["滞销金额"],df_fba.iloc[2]["滞销金额"],df_fba.iloc[3]["滞销金额"]],
-        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])))
+        labels=["低","中","高"],
+        values=[df_fba.iloc[1]["滞销金额"], df_fba.iloc[2]["滞销金额"], df_fba.iloc[3]["滞销金额"]],
+        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])
+    ))
     st.plotly_chart(fig1f, use_container_width=True)
 
 # ========== 第2行：滞销库存数量 ==========
 st.markdown("### 📦 滞销库存数量对比")
 comp_stk = pd.DataFrame({
     "口径": ["总库存", "FBA+AWD+在途"],
-    "滞销总数量": [stk_t, stk_f],
+    "滞销总数量": [
+        df_total[df_total["风险等级"] != "健康"]["滞销库存"].sum(),
+        df_fba[df_fba["风险等级"] != "健康"]["滞销库存"].sum()
+    ],
     "低风险": [df_total.iloc[1]["滞销库存"], df_fba.iloc[1]["滞销库存"]],
     "中风险": [df_total.iloc[2]["滞销库存"], df_fba.iloc[2]["滞销库存"]],
     "高风险": [df_total.iloc[3]["滞销库存"], df_fba.iloc[3]["滞销库存"]]
@@ -576,21 +574,28 @@ c3, c4 = st.columns(2)
 with c3:
     st.caption("总库存口径")
     fig3 = go.Figure(go.Pie(
-        names=["低","中","高"], values=[df_total.iloc[1]["滞销库存"],df_total.iloc[2]["滞销库存"],df_total.iloc[3]["滞销库存"]],
-        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])))
+        labels=["低","中","高"],
+        values=[df_total.iloc[1]["滞销库存"], df_total.iloc[2]["滞销库存"], df_total.iloc[3]["滞销库存"]],
+        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])
+    ))
     st.plotly_chart(fig3, use_container_width=True)
 with c4:
     st.caption("FBA口径")
     fig3f = go.Figure(go.Pie(
-        names=["低","中","高"], values=[df_fba.iloc[1]["滞销库存"],df_fba.iloc[2]["滞销库存"],df_fba.iloc[3]["滞销库存"]],
-        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])))
+        labels=["低","中","高"],
+        values=[df_fba.iloc[1]["滞销库存"], df_fba.iloc[2]["滞销库存"], df_fba.iloc[3]["滞销库存"]],
+        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])
+    ))
     st.plotly_chart(fig3f, use_container_width=True)
 
 # ========== 第3行：滞销SKU ==========
 st.markdown("### 📊 滞销SKU数量对比")
 comp_sku = pd.DataFrame({
     "口径": ["总库存", "FBA+AWD+在途"],
-    "滞销总SKU": [sku_t, sku_f],
+    "滞销总SKU": [
+        df_total[df_total["风险等级"] != "健康"]["SKU数"].sum(),
+        df_fba[df_fba["风险等级"] != "健康"]["SKU数"].sum()
+    ],
     "低风险": [df_total.iloc[1]["SKU数"], df_fba.iloc[1]["SKU数"]],
     "中风险": [df_total.iloc[2]["SKU数"], df_fba.iloc[2]["SKU数"]],
     "高风险": [df_total.iloc[3]["SKU数"], df_fba.iloc[3]["SKU数"]]
@@ -601,14 +606,18 @@ c5, c6 = st.columns(2)
 with c5:
     st.caption("总库存口径")
     fig_sku = go.Figure(go.Pie(
-        names=["低","中","高"], values=[df_total.iloc[1]["SKU数"],df_total.iloc[2]["SKU数"],df_total.iloc[3]["SKU数"]],
-        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])))
+        labels=["低","中","高"],
+        values=[df_total.iloc[1]["SKU数"], df_total.iloc[2]["SKU数"], df_total.iloc[3]["SKU数"]],
+        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])
+    ))
     st.plotly_chart(fig_sku, use_container_width=True)
 with c6:
     st.caption("FBA口径")
     fig_skuf = go.Figure(go.Pie(
-        names=["低","中","高"], values=[df_fba.iloc[1]["SKU数"],df_fba.iloc[2]["SKU数"],df_fba.iloc[3]["SKU数"]],
-        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])))
+        labels=["低","中","高"],
+        values=[df_fba.iloc[1]["SKU数"], df_fba.iloc[2]["SKU数"], df_fba.iloc[3]["SKU数"]],
+        marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"])
+    ))
     st.plotly_chart(fig_skuf, use_container_width=True)
 
 # ===================== 年份品 / 非年份品 滞销拆分占比分析（每一项都加环比版） =====================

@@ -803,27 +803,27 @@ with c6:
     fig_sku_f = create_double_pie(df_fba, "SKU数", "SKU数")
     st.plotly_chart(fig_sku_f, use_container_width=True)
 
+
+
 # ===================== 年份品 / 非年份品 滞销拆分占比分析（双口径对比版） =====================
+# ===================== 年份品 / 非年份品 滞销拆分（表格版 + 双口径 + 双饼图） =====================
 st.divider()
-st.subheader("📅 年份品 & 非年份品 滞销结构拆分（总库存 ↔ FBA+AWD+在途）")
+st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
-# ---------------------- 1. 按【库存口径 + 是否年份】拆分数据 ----------------------
-# 口径1：总库存
-df_year_curr = df_curr[(df_curr["是否年份"] == "是")].copy()
-df_noyear_curr = df_curr[(df_curr["是否年份"] == "否")].copy()
-df_year_prev = df_prev[(df_prev["是否年份"] == "是")].copy()
-df_noyear_prev = df_prev[(df_prev["是否年份"] == "否")].copy()
+import pandas as pd
+import plotly.express as px
 
-# 口径2：FBA+AWD+在途
-df_fba_year_curr = df_curr[(df_curr["是否年份"] == "是") & (df_curr["物流方式"] == "FBA+AWD+在途")].copy()
-df_fba_noyear_curr = df_curr[(df_curr["是否年份"] == "否") & (df_curr["物流方式"] == "FBA+AWD+在途")].copy()
-df_fba_year_prev = df_prev[(df_prev["是否年份"] == "是") & (df_prev["物流方式"] == "FBA+AWD+在途")].copy()
-df_fba_noyear_prev = df_prev[(df_prev["是否年份"] == "否") & (df_prev["物流方式"] == "FBA+AWD+在途")].copy()
+# ----------------==== 【完全沿用你自己的原逻辑】====----------------
+# 1. 按【是否年份】拆分数据
+df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()
+df_noyear_curr = df_curr[df_curr["是否年份"] == "否"].copy()
+df_year_prev = df_prev[df_prev["是否年份"] == "是"].copy()
+df_noyear_prev = df_prev[df_prev["是否年份"] == "否"].copy()
 
 # 滞销风险范围：低/中/高
 risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
 
-# ---------------------- 2. 封装统计函数 ----------------------
+# 2. 封装统计函数（你原版函数，一字不动）
 def get_unsold_stat(df):
     df_unsale = df[df["滞销风险等级"].isin(risk_unsale)]
     sku_cnt = df_unsale["MSKU"].nunique()
@@ -831,59 +831,51 @@ def get_unsold_stat(df):
     amt_cnt = df_unsale["总滞销金额"].sum()
     return sku_cnt, qty_cnt, amt_cnt
 
-# 总库存 - 当月
+# 3. 当月统计
 year_sku, year_qty, year_amt = get_unsold_stat(df_year_curr)
 noyear_sku, noyear_qty, noyear_amt = get_unsold_stat(df_noyear_curr)
-# 总库存 - 上月
+
+# 上月统计（环比用）
 year_sku_p, year_qty_p, year_amt_p = get_unsold_stat(df_year_prev)
 noyear_sku_p, noyear_qty_p, noyear_amt_p = get_unsold_stat(df_noyear_prev)
 
-# FBA口径 - 当月
-fba_year_sku, fba_year_qty, fba_year_amt = get_unsold_stat(df_fba_year_curr)
-fba_noyear_sku, fba_noyear_qty, fba_noyear_amt = get_unsold_stat(df_fba_noyear_curr)
-# FBA口径 - 上月
-fba_year_sku_p, fba_year_qty_p, fba_year_amt_p = get_unsold_stat(df_fba_year_prev)
-fba_noyear_sku_p, fba_noyear_qty_p, fba_noyear_amt_p = get_unsold_stat(df_fba_noyear_prev)
-
-# 总计（总库存）
+# 4. 总计
 total_all_sku = year_sku + noyear_sku
 total_all_qty = year_qty + noyear_qty
 total_all_amt = year_amt + noyear_amt
+
 total_all_sku_p = year_sku_p + noyear_sku_p
 total_all_qty_p = year_qty_p + noyear_qty_p
 total_all_amt_p = year_amt_p + noyear_amt_p
 
-# 总计（FBA口径）
-fba_total_all_sku = fba_year_sku + fba_noyear_sku
-fba_total_all_qty = fba_year_qty + fba_noyear_qty
-fba_total_all_amt = fba_year_amt + fba_noyear_amt
-fba_total_all_sku_p = fba_year_sku_p + fba_noyear_sku_p
-fba_total_all_qty_p = fba_year_qty_p + fba_noyear_qty_p
-fba_total_all_amt_p = fba_year_amt_p + fba_noyear_amt_p
-
-# 环比差值（总库存）
+# 环比差值
 diff_sku_total = total_all_sku - total_all_sku_p
 diff_qty_total = total_all_qty - total_all_qty_p
 diff_amt_total = total_all_amt - total_all_amt_p
+
 diff_sku_year = year_sku - year_sku_p
 diff_qty_year = year_qty - year_qty_p
 diff_amt_year = year_amt - year_amt_p
+
 diff_sku_noyear = noyear_sku - noyear_sku_p
 diff_qty_noyear = noyear_qty - noyear_qty_p
 diff_amt_noyear = noyear_amt - noyear_amt_p
 
-# 环比差值（FBA口径）
-fba_diff_sku_total = fba_total_all_sku - fba_total_all_sku_p
-fba_diff_qty_total = fba_total_all_qty - fba_total_all_qty_p
-fba_diff_amt_total = fba_total_all_amt - fba_total_all_amt_p
-fba_diff_sku_year = fba_year_sku - fba_year_sku_p
-fba_diff_qty_year = fba_year_qty - fba_year_qty_p
-fba_diff_amt_year = fba_year_amt - fba_year_amt_p
-fba_diff_sku_noyear = fba_noyear_sku - fba_noyear_sku_p
-fba_diff_qty_noyear = fba_noyear_qty - fba_noyear_qty_p
-fba_diff_amt_noyear = fba_noyear_amt - fba_noyear_amt_p
+# ----------------==== 【FBA口径 完全复用你前面的 df_fba】====----------------
+def get_fba_year_stats(df):
+    y = df[df["是否年份"]=="是"]
+    ny = df[df["是否年份"]=="否"]
+    y_sku = y[y["风险等级"].isin(risk_unsale)]["SKU数"].sum()
+    y_qty = y[y["风险等级"].isin(risk_unsale)]["滞销库存"].sum()
+    y_amt = y[y["风险等级"].isin(risk_unsale)]["滞销金额"].sum()
+    ny_sku = ny[ny["风险等级"].isin(risk_unsale)]["SKU数"].sum()
+    ny_qty = ny[ny["风险等级"].isin(risk_unsale)]["滞销库存"].sum()
+    ny_amt = ny[ny["风险等级"].isin(risk_unsale)]["滞销金额"].sum()
+    return y_sku, y_qty, y_amt, ny_sku, ny_qty, ny_amt, y_sku+ny_sku, y_qty+ny_qty, y_amt+ny_amt
 
-# 格式化工具
+fy_sku, fy_qty, fy_amt, fny_sku, fny_qty, fny_amt, ft_sku, ft_qty, ft_amt = get_fba_year_stats(df_fba)
+
+# ----------------==== 格式化（你原版）====----------------
 def safe_pct_2(val, total):
     return f"{(val / total)*100:.2f}%" if total > 0 else "0.00%"
 
@@ -895,131 +887,90 @@ def color_num(v):
     else:
         return "—"
 
-# ---------------------- 3. 表格形式的整体结构总结 ----------------------
-st.markdown("### 📊 整体滞销结构对比（总库存 ↔ FBA+AWD+在途）")
+# ===================== 【你要的：表格形式 + 双口径对比】 =====================
+st.markdown("### 📊 滞销结构对比（总库存 ↔ FBA+AWD+在途）")
+
 html_table = f"""
 <style>
-table {{width:100%;border-collapse:collapse;margin:10px 0;}}
-th, td {{border:1px solid #ddd;padding:8px;text-align:left;}}
+table {{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px;}}
+th,td {{border:1px solid #ddd;padding:8px;text-align:left;}}
 th {{background-color:#f2f2f2;}}
 </style>
 <table>
-  <tr>
-    <th>指标分类</th>
-    <th>总库存口径</th>
-    <th>FBA+AWD+在途口径</th>
-  </tr>
-  <tr>
-    <td>滞销SKU总数</td>
-    <td>{total_all_sku} 个 {color_num(diff_sku_total)}</td>
-    <td>{fba_total_all_sku} 个 {color_num(fba_diff_sku_total)}</td>
-  </tr>
-  <tr>
-    <td>年份品SKU（占比）</td>
-    <td>{year_sku} 个 ({safe_pct_2(year_sku, total_all_sku)}) {color_num(diff_sku_year)}</td>
-    <td>{fba_year_sku} 个 ({safe_pct_2(fba_year_sku, fba_total_all_sku)}) {color_num(fba_diff_sku_year)}</td>
-  </tr>
-  <tr>
-    <td>非年份品SKU（占比）</td>
-    <td>{noyear_sku} 个 ({safe_pct_2(noyear_sku, total_all_sku)}) {color_num(diff_sku_noyear)}</td>
-    <td>{fba_noyear_sku} 个 ({safe_pct_2(fba_noyear_sku, fba_total_all_sku)}) {color_num(fba_diff_sku_noyear)}</td>
-  </tr>
-  <tr>
-    <td>滞销数量总数</td>
-    <td>{total_all_qty:,.0f} 件 {color_num(diff_qty_total)}</td>
-    <td>{fba_total_all_qty:,.0f} 件 {color_num(fba_diff_qty_total)}</td>
-  </tr>
-  <tr>
-    <td>年份品数量（占比）</td>
-    <td>{year_qty:,.0f} 件 ({safe_pct_2(year_qty, total_all_qty)}) {color_num(diff_qty_year)}</td>
-    <td>{fba_year_qty:,.0f} 件 ({safe_pct_2(fba_year_qty, fba_total_all_qty)}) {color_num(fba_diff_qty_year)}</td>
-  </tr>
-  <tr>
-    <td>非年份品数量（占比）</td>
-    <td>{noyear_qty:,.0f} 件 ({safe_pct_2(noyear_qty, total_all_qty)}) {color_num(diff_qty_noyear)}</td>
-    <td>{fba_noyear_qty:,.0f} 件 ({safe_pct_2(fba_noyear_qty, fba_total_all_qty)}) {color_num(fba_diff_qty_noyear)}</td>
-  </tr>
-  <tr>
-    <td>滞销金额总数</td>
-    <td>{total_all_amt:,.0f} 元 {color_num(diff_amt_total)}</td>
-    <td>{fba_total_all_amt:,.0f} 元 {color_num(fba_diff_amt_total)}</td>
-  </tr>
-  <tr>
-    <td>年份品金额（占比）</td>
-    <td>{year_amt:,.0f} 元 ({safe_pct_2(year_amt, total_all_amt)}) {color_num(diff_amt_year)}</td>
-    <td>{fba_year_amt:,.0f} 元 ({safe_pct_2(fba_year_amt, fba_total_all_amt)}) {color_num(fba_diff_amt_year)}</td>
-  </tr>
-  <tr>
-    <td>非年份品金额（占比）</td>
-    <td>{noyear_amt:,.0f} 元 ({safe_pct_2(noyear_amt, total_all_amt)}) {color_num(diff_amt_noyear)}</td>
-    <td>{fba_noyear_amt:,.0f} 元 ({safe_pct_2(fba_noyear_amt, fba_total_all_amt)}) {color_num(fba_diff_amt_noyear)}</td>
-  </tr>
+<tr>
+  <th>指标分类</th>
+  <th>总库存口径</th>
+  <th>FBA+AWD+在途口径</th>
+</tr>
+<tr>
+  <td>滞销SKU总数</td>
+  <td>{total_all_sku} 个 {color_num(diff_sku_total)}</td>
+  <td>{ft_sku} 个</td>
+</tr>
+<tr>
+  <td>年份品SKU（占比）</td>
+  <td>{year_sku} 个（{safe_pct_2(year_sku,total_all_sku)}）{color_num(diff_sku_year)}</td>
+  <td>{fy_sku} 个（{safe_pct_2(fy_sku,ft_sku)}）</td>
+</tr>
+<tr>
+  <td>非年份品SKU（占比）</td>
+  <td>{noyear_sku} 个（{safe_pct_2(noyear_sku,total_all_sku)}）{color_num(diff_sku_noyear)}</td>
+  <td>{fny_sku} 个（{safe_pct_2(fny_sku,ft_sku)}）</td>
+</tr>
+<tr>
+  <td>滞销总数量</td>
+  <td>{total_all_qty:,.0f} 件 {color_num(diff_qty_total)}</td>
+  <td>{ft_qty:,.0f} 件</td>
+</tr>
+<tr>
+  <td>滞销总金额</td>
+  <td>{total_all_amt:,.0f} 元 {color_num(diff_amt_total)}</td>
+  <td>{ft_amt:,.0f} 元</td>
+</tr>
 </table>
 """
 st.markdown(html_table, unsafe_allow_html=True)
 
-# ---------------------- 4. 饼图展示（按口径分两行） ----------------------
-# 口径1：总库存
-st.markdown("#### 总库存口径 - 占比拆分")
-c1, c2, c3 = st.columns(3, gap="small")
+# ===================== 【双饼图：总库存 + FBA】 =====================
+st.markdown("### 🥧 占比饼图")
+c1, c2 = st.columns(2)
+
 with c1:
-    pie_sku = pd.DataFrame({
-        "类型": ["年份品", "非年份品"],
-        "值": [year_sku, noyear_sku]
-    })
-    fig = px.pie(pie_sku, names="类型", values="值", title="滞销SKU占比")
-    fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
+    st.caption("📌 总库存口径")
+    a, b, c = st.columns(3)
+    with a:
+        fig = px.pie(names=["年份品","非年份品"], values=[year_sku, noyear_sku], title="SKU占比")
+        fig.update_layout(height=220, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+    with b:
+        fig = px.pie(names=["年份品","非年份品"], values=[year_qty, noyear_qty], title="数量占比")
+        fig.update_layout(height=220, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+    with c:
+        fig = px.pie(names=["年份品","非年份品"], values=[year_amt, noyear_amt], title="金额占比")
+        fig.update_layout(height=220, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
 
 with c2:
-    pie_qty = pd.DataFrame({
-        "类型": ["年份品", "非年份品"],
-        "值": [year_qty, noyear_qty]
-    })
-    fig = px.pie(pie_qty, names="类型", values="值", title="滞销数量占比")
-    fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
+    st.caption("📌 FBA+AWD+在途口径")
+    a, b, c = st.columns(3)
+    with a:
+        fig = px.pie(names=["年份品","非年份品"], values=[fy_sku, fny_sku], title="SKU占比")
+        fig.update_layout(height=220, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+    with b:
+        fig = px.pie(names=["年份品","非年份品"], values=[fy_qty, fny_qty], title="数量占比")
+        fig.update_layout(height=220, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+    with c:
+        fig = px.pie(names=["年份品","非年份品"], values=[fy_amt, fny_amt], title="金额占比")
+        fig.update_layout(height=220, showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
 
-with c3:
-    pie_amt = pd.DataFrame({
-        "类型": ["年份品", "非年份品"],
-        "值": [year_amt, noyear_amt]
-    })
-    fig = px.pie(pie_amt, names="类型", values="值", title="滞销金额占比")
-    fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
 
-st.divider()
 
-# 口径2：FBA+AWD+在途
-st.markdown("#### FBA+AWD+在途口径 - 占比拆分")
-c4, c5, c6 = st.columns(3, gap="small")
-with c4:
-    pie_fba_sku = pd.DataFrame({
-        "类型": ["年份品", "非年份品"],
-        "值": [fba_year_sku, fba_noyear_sku]
-    })
-    fig = px.pie(pie_fba_sku, names="类型", values="值", title="滞销SKU占比")
-    fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
 
-with c5:
-    pie_fba_qty = pd.DataFrame({
-        "类型": ["年份品", "非年份品"],
-        "值": [fba_year_qty, fba_noyear_qty]
-    })
-    fig = px.pie(pie_fba_qty, names="类型", values="值", title="滞销数量占比")
-    fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
 
-with c6:
-    pie_fba_amt = pd.DataFrame({
-        "类型": ["年份品", "非年份品"],
-        "值": [fba_year_amt, fba_noyear_amt]
-    })
-    fig = px.pie(pie_fba_amt, names="类型", values="值", title="滞销金额占比")
-    fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-    st.plotly_chart(fig, use_container_width=True)
 
 # ======================================================================================
 # 👇 下面是你要的：非年份品 滞销拆解分析（和你上面原版完全同结构）

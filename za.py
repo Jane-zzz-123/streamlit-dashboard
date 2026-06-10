@@ -868,7 +868,7 @@ total2p_qty = y2p_qty + ny2p_qty
 total2p_amt = y2p_amt + ny2p_amt
 
 # 4. 环比差值
-def diff(a, b): return a - b
+def diff(a, b): return round(a) - round(b)
 
 d1_sku = diff(total1_sku, total1p_sku)
 d1_qty = diff(total1_qty, total1p_qty)
@@ -897,6 +897,27 @@ def color_num(v):
     elif v < 0: return f'<span style="color:#388e3c">↓ {v:,}</span>'
     else: return "—"
 
+# 数值统一转整数
+total1_sku = round(total1_sku)
+y1_sku = round(y1_sku)
+ny1_sku = round(ny1_sku)
+total1_qty = round(total1_qty)
+y1_qty = round(y1_qty)
+ny1_qty = round(ny1_qty)
+total1_amt = round(total1_amt)
+y1_amt = round(y1_amt)
+ny1_amt = round(ny1_amt)
+
+total2_sku = round(total2_sku)
+y2_sku = round(y2_sku)
+ny2_sku = round(ny2_sku)
+total2_qty = round(total2_qty)
+y2_qty = round(y2_qty)
+ny2_qty = round(ny2_qty)
+total2_amt = round(total2_amt)
+y2_amt = round(y2_amt)
+ny2_amt = round(ny2_amt)
+
 # ===================== 【完整表格：细分年份/非年份】 =====================
 st.markdown("### 📊 滞销结构对比（按年份/非年份拆分）")
 html_table = f"""
@@ -914,50 +935,50 @@ th {{background-color:#f2f2f2;}}
   <!-- SKU部分 -->
   <tr>
     <td>滞销SKU总数</td>
-    <td>{total1_sku} 个 {color_num(d1_sku)}</td>
-    <td>{total2_sku} 个 {color_num(d2_sku)}</td>
+    <td>{total1_sku:,} 个 {color_num(d1_sku)}</td>
+    <td>{total2_sku:,} 个 {color_num(d2_sku)}</td>
   </tr>
   <tr>
     <td style="padding-left:20px;">年份品SKU（占比）</td>
-    <td>{y1_sku} 个（{pct(y1_sku, total1_sku)}）{color_num(d1y_sku)}</td>
-    <td>{y2_sku} 个（{pct(y2_sku, total2_sku)}）{color_num(d2y_sku)}</td>
+    <td>{y1_sku:,} 个（{pct(y1_sku, total1_sku)}）{color_num(d1y_sku)}</td>
+    <td>{y2_sku:,} 个（{pct(y2_sku, total2_sku)}）{color_num(d2y_sku)}</td>
   </tr>
   <tr>
     <td style="padding-left:20px;">非年份品SKU（占比）</td>
-    <td>{ny1_sku} 个（{pct(ny1_sku, total1_sku)}）{color_num(d1n_sku)}</td>
-    <td>{ny2_sku} 个（{pct(ny2_sku, total2_sku)}）{color_num(d2n_sku)}</td>
+    <td>{ny1_sku:,} 个（{pct(ny1_sku, total1_sku)}）{color_num(d1n_sku)}</td>
+    <td>{ny2_sku:,} 个（{pct(ny2_sku, total2_sku)}）{color_num(d2n_sku)}</td>
   </tr>
   <!-- 数量部分 -->
   <tr>
     <td>滞销总数量</td>
-    <td>{total1_qty:,.0f} 件 {color_num(d1_qty)}</td>
-    <td>{total2_qty:,.0f} 件 {color_num(d2_qty)}</td>
+    <td>{total1_qty:,} 件 {color_num(d1_qty)}</td>
+    <td>{total2_qty:,} 件 {color_num(d2_qty)}</td>
   </tr>
   <tr>
     <td style="padding-left:20px;">年份品数量（占比）</td>
-    <td>{y1_qty:,.0f} 件（{pct(y1_qty, total1_qty)}）{color_num(d1y_qty)}</td>
-    <td>{y2_qty:,.0f} 件（{pct(y2_qty, total2_qty)}）{color_num(d2y_qty)}</td>
+    <td>{y1_qty:,} 件（{pct(y1_qty, total1_qty)}）{color_num(d1y_qty)}</td>
+    <td>{y2_qty:,} 件（{pct(y2_qty, total2_qty)}）{color_num(d2y_qty)}</td>
   </tr>
   <tr>
     <td style="padding-left:20px;">非年份品数量（占比）</td>
-    <td>{ny1_qty:,.0f} 件（{pct(ny1_qty, total1_qty)}）{color_num(d1n_qty)}</td>
-    <td>{ny2_qty:,.0f} 件（{pct(ny2_qty, total2_qty)}）{color_num(d2n_qty)}</td>
+    <td>{ny1_qty:,} 件（{pct(ny1_qty, total1_qty)}）{color_num(d1n_qty)}</td>
+    <td>{ny2_qty:,} 件（{pct(ny2_qty, total2_qty)}）{color_num(d2n_qty)}</td>
   </tr>
   <!-- 金额部分 -->
   <tr>
     <td>滞销总金额</td>
-    <td>{total1_amt:,.0f} 元 {color_num(d1_amt)}</td>
-    <td>{total2_amt:,.0f} 元 {color_num(d2_amt)}</td>
+    <td>{total1_amt:,} 元 {color_num(d1_amt)}</td>
+    <td>{total2_amt:,} 元 {color_num(d2_amt)}</td>
   </tr>
   <tr>
     <td style="padding-left:20px;">年份品金额（占比）</td>
-    <td>{y1_amt:,.0f} 元（{pct(y1_amt, total1_amt)}）{color_num(d1y_amt)}</td>
-    <td>{y2_amt:,.0f} 元（{pct(y2_amt, total2_amt)}）{color_num(d2y_amt)}</td>
+    <td>{y1_amt:,} 元（{pct(y1_amt, total1_amt)}）{color_num(d1y_amt)}</td>
+    <td>{y2_amt:,} 元（{pct(y2_amt, total2_amt)}）{color_num(d2y_amt)}</td>
   </tr>
   <tr>
     <td style="padding-left:20px;">非年份品金额（占比）</td>
-    <td>{ny1_amt:,.0f} 元（{pct(ny1_amt, total1_amt)}）{color_num(d1n_amt)}</td>
-    <td>{ny2_amt:,.0f} 元（{pct(ny2_amt, total2_amt)}）{color_num(d2n_amt)}</td>
+    <td>{ny1_amt:,} 元（{pct(ny1_amt, total1_amt)}）{color_num(d1n_amt)}</td>
+    <td>{ny2_amt:,} 元（{pct(ny2_amt, total2_amt)}）{color_num(d2n_amt)}</td>
   </tr>
 </table>
 """

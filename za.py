@@ -1152,7 +1152,7 @@ met_nonyear_fba = get_full_metrics(
     stock_col="FBA+AWD+在途库存",
     amt_col="FBA金额",
     unsold_stock_col="FBA滞销数量_仅FBA",
-    unsold_amt_col="FBA滞销金额_仅FBA滞销金额_仅FBA"
+    unsold_amt_col="FBA滞销金额_仅FBA"
 )
 
 # -------------------------- 3. 构建三张表：SKU / 库存数量 / 库存金额（含值+环比+占比） --------------------------

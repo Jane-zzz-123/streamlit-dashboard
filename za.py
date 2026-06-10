@@ -497,7 +497,7 @@ with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径�
 
 
 
-# ===================== 图表：3行2列 双口径对比（带颜色的HTML表格 + 原版双饼图） =====================
+# ===================== 图表：3行2列 双口径对比（带颜色HTML表格 + 原版双饼图） =====================
 st.divider()
 st.subheader("📊 整体滞销金额 & 数量 & SKU 拆解分析")
 
@@ -563,22 +563,25 @@ def fmt_val_html(val):
     else:
         return '<span style="color:#666">持平</span>'
 
-# 双饼图生成函数（和你截图里一模一样）
+# 🔥 修复后的双饼图生成函数（保证不滞销部分能正常显示）
 def create_double_pie(df, value_col):
-    total = df[value_col].sum()
-    unsold = df[df["风险等级"] != "健康"][value_col].sum()
-    not_unsold = total - unsold
+    # 核心修复：总库存 = 健康SKU + 低/中/高滞销SKU
+    healthy_val = df[df["风险等级"] == "健康"][value_col].iloc[0]
+    unsold_val = df[df["风险等级"] != "健康"][value_col].sum()
+    total_all = healthy_val + unsold_val
 
     fig = go.Figure()
+    # 左侧饼：不滞销 / 滞销
     fig.add_trace(go.Pie(
         labels=["不滞销", "滞销"],
-        values=[not_unsold, unsold],
+        values=[healthy_val, unsold_val],
         domain=dict(x=[0, 0.65], y=[0, 1]),
         marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
         textinfo="label+value+percent",
         texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
         sort=False, direction="clockwise"
     ))
+    # 右侧细分饼：低/中/高风险
     sub_df = df[df["风险等级"].isin(["低滞销风险", "中滞销风险", "高滞销风险"])]
     fig.add_trace(go.Pie(
         labels=sub_df["风险等级"],
@@ -653,11 +656,11 @@ st.markdown(html_table, unsafe_allow_html=True)
 c1, c2 = st.columns(2)
 with c1:
     st.caption("总库存口径")
-    fig_amt_t = create_double_pie(df_total, "滞销金额")
+    fig_amt_t = create_double_pie(df_total, "总金额")
     st.plotly_chart(fig_amt_t, use_container_width=True)
 with c2:
     st.caption("FBA+AWD+在途口径")
-    fig_amt_f = create_double_pie(df_fba, "滞销金额")
+    fig_amt_f = create_double_pie(df_fba, "总金额")
     st.plotly_chart(fig_amt_f, use_container_width=True)
 
 st.divider()
@@ -723,11 +726,11 @@ st.markdown(html_table_stk, unsafe_allow_html=True)
 c3, c4 = st.columns(2)
 with c3:
     st.caption("总库存口径")
-    fig_stk_t = create_double_pie(df_total, "滞销库存")
+    fig_stk_t = create_double_pie(df_total, "总库存")
     st.plotly_chart(fig_stk_t, use_container_width=True)
 with c4:
     st.caption("FBA+AWD+在途口径")
-    fig_stk_f = create_double_pie(df_fba, "滞销库存")
+    fig_stk_f = create_double_pie(df_fba, "总库存")
     st.plotly_chart(fig_stk_f, use_container_width=True)
 
 st.divider()

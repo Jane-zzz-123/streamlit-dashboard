@@ -1019,8 +1019,6 @@ with cols[5]:
     st.plotly_chart(fig, use_container_width=True)
 
 
-st.write("DEBUG：总库存口径-年份品 数据行数", df_y_t.shape[0])
-st.write("DEBUG：总库存口径-年份品 总金额", df_y_t["总库存金额"].sum())
 st.divider()
 st.subheader("📊 年份品 / 非年份品 滞销结构拆解对比（含FBA口径）")
 

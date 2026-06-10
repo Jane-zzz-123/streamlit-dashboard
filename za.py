@@ -497,7 +497,7 @@ with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径�
 
 
 
-# ===================== 图表：3行2列 双口径对比（带颜色HTML表格 + 原版双饼图） =====================
+# ===================== 图表：3行2列 双口径对比（数据100%对齐版） =====================
 st.divider()
 st.subheader("📊 整体滞销金额 & 数量 & SKU 拆解分析")
 
@@ -563,18 +563,18 @@ def fmt_val_html(val):
     else:
         return '<span style="color:#666">持平</span>'
 
-# 🔥 修复后的双饼图生成函数（保证不滞销部分能正常显示）
-def create_double_pie(df, value_col):
-    # 核心修复：总库存 = 健康SKU + 低/中/高滞销SKU
-    healthy_val = df[df["风险等级"] == "健康"][value_col].iloc[0]
-    unsold_val = df[df["风险等级"] != "健康"][value_col].sum()
-    total_all = healthy_val + unsold_val
+# 🔥 最终修复：饼图数据和表格100%对齐
+def create_double_pie(df, total_col, unsold_col):
+    # 1. 直接用我们计算好的总金额和滞销金额
+    total_val = df[total_col].sum()
+    unsold_val = df[df["风险等级"] != "健康"][unsold_col].sum()
+    not_unsold_val = total_val - unsold_val
 
     fig = go.Figure()
-    # 左侧饼：不滞销 / 滞销
+    # 左侧饼：不滞销 / 滞销（和表格数据完全一致）
     fig.add_trace(go.Pie(
         labels=["不滞销", "滞销"],
-        values=[healthy_val, unsold_val],
+        values=[not_unsold_val, unsold_val],
         domain=dict(x=[0, 0.65], y=[0, 1]),
         marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
         textinfo="label+value+percent",
@@ -585,7 +585,7 @@ def create_double_pie(df, value_col):
     sub_df = df[df["风险等级"].isin(["低滞销风险", "中滞销风险", "高滞销风险"])]
     fig.add_trace(go.Pie(
         labels=sub_df["风险等级"],
-        values=sub_df[value_col],
+        values=sub_df[unsold_col],
         domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
         marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
         textinfo="label+value+percent",
@@ -652,15 +652,15 @@ th {{background-color:#f2f2f2;}}
 """
 st.markdown(html_table, unsafe_allow_html=True)
 
-# 双饼图
+# 双饼图（现在和表格数据100%对齐）
 c1, c2 = st.columns(2)
 with c1:
     st.caption("总库存口径")
-    fig_amt_t = create_double_pie(df_total, "总金额")
+    fig_amt_t = create_double_pie(df_total, "总金额", "滞销金额")
     st.plotly_chart(fig_amt_t, use_container_width=True)
 with c2:
     st.caption("FBA+AWD+在途口径")
-    fig_amt_f = create_double_pie(df_fba, "总金额")
+    fig_amt_f = create_double_pie(df_fba, "总金额", "滞销金额")
     st.plotly_chart(fig_amt_f, use_container_width=True)
 
 st.divider()
@@ -726,11 +726,11 @@ st.markdown(html_table_stk, unsafe_allow_html=True)
 c3, c4 = st.columns(2)
 with c3:
     st.caption("总库存口径")
-    fig_stk_t = create_double_pie(df_total, "总库存")
+    fig_stk_t = create_double_pie(df_total, "总库存", "滞销库存")
     st.plotly_chart(fig_stk_t, use_container_width=True)
 with c4:
     st.caption("FBA+AWD+在途口径")
-    fig_stk_f = create_double_pie(df_fba, "总库存")
+    fig_stk_f = create_double_pie(df_fba, "总库存", "滞销库存")
     st.plotly_chart(fig_stk_f, use_container_width=True)
 
 st.divider()
@@ -796,11 +796,11 @@ st.markdown(html_table_sku, unsafe_allow_html=True)
 c5, c6 = st.columns(2)
 with c5:
     st.caption("总库存口径")
-    fig_sku_t = create_double_pie(df_total, "SKU数")
+    fig_sku_t = create_double_pie(df_total, "SKU数", "SKU数")
     st.plotly_chart(fig_sku_t, use_container_width=True)
 with c6:
     st.caption("FBA+AWD+在途口径")
-    fig_sku_f = create_double_pie(df_fba, "SKU数")
+    fig_sku_f = create_double_pie(df_fba, "SKU数", "SKU数")
     st.plotly_chart(fig_sku_f, use_container_width=True)
 
 # ===================== 年份品 / 非年份品 滞销拆分占比分析（每一项都加环比版） =====================

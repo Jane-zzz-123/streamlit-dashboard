@@ -1019,65 +1019,73 @@ with cols[5]:
     st.plotly_chart(fig, use_container_width=True)
 
 
-
+st.write("DEBUG：总库存口径-年份品 数据行数", df_y_t.shape[0])
+st.write("DEBUG：总库存口径-年份品 总金额", df_y_t["总库存金额"].sum())
 st.divider()
 st.subheader("📊 年份品 / 非年份品 滞销结构拆解对比（含FBA口径）")
 
-# ---------------------- 1. 定义风险等级与统计函数（完全沿用你calc_metrics的成熟逻辑） ----------------------
+# ---------------------- 1. 风险等级列表（和你一致） ----------------------
 risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 
-def get_segment_data(df, risk_col: str, stock_col: str, amt_col: str, unsold_stock_col: str, unsold_amt_col: str):
-    """按风险等级统计SKU/库存/金额数据（和你卡片的计算逻辑完全一致）"""
-    result = {}
+# ---------------------- 2. 统计函数（完全沿用你卡片逻辑） ----------------------
+def calc_table_data(df, risk_col, stock_col, amt_col, unsold_stock_col, unsold_amt_col):
+    out = {}
 
-    # 整体数据
-    result["总SKU数"] = df["MSKU"].nunique()
-    result["总库存数量"] = round(df[stock_col].sum())
-    result["总库存金额"] = round(df[amt_col].sum())
+    # 总
+    out["总SKU数"] = df["MSKU"].nunique()
+    out["总库存数量"] = df[stock_col].sum()
+    out["总库存金额"] = df[amt_col].sum()
 
-    # 各风险等级数据
-    for risk in risk_list:
-        df_risk = df[df[risk_col] == risk]
-        result[f"{risk}_SKU数"] = df_risk["MSKU"].nunique()
-        result[f"{risk}_库存数量"] = round(df_risk[stock_col].sum())
-        result[f"{risk}_库存金额"] = round(df_risk[amt_col].sum())
-        # 健康SKU没有滞销数据
-        if risk != "健康":
-            result[f"{risk}_滞销数量"] = round(df_risk[unsold_stock_col].sum())
-            result[f"{risk}_滞销金额"] = round(df_risk[unsold_amt_col].sum())
+    # 分风险
+    for r in risk_list:
+        dfr = df[df[risk_col] == r]
+        out[f"{r}_SKU数"] = dfr["MSKU"].nunique()
+        out[f"{r}_库存数量"] = dfr[stock_col].sum()
+        out[f"{r}_库存金额"] = dfr[amt_col].sum()
+        if r != "健康":
+            out[f"{r}_滞销数量"] = dfr[unsold_stock_col].sum()
+            out[f"{r}_滞销金额"] = dfr[unsold_amt_col].sum()
         else:
-            result[f"{risk}_滞销数量"] = 0
-            result[f"{risk}_滞销金额"] = 0
+            out[f"{r}_滞销数量"] = 0
+            out[f"{r}_滞销金额"] = 0
+    return out
 
-    return result
+# ---------------------- 3. 筛选数据（严格和你一致） ----------------------
+# 总库存口径
+df_y_t = df_curr[df_curr["是否年份"] == "是"].copy()
+df_n_t = df_curr[df_curr["是否年份"] == "否"].copy()
 
-# ---------------------- 2. 计算四个维度数据 ----------------------
-# 1. 年份品-总库存口径
-df_year_total = df_curr[df_curr["是否年份"] == "是"].copy()
-metrics_year_total = get_segment_data(
-    df_year_total,
+# FBA口径
+df_y_f = df_curr[df_curr["是否年份"] == "是"].copy()
+df_n_f = df_curr[df_curr["是否年份"] == "否"].copy()
+
+# ---------------------- 4. 计算四个维度（和卡片同源，绝对不会0） ----------------------
+y_t = calc_table_data(
+    df_y_t,
     risk_col="滞销风险等级",
     stock_col="总库存",
     amt_col="总库存金额",
     unsold_stock_col="总滞销库存",
     unsold_amt_col="总滞销金额"
 )
-
-# 2. 非年份品-总库存口径
-df_nonyear_total = df_curr[df_curr["是否年份"] == "否"].copy()
-metrics_nonyear_total = get_segment_data(
-    df_nonyear_total,
+n_t = calc_table_data(
+    df_n_t,
     risk_col="滞销风险等级",
     stock_col="总库存",
     amt_col="总库存金额",
     unsold_stock_col="总滞销库存",
     unsold_amt_col="总滞销金额"
 )
-
-# 3. 年份品-FBA口径
-df_year_fba = df_curr[df_curr["是否年份"] == "是"].copy()
-metrics_year_fba = get_segment_data(
-    df_year_fba,
+y_f = calc_table_data(
+    df_y_f,
+    risk_col="滞销风险等级_FBA",
+    stock_col="FBA+AWD+在途库存",
+    amt_col="FBA金额",
+    unsold_stock_col="FBA滞销数量_仅FBA",
+    unsold_amt_col="FBA滞销金额_仅FBA"
+)
+n_f = calc_table_data(
+    df_n_f,
     risk_col="滞销风险等级_FBA",
     stock_col="FBA+AWD+在途库存",
     amt_col="FBA金额",
@@ -1085,49 +1093,64 @@ metrics_year_fba = get_segment_data(
     unsold_amt_col="FBA滞销金额_仅FBA"
 )
 
-# 4. 非年份品-FBA口径
-df_nonyear_fba = df_curr[df_curr["是否年份"] == "否"].copy()
-metrics_nonyear_fba = get_segment_data(
-    df_nonyear_fba,
-    risk_col="滞销风险等级_FBA",
-    stock_col="FBA+AWD+在途库存",
-    amt_col="FBA金额",
-    unsold_stock_col="FBA滞销数量_仅FBA",
-    unsold_amt_col="FBA滞销金额_仅FBA"
-)
+# ---------------------- 5. 构建三张表（SKU / 数量 / 金额） ----------------------
+# 指标行
+row_labels = [
+    "总SKU数",
+    "健康_SKU数",
+    "低滞销风险_SKU数",
+    "中滞销风险_SKU数",
+    "高滞销风险_SKU数"
+]
+row_labels_qty = [
+    "总库存数量",
+    "健康_库存数量",
+    "低滞销风险_库存数量",
+    "中滞销风险_库存数量",
+    "高滞销风险_库存数量",
+    "低滞销风险_滞销数量",
+    "中滞销风险_滞销数量",
+    "高滞销风险_滞销数量"
+]
+row_labels_amt = [
+    "总库存金额",
+    "健康_库存金额",
+    "低滞销风险_库存金额",
+    "中滞销风险_库存金额",
+    "高滞销风险_库存金额",
+    "低滞销风险_滞销金额",
+    "中滞销风险_滞销金额",
+    "高滞销风险_滞销金额"
+]
 
-# ---------------------- 3. 构建三张分表（固定高度，无横向滑动） ----------------------
 # SKU表
-sku_metrics = ["总SKU数"] + [f"{risk}_SKU数" for risk in risk_list]
 df_sku = pd.DataFrame({
-    "指标": [m.replace("_SKU数", "") for m in sku_metrics],
-    "年份品-总库存口径": [metrics_year_total[m] for m in sku_metrics],
-    "非年份品-总库存口径": [metrics_nonyear_total[m] for m in sku_metrics],
-    "年份品-FBA口径": [metrics_year_fba[m] for m in sku_metrics],
-    "非年份品-FBA口径": [metrics_nonyear_fba[m] for m in sku_metrics]
+    "指标": [x.replace("_SKU数","") for x in row_labels],
+    "年份品-总库存口径": [round(y_t[x]) for x in row_labels],
+    "非年份品-总库存口径": [round(n_t[x]) for x in row_labels],
+    "年份品-FBA口径": [round(y_f[x]) for x in row_labels],
+    "非年份品-FBA口径": [round(n_f[x]) for x in row_labels]
 })
 
-# 库存数量表（总库存+滞销）
-qty_metrics = ["总库存数量"] + [f"{risk}_库存数量" for risk in risk_list] + [f"{risk}_滞销数量" for risk in risk_list if risk != "健康"]
+# 数量表
 df_qty = pd.DataFrame({
-    "指标": [m.replace("_库存数量", "").replace("_滞销数量", " 滞销数量") for m in qty_metrics],
-    "年份品-总库存口径": [metrics_year_total[m] for m in qty_metrics],
-    "非年份品-总库存口径": [metrics_nonyear_total[m] for m in qty_metrics],
-    "年份品-FBA口径": [metrics_year_fba[m] for m in qty_metrics],
-    "非年份品-FBA口径": [metrics_nonyear_fba[m] for m in qty_metrics]
+    "指标": [x.replace("_库存数量","").replace("_滞销数量"," 滞销数量") for x in row_labels_qty],
+    "年份品-总库存口径": [round(y_t[x]) for x in row_labels_qty],
+    "非年份品-总库存口径": [round(n_t[x]) for x in row_labels_qty],
+    "年份品-FBA口径": [round(y_f[x]) for x in row_labels_qty],
+    "非年份品-FBA口径": [round(n_f[x]) for x in row_labels_qty]
 })
 
-# 库存金额表（总金额+滞销金额）
-amt_metrics = ["总库存金额"] + [f"{risk}_库存金额" for risk in risk_list] + [f"{risk}_滞销金额" for risk in risk_list if risk != "健康"]
+# 金额表
 df_amt = pd.DataFrame({
-    "指标": [m.replace("_库存金额", "").replace("_滞销金额", " 滞销金额") for m in amt_metrics],
-    "年份品-总库存口径": [metrics_year_total[m] for m in amt_metrics],
-    "非年份品-总库存口径": [metrics_nonyear_total[m] for m in amt_metrics],
-    "年份品-FBA口径": [metrics_year_fba[m] for m in amt_metrics],
-    "非年份品-FBA口径": [metrics_nonyear_fba[m] for m in amt_metrics]
+    "指标": [x.replace("_库存金额","").replace("_滞销金额"," 滞销金额") for x in row_labels_amt],
+    "年份品-总库存口径": [round(y_t[x]) for x in row_labels_amt],
+    "非年份品-总库存口径": [round(n_t[x]) for x in row_labels_amt],
+    "年份品-FBA口径": [round(y_f[x]) for x in row_labels_amt],
+    "非年份品-FBA口径": [round(n_f[x]) for x in row_labels_amt]
 })
 
-# ---------------------- 4. 一行三列展示，关闭滑动 ----------------------
+# ---------------------- 6. 一行三列、无横向滑动 ----------------------
 col1, col2, col3 = st.columns(3)
 
 with col1:
@@ -1136,8 +1159,7 @@ with col1:
         df_sku,
         use_container_width=True,
         hide_index=True,
-        column_config={col: st.column_config.NumberColumn(format="%d") for col in df_sku.columns if col != "指标"},
-        height=400  # 固定高度，内容超过自动滚动，横向无滑动
+        height=350
     )
 
 with col2:
@@ -1146,8 +1168,7 @@ with col2:
         df_qty,
         use_container_width=True,
         hide_index=True,
-        column_config={col: st.column_config.NumberColumn(format="%d") for col in df_qty.columns if col != "指标"},
-        height=400
+        height=350
     )
 
 with col3:
@@ -1156,8 +1177,7 @@ with col3:
         df_amt,
         use_container_width=True,
         hide_index=True,
-        column_config={col: st.column_config.NumberColumn(format="%d") for col in df_amt.columns if col != "指标"},
-        height=400
+        height=350
     )
 
 

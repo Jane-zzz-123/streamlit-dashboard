@@ -806,7 +806,7 @@ with c6:
 
 
 # ===================== 年份品 / 非年份品 滞销拆分占比分析（双口径对比版） =====================
-# ===================== 年份品 / 非年份品 滞销结构（双口径环比 + 一行六列饼图） =====================
+# ===================== 年份品 / 非年份品 滞销结构（完整表格版 + 一行六列饼图） =====================
 st.divider()
 st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
@@ -844,12 +844,17 @@ def stat_fba(df):
         ny_risk["FBA滞销金额_仅FBA"].sum()
     )
 
-# 3. 当月数据
+# 3. 当月/上月数据
 # 总库存
 y1_sku, y1_qty, y1_amt, ny1_sku, ny1_qty, ny1_amt = stat_total(df_curr)
 total1_sku = y1_sku + ny1_sku
 total1_qty = y1_qty + ny1_qty
 total1_amt = y1_amt + ny1_amt
+
+y1p_sku, y1p_qty, y1p_amt, ny1p_sku, ny1p_qty, ny1p_amt = stat_total(df_prev)
+total1p_sku = y1p_sku + ny1p_sku
+total1p_qty = y1p_qty + ny1p_qty
+total1p_amt = y1p_amt + ny1p_amt
 
 # FBA
 y2_sku, y2_qty, y2_amt, ny2_sku, ny2_qty, ny2_amt = stat_fba(df_curr)
@@ -857,57 +862,43 @@ total2_sku = y2_sku + ny2_sku
 total2_qty = y2_qty + ny2_qty
 total2_amt = y2_amt + ny2_amt
 
-# 4. 上月数据（补上FBA环比）
-# 总库存
-y1p_sku, y1p_qty, y1p_amt, ny1p_sku, ny1p_qty, ny1p_amt = stat_total(df_prev)
-total1p_sku = y1p_sku + ny1p_sku
-total1p_qty = y1p_qty + ny1p_qty
-total1p_amt = y1p_amt + ny1p_amt
-
-# FBA
 y2p_sku, y2p_qty, y2p_amt, ny2p_sku, ny2p_qty, ny2p_amt = stat_fba(df_prev)
 total2p_sku = y2p_sku + ny2p_sku
 total2p_qty = y2p_qty + ny2p_qty
 total2p_amt = y2p_amt + ny2p_amt
 
-# 5. 环比差值（FBA口径现在也有了）
-# 总库存
-d1_sku = total1_sku - total1p_sku
-d1_qty = total1_qty - total1p_qty
-d1_amt = total1_amt - total1p_amt
-d1y_sku = y1_sku - y1p_sku
-d1y_qty = y1_qty - y1p_qty
-d1y_amt = y1_amt - y1p_amt
-d1n_sku = ny1_sku - ny1p_sku
-d1n_qty = ny1_qty - ny1p_qty
-d1n_amt = ny1_amt - ny1p_amt
+# 4. 环比差值
+def diff(a, b): return a - b
 
-# FBA
-d2_sku = total2_sku - total2p_sku
-d2_qty = total2_qty - total2p_qty
-d2_amt = total2_amt - total2p_amt
-d2y_sku = y2_sku - y2p_sku
-d2y_qty = y2_qty - y2p_qty
-d2y_amt = y2_amt - y2p_amt
-d2n_sku = ny2_sku - ny2p_sku
-d2n_qty = ny2_qty - ny2p_qty
-d2n_amt = ny2_amt - ny2p_amt
+d1_sku = diff(total1_sku, total1p_sku)
+d1_qty = diff(total1_qty, total1p_qty)
+d1_amt = diff(total1_amt, total1p_amt)
+d1y_sku = diff(y1_sku, y1p_sku)
+d1y_qty = diff(y1_qty, y1p_qty)
+d1y_amt = diff(y1_amt, y1p_amt)
+d1n_sku = diff(ny1_sku, ny1p_sku)
+d1n_qty = diff(ny1_qty, ny1p_qty)
+d1n_amt = diff(ny1_amt, ny1p_amt)
+
+d2_sku = diff(total2_sku, total2p_sku)
+d2_qty = diff(total2_qty, total2p_qty)
+d2_amt = diff(total2_amt, total2p_amt)
+d2y_sku = diff(y2_sku, y2p_sku)
+d2y_qty = diff(y2_qty, y2p_qty)
+d2y_amt = diff(y2_amt, y2p_amt)
+d2n_sku = diff(ny2_sku, ny2p_sku)
+d2n_qty = diff(ny2_qty, ny2p_qty)
+d2n_amt = diff(ny2_amt, ny2p_amt)
 
 # 格式化工具
-def pct(a, b):
-    return f"{a/b*100:.1f}%" if b > 0 else "0%"
-
+def pct(a, b): return f"{a/b*100:.2f}%" if b > 0 else "0.00%"
 def color_num(v):
-    v = int(v)
-    if v > 0:
-        return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
-    elif v < 0:
-        return f'<span style="color:#388e3c">↓ {v:,}</span>'
-    else:
-        return "—"
+    if v > 0: return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
+    elif v < 0: return f'<span style="color:#388e3c">↓ {v:,}</span>'
+    else: return "—"
 
-# 表格：双口径对比（现在FBA也带环比了）
-st.markdown("### 📊 滞销结构对比")
+# ===================== 【完整表格：细分年份/非年份】 =====================
+st.markdown("### 📊 滞销结构对比（按年份/非年份拆分）")
 html_table = f"""
 <style>
 table {{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px;}}
@@ -920,42 +911,65 @@ th {{background-color:#f2f2f2;}}
     <th>总库存口径</th>
     <th>FBA+AWD+在途口径</th>
   </tr>
+  <!-- SKU部分 -->
   <tr>
     <td>滞销SKU总数</td>
     <td>{total1_sku} 个 {color_num(d1_sku)}</td>
     <td>{total2_sku} 个 {color_num(d2_sku)}</td>
   </tr>
   <tr>
-    <td>年份品SKU（占比）</td>
+    <td style="padding-left:20px;">年份品SKU（占比）</td>
     <td>{y1_sku} 个（{pct(y1_sku, total1_sku)}）{color_num(d1y_sku)}</td>
     <td>{y2_sku} 个（{pct(y2_sku, total2_sku)}）{color_num(d2y_sku)}</td>
   </tr>
   <tr>
-    <td>非年份品SKU（占比）</td>
+    <td style="padding-left:20px;">非年份品SKU（占比）</td>
     <td>{ny1_sku} 个（{pct(ny1_sku, total1_sku)}）{color_num(d1n_sku)}</td>
     <td>{ny2_sku} 个（{pct(ny2_sku, total2_sku)}）{color_num(d2n_sku)}</td>
   </tr>
+  <!-- 数量部分 -->
   <tr>
     <td>滞销总数量</td>
     <td>{total1_qty:,.0f} 件 {color_num(d1_qty)}</td>
     <td>{total2_qty:,.0f} 件 {color_num(d2_qty)}</td>
   </tr>
   <tr>
+    <td style="padding-left:20px;">年份品数量（占比）</td>
+    <td>{y1_qty:,.0f} 件（{pct(y1_qty, total1_qty)}）{color_num(d1y_qty)}</td>
+    <td>{y2_qty:,.0f} 件（{pct(y2_qty, total2_qty)}）{color_num(d2y_qty)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">非年份品数量（占比）</td>
+    <td>{ny1_qty:,.0f} 件（{pct(ny1_qty, total1_qty)}）{color_num(d1n_qty)}</td>
+    <td>{ny2_qty:,.0f} 件（{pct(ny2_qty, total2_qty)}）{color_num(d2n_qty)}</td>
+  </tr>
+  <!-- 金额部分 -->
+  <tr>
     <td>滞销总金额</td>
     <td>{total1_amt:,.0f} 元 {color_num(d1_amt)}</td>
     <td>{total2_amt:,.0f} 元 {color_num(d2_amt)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">年份品金额（占比）</td>
+    <td>{y1_amt:,.0f} 元（{pct(y1_amt, total1_amt)}）{color_num(d1y_amt)}</td>
+    <td>{y2_amt:,.0f} 元（{pct(y2_amt, total2_amt)}）{color_num(d2y_amt)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">非年份品金额（占比）</td>
+    <td>{ny1_amt:,.0f} 元（{pct(ny1_amt, total1_amt)}）{color_num(d1n_amt)}</td>
+    <td>{ny2_amt:,.0f} 元（{pct(ny2_amt, total2_amt)}）{color_num(d2n_amt)}</td>
   </tr>
 </table>
 """
 st.markdown(html_table, unsafe_allow_html=True)
 
-# 饼图：一行六列布局，放大尺寸
+# ===================== 【饼图：一行六列放大版】 =====================
 st.markdown("### 🥧 占比饼图对比（总库存 ↔ FBA+AWD+在途）")
 cols = st.columns(6, gap="small")
 colors = ["#a6c9ff", "#0066cc"]
-height = 300 # 放大饼图高度
+height = 300
 
-# 第1组：总库存口径
+# 总库存组
 with cols[0]:
     fig = px.pie(names=["年份品", "非年份品"], values=[y1_sku, ny1_sku], title="总库存 - SKU占比", color_discrete_sequence=colors)
     fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
@@ -969,7 +983,7 @@ with cols[2]:
     fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
     st.plotly_chart(fig, use_container_width=True)
 
-# 第2组：FBA+AWD+在途口径
+# FBA组
 with cols[3]:
     fig = px.pie(names=["年份品", "非年份品"], values=[y2_sku, ny2_sku], title="FBA - SKU占比", color_discrete_sequence=colors)
     fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))

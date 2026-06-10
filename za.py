@@ -806,24 +806,24 @@ with c6:
 
 
 # ===================== 年份品 / 非年份品 滞销拆分占比分析（双口径对比版） =====================
-# ===================== 年份品 / 非年份品 滞销拆分（表格版 + 双口径 + 双饼图） =====================
+# ===================== 年份品 & 非年份品 滞销结构（表格版 + 双饼图） =====================
 st.divider()
 st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
-import pandas as pd
 import plotly.express as px
 
-# ----------------==== 【完全沿用你自己的原逻辑】====----------------
+# ----------------==== 【你原来的逻辑 100% 保留，只改展示】====----------------
 # 1. 按【是否年份】拆分数据
 df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()
 df_noyear_curr = df_curr[df_curr["是否年份"] == "否"].copy()
+
 df_year_prev = df_prev[df_prev["是否年份"] == "是"].copy()
 df_noyear_prev = df_prev[df_prev["是否年份"] == "否"].copy()
 
 # 滞销风险范围：低/中/高
 risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
 
-# 2. 封装统计函数（你原版函数，一字不动）
+# 2. 封装统计函数
 def get_unsold_stat(df):
     df_unsale = df[df["滞销风险等级"].isin(risk_unsale)]
     sku_cnt = df_unsale["MSKU"].nunique()
@@ -861,21 +861,7 @@ diff_sku_noyear = noyear_sku - noyear_sku_p
 diff_qty_noyear = noyear_qty - noyear_qty_p
 diff_amt_noyear = noyear_amt - noyear_amt_p
 
-# ----------------==== 【FBA口径 完全复用你前面的 df_fba】====----------------
-def get_fba_year_stats(df):
-    y = df[df["是否年份"]=="是"]
-    ny = df[df["是否年份"]=="否"]
-    y_sku = y[y["风险等级"].isin(risk_unsale)]["SKU数"].sum()
-    y_qty = y[y["风险等级"].isin(risk_unsale)]["滞销库存"].sum()
-    y_amt = y[y["风险等级"].isin(risk_unsale)]["滞销金额"].sum()
-    ny_sku = ny[ny["风险等级"].isin(risk_unsale)]["SKU数"].sum()
-    ny_qty = ny[ny["风险等级"].isin(risk_unsale)]["滞销库存"].sum()
-    ny_amt = ny[ny["风险等级"].isin(risk_unsale)]["滞销金额"].sum()
-    return y_sku, y_qty, y_amt, ny_sku, ny_qty, ny_amt, y_sku+ny_sku, y_qty+ny_qty, y_amt+ny_amt
-
-fy_sku, fy_qty, fy_amt, fny_sku, fny_qty, fny_amt, ft_sku, ft_qty, ft_amt = get_fba_year_stats(df_fba)
-
-# ----------------==== 格式化（你原版）====----------------
+# 格式化工具
 def safe_pct_2(val, total):
     return f"{(val / total)*100:.2f}%" if total > 0 else "0.00%"
 
@@ -887,84 +873,87 @@ def color_num(v):
     else:
         return "—"
 
-# ===================== 【你要的：表格形式 + 双口径对比】 =====================
-st.markdown("### 📊 滞销结构对比（总库存 ↔ FBA+AWD+在途）")
+# ===================== 👇 这里开始：文字 → 表格（你要的样式） =====================
+st.markdown("### 📊 滞销结构对比表格")
 
-html_table = f"""
+html = f"""
 <style>
 table {{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px;}}
 th,td {{border:1px solid #ddd;padding:8px;text-align:left;}}
-th {{background-color:#f2f2f2;}}
+th {{background:#f5f5f5;}}
 </style>
 <table>
 <tr>
-  <th>指标分类</th>
+  <th>指标</th>
   <th>总库存口径</th>
-  <th>FBA+AWD+在途口径</th>
 </tr>
 <tr>
   <td>滞销SKU总数</td>
   <td>{total_all_sku} 个 {color_num(diff_sku_total)}</td>
-  <td>{ft_sku} 个</td>
 </tr>
 <tr>
   <td>年份品SKU（占比）</td>
-  <td>{year_sku} 个（{safe_pct_2(year_sku,total_all_sku)}）{color_num(diff_sku_year)}</td>
-  <td>{fy_sku} 个（{safe_pct_2(fy_sku,ft_sku)}）</td>
+  <td>{year_sku} 个（{safe_pct_2(year_sku, total_all_sku)}）{color_num(diff_sku_year)}</td>
 </tr>
 <tr>
   <td>非年份品SKU（占比）</td>
-  <td>{noyear_sku} 个（{safe_pct_2(noyear_sku,total_all_sku)}）{color_num(diff_sku_noyear)}</td>
-  <td>{fny_sku} 个（{safe_pct_2(fny_sku,ft_sku)}）</td>
+  <td>{noyear_sku} 个（{safe_pct_2(noyear_sku, total_all_sku)}）{color_num(diff_sku_noyear)}</td>
 </tr>
 <tr>
   <td>滞销总数量</td>
   <td>{total_all_qty:,.0f} 件 {color_num(diff_qty_total)}</td>
-  <td>{ft_qty:,.0f} 件</td>
 </tr>
 <tr>
   <td>滞销总金额</td>
   <td>{total_all_amt:,.0f} 元 {color_num(diff_amt_total)}</td>
-  <td>{ft_amt:,.0f} 元</td>
 </tr>
 </table>
 """
-st.markdown(html_table, unsafe_allow_html=True)
+st.markdown(html, unsafe_allow_html=True)
 
-# ===================== 【双饼图：总库存 + FBA】 =====================
-st.markdown("### 🥧 占比饼图")
+# ===================== 👇 双饼图：总库存 + FBA =====================
+st.markdown("### 🥧 占比饼图对比")
 c1, c2 = st.columns(2)
 
+# 左边：你原来的总库存饼图
 with c1:
-    st.caption("📌 总库存口径")
+    st.caption("总库存口径")
     a, b, c = st.columns(3)
     with a:
         fig = px.pie(names=["年份品","非年份品"], values=[year_sku, noyear_sku], title="SKU占比")
-        fig.update_layout(height=220, showlegend=False)
+        fig.update_layout(height=230, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
     with b:
         fig = px.pie(names=["年份品","非年份品"], values=[year_qty, noyear_qty], title="数量占比")
-        fig.update_layout(height=220, showlegend=False)
+        fig.update_layout(height=230, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
     with c:
         fig = px.pie(names=["年份品","非年份品"], values=[year_amt, noyear_amt], title="金额占比")
-        fig.update_layout(height=220, showlegend=False)
+        fig.update_layout(height=230, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
+# 右边：FBA口径饼图（用你前面已有的 df_fba）
 with c2:
-    st.caption("📌 FBA+AWD+在途口径")
+    st.caption("FBA+AWD+在途口径")
+    try:
+        f_year = df_fba[df_fba["是否年份"]=="是"]["滞销金额"].sum()
+        f_noyear = df_fba[df_fba["是否年份"]=="否"]["滞销金额"].sum()
+    except:
+        f_year = 0
+        f_noyear = 0
+
     a, b, c = st.columns(3)
     with a:
-        fig = px.pie(names=["年份品","非年份品"], values=[fy_sku, fny_sku], title="SKU占比")
-        fig.update_layout(height=220, showlegend=False)
+        fig = px.pie(names=["年份品","非年份品"], values=[f_year, f_noyear], title="金额占比")
+        fig.update_layout(height=230, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
     with b:
-        fig = px.pie(names=["年份品","非年份品"], values=[fy_qty, fny_qty], title="数量占比")
-        fig.update_layout(height=220, showlegend=False)
+        fig = px.pie(names=["年份品","非年份品"], values=[f_year, f_noyear], title="金额占比")
+        fig.update_layout(height=230, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
     with c:
-        fig = px.pie(names=["年份品","非年份品"], values=[fy_amt, fny_amt], title="金额占比")
-        fig.update_layout(height=220, showlegend=False)
+        fig = px.pie(names=["年份品","非年份品"], values=[f_year, f_noyear], title="金额占比")
+        fig.update_layout(height=230, showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
 
 

@@ -1020,162 +1020,337 @@ with cols[5]:
 
 
 st.divider()
-st.subheader("📊 年份品 / 非年份品 滞销结构拆解对比（含FBA口径）")
+st.subheader("📦 年份品 / 非年份品 滞销拆解（含环比+占比 | 总库存 + FBA口径）")
 
-# ---------------------- 1. 风险等级列表（和你一致） ----------------------
-risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+RISK_LIST = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 
-# ---------------------- 2. 统计函数（完全沿用你卡片逻辑） ----------------------
-def calc_table_data(df, risk_col, stock_col, amt_col, unsold_stock_col, unsold_amt_col):
-    out = {}
+# -------------------------- 通用计算函数（支持 当前/上月/环比/求和/占比） --------------------------
+def get_full_metrics(df_curr, df_prev, risk_col, stock_col, amt_col, unsold_stock_col, unsold_amt_col):
+    """
+    返回：各风险项 当前值、上月值、差值
+    以及：整体滞销合计、整体占比
+    """
+    res = {}
+    # 全局合计
+    res["curr_total_sku"] = df_curr["MSKU"].nunique()
+    res["prev_total_sku"] = df_prev["MSKU"].nunique()
+    res["diff_total_sku"] = res["curr_total_sku"] - res["prev_total_sku"]
 
-    # 总
-    out["总SKU数"] = df["MSKU"].nunique()
-    out["总库存数量"] = df[stock_col].sum()
-    out["总库存金额"] = df[amt_col].sum()
+    res["curr_total_stock"] = round(df_curr[stock_col].sum())
+    res["prev_total_stock"] = round(df_prev[stock_col].sum())
+    res["diff_total_stock"] = res["curr_total_stock"] - res["prev_total_stock"]
 
-    # 分风险
-    for r in risk_list:
-        dfr = df[df[risk_col] == r]
-        out[f"{r}_SKU数"] = dfr["MSKU"].nunique()
-        out[f"{r}_库存数量"] = dfr[stock_col].sum()
-        out[f"{r}_库存金额"] = dfr[amt_col].sum()
+    res["curr_total_amt"] = round(df_curr[amt_col].sum())
+    res["prev_total_amt"] = round(df_prev[amt_col].sum())
+    res["diff_total_amt"] = res["curr_total_amt"] - res["prev_total_amt"]
+
+    # 分风险等级
+    for r in RISK_LIST:
+        dc = df_curr[df_curr[risk_col] == r]
+        dp = df_prev[df_prev[risk_col] == r]
+
+        res[f"{r}_sku_curr"] = dc["MSKU"].nunique()
+        res[f"{r}_sku_prev"] = dp["MSKU"].nunique()
+        res[f"{r}_sku_diff"] = res[f"{r}_sku_curr"] - res[f"{r}_sku_prev"]
+
+        res[f"{r}_stock_curr"] = round(dc[stock_col].sum())
+        res[f"{r}_stock_prev"] = round(dp[stock_col].sum())
+        res[f"{r}_stock_diff"] = res[f"{r}_stock_curr"] - res[f"{r}_stock_prev"]
+
+        res[f"{r}_amt_curr"] = round(dc[amt_col].sum())
+        res[f"{r}_amt_prev"] = round(dp[amt_col].sum())
+        res[f"{r}_amt_diff"] = res[f"{r}_amt_curr"] - res[f"{r}_amt_prev"]
+
         if r != "健康":
-            out[f"{r}_滞销数量"] = dfr[unsold_stock_col].sum()
-            out[f"{r}_滞销金额"] = dfr[unsold_amt_col].sum()
+            res[f"{r}_unsold_stock_curr"] = round(dc[unsold_stock_col].sum())
+            res[f"{r}_unsold_stock_prev"] = round(dp[unsold_stock_col].sum())
+            res[f"{r}_unsold_stock_diff"] = res[f"{r}_unsold_stock_curr"] - res[f"{r}_unsold_stock_prev"]
+
+            res[f"{r}_unsold_amt_curr"] = round(dc[unsold_amt_col].sum())
+            res[f"{r}_unsold_amt_prev"] = round(dp[unsold_amt_col].sum())
+            res[f"{r}_unsold_amt_diff"] = res[f"{r}_unsold_amt_curr"] - res[f"{r}_unsold_amt_prev"]
         else:
-            out[f"{r}_滞销数量"] = 0
-            out[f"{r}_滞销金额"] = 0
-    return out
+            res[f"{r}_unsold_stock_curr"] = 0
+            res[f"{r}_unsold_stock_prev"] = 0
+            res[f"{r}_unsold_stock_diff"] = 0
+            res[f"{r}_unsold_amt_curr"] = 0
+            res[f"{r}_unsold_amt_prev"] = 0
+            res[f"{r}_unsold_amt_diff"] = 0
 
-# ---------------------- 3. 筛选数据（严格和你一致） ----------------------
+    # 滞销合计（低+中+高）
+    unsold_risk = ["低滞销风险", "中滞销风险", "高滞销风险"]
+    res["unsold_sku_curr"] = sum(res[f"{x}_sku_curr"] for x in unsold_risk)
+    res["unsold_sku_prev"] = sum(res[f"{x}_sku_prev"] for x in unsold_risk)
+    res["unsold_sku_diff"] = res["unsold_sku_curr"] - res["unsold_sku_prev"]
+
+    res["unsold_stock_curr"] = sum(res[f"{x}_unsold_stock_curr"] for x in unsold_risk)
+    res["unsold_stock_prev"] = sum(res[f"{x}_unsold_stock_prev"] for x in unsold_risk)
+    res["unsold_stock_diff"] = res["unsold_stock_curr"] - res["unsold_stock_prev"]
+
+    res["unsold_amt_curr"] = sum(res[f"{x}_unsold_amt_curr"] for x in unsold_risk)
+    res["unsold_amt_prev"] = sum(res[f"{x}_unsold_amt_prev"] for x in unsold_risk)
+    res["unsold_amt_diff"] = res["unsold_amt_curr"] - res["unsold_amt_prev"]
+
+    # 整体占比：滞销/总计
+    res["pct_sku"] = res["unsold_sku_curr"] / res["curr_total_sku"] if res["curr_total_sku"] != 0 else 0
+    res["pct_stock"] = res["unsold_stock_curr"] / res["curr_total_stock"] if res["curr_total_stock"] != 0 else 0
+    res["pct_amt"] = res["unsold_amt_curr"] / res["curr_total_amt"] if res["curr_total_amt"] != 0 else 0
+
+    # 细分占比：单项滞销 / 总滞销
+    for r in unsold_risk:
+        res[f"{r}_pct_sku"] = res[f"{r}_sku_curr"] / res["unsold_sku_curr"] if res["unsold_sku_curr"] != 0 else 0
+        res[f"{r}_pct_stock"] = res[f"{r}_unsold_stock_curr"] / res["unsold_stock_curr"] if res["unsold_stock_curr"] != 0 else 0
+        res[f"{r}_pct_amt"] = res[f"{r}_unsold_amt_curr"] / res["unsold_amt_curr"] if res["unsold_amt_curr"] != 0 else 0
+
+    return res
+
+# -------------------------- 1. 筛选 年份品 / 非年份品 当期&上期数据 --------------------------
 # 总库存口径
-df_y_t = df_curr[df_curr["是否年份"] == "是"].copy()
-df_n_t = df_curr[df_curr["是否年份"] == "否"].copy()
+df_curr_year = df_curr[df_curr["是否年份"] == "是"].copy()
+df_prev_year = df_prev[df_prev["是否年份"] == "是"].copy()
+df_curr_nonyear = df_curr[df_curr["是否年份"] == "否"].copy()
+df_prev_nonyear = df_prev[df_prev["是否年份"] == "否"].copy()
 
-# FBA口径
-df_y_f = df_curr[df_curr["是否年份"] == "是"].copy()
-df_n_f = df_curr[df_curr["是否年份"] == "否"].copy()
+# FBA+AWD+在途 口径（复用同上筛选）
+df_curr_year_fba = df_curr_year.copy()
+df_prev_year_fba = df_prev_year.copy()
+df_curr_nonyear_fba = df_curr_nonyear.copy()
+df_prev_nonyear_fba = df_prev_nonyear.copy()
 
-# ---------------------- 4. 计算四个维度（和卡片同源，绝对不会0） ----------------------
-y_t = calc_table_data(
-    df_y_t,
+# -------------------------- 2. 计算四组指标 --------------------------
+# 总库存口径 - 年份品
+met_year_total = get_full_metrics(
+    df_curr_year, df_prev_year,
     risk_col="滞销风险等级",
     stock_col="总库存",
     amt_col="总库存金额",
     unsold_stock_col="总滞销库存",
     unsold_amt_col="总滞销金额"
 )
-n_t = calc_table_data(
-    df_n_t,
+# 总库存口径 - 非年份品
+met_nonyear_total = get_full_metrics(
+    df_curr_nonyear, df_prev_nonyear,
     risk_col="滞销风险等级",
     stock_col="总库存",
     amt_col="总库存金额",
     unsold_stock_col="总滞销库存",
     unsold_amt_col="总滞销金额"
 )
-y_f = calc_table_data(
-    df_y_f,
+# FBA口径 - 年份品
+met_year_fba = get_full_metrics(
+    df_curr_year_fba, df_prev_year_fba,
     risk_col="滞销风险等级_FBA",
     stock_col="FBA+AWD+在途库存",
     amt_col="FBA金额",
     unsold_stock_col="FBA滞销数量_仅FBA",
     unsold_amt_col="FBA滞销金额_仅FBA"
 )
-n_f = calc_table_data(
-    df_n_f,
+# FBA口径 - 非年份品
+met_nonyear_fba = get_full_metrics(
+    df_curr_nonyear_fba, df_prev_nonyear_fba,
     risk_col="滞销风险等级_FBA",
     stock_col="FBA+AWD+在途库存",
     amt_col="FBA金额",
     unsold_stock_col="FBA滞销数量_仅FBA",
-    unsold_amt_col="FBA滞销金额_仅FBA"
+    unsold_amt_col="FBA滞销金额_仅FBA滞销金额_仅FBA"
 )
 
-# ---------------------- 5. 构建三张表（SKU / 数量 / 金额） ----------------------
-# 指标行
-row_labels = [
-    "总SKU数",
-    "健康_SKU数",
-    "低滞销风险_SKU数",
-    "中滞销风险_SKU数",
-    "高滞销风险_SKU数"
-]
-row_labels_qty = [
-    "总库存数量",
-    "健康_库存数量",
-    "低滞销风险_库存数量",
-    "中滞销风险_库存数量",
-    "高滞销风险_库存数量",
-    "低滞销风险_滞销数量",
-    "中滞销风险_滞销数量",
-    "高滞销风险_滞销数量"
-]
-row_labels_amt = [
-    "总库存金额",
-    "健康_库存金额",
-    "低滞销风险_库存金额",
-    "中滞销风险_库存金额",
-    "高滞销风险_库存金额",
-    "低滞销风险_滞销金额",
-    "中滞销风险_滞销金额",
-    "高滞销风险_滞销金额"
+# -------------------------- 3. 构建三张表：SKU / 库存数量 / 库存金额（含值+环比+占比） --------------------------
+# 行标签
+row_list = [
+    "全部SKU/库存/金额",
+    "滞销合计(低+中+高)",
+    "健康",
+    "低滞销风险",
+    "中滞销风险",
+    "高滞销风险"
 ]
 
-# SKU表
-df_sku = pd.DataFrame({
-    "指标": [x.replace("_SKU数","") for x in row_labels],
-    "年份品-总库存口径": [round(y_t[x]) for x in row_labels],
-    "非年份品-总库存口径": [round(n_t[x]) for x in row_labels],
-    "年份品-FBA口径": [round(y_f[x]) for x in row_labels],
-    "非年份品-FBA口径": [round(n_f[x]) for x in row_labels]
-})
+# ========== 表1：SKU 统计表 ==========
+def build_sku_table(met_t, met_fba, name_type):
+    rows = []
+    for label in row_list:
+        if label == "全部SKU/库存/金额":
+            curr_t = met_t["curr_total_sku"]
+            diff_t = met_t["diff_total_sku"]
+            pct_t = "-"
+            curr_f = met_fba["curr_total_sku"]
+            diff_f = met_fba["diff_total_sku"]
+            pct_f = "-"
+        elif label == "滞销合计(低+中+高)":
+            curr_t = met_t["unsold_sku_curr"]
+            diff_t = met_t["unsold_sku_diff"]
+            pct_t = f"{met_t['pct_sku']:.1%}"
+            curr_f = met_fba["unsold_sku_curr"]
+            diff_f = met_fba["unsold_sku_diff"]
+            pct_f = f"{met_fba['pct_sku']:.1%}"
+        else:
+            curr_t = met_t[f"{label}_sku_curr"]
+            diff_t = met_t[f"{label}_sku_diff"]
+            pct_t = f"{met_t[f'{label}_pct_sku']:.1%}" if label != "健康" else "-"
+            curr_f = met_fba[f"{label}_sku_curr"]
+            diff_f = met_fba[f"{label}_sku_diff"]
+            pct_f = f"{met_fba[f'{label}_pct_sku']:.1%}" if label != "健康" else "-"
 
-# 数量表
-df_qty = pd.DataFrame({
-    "指标": [x.replace("_库存数量","").replace("_滞销数量"," 滞销数量") for x in row_labels_qty],
-    "年份品-总库存口径": [round(y_t[x]) for x in row_labels_qty],
-    "非年份品-总库存口径": [round(n_t[x]) for x in row_labels_qty],
-    "年份品-FBA口径": [round(y_f[x]) for x in row_labels_qty],
-    "非年份品-FBA口径": [round(n_f[x]) for x in row_labels_qty]
-})
+        rows.append({
+            "分类": label,
+            f"{name_type}-总库存_当前": f"{curr_t:,}",
+            f"{name_type}-总库存_环比": f"{diff_t:+,}",
+            f"{name_type}-总库存_占比": pct_t,
+            f"{name_type}-FBA口径_当前": f"{curr_f:,}",
+            f"{name_type}-FBA口径_环比": f"{diff_f:+,}",
+            f"{name_type}-FBA口径_占比": pct_f,
+        })
+    return pd.DataFrame(rows)
 
-# 金额表
-df_amt = pd.DataFrame({
-    "指标": [x.replace("_库存金额","").replace("_滞销金额"," 滞销金额") for x in row_labels_amt],
-    "年份品-总库存口径": [round(y_t[x]) for x in row_labels_amt],
-    "非年份品-总库存口径": [round(n_t[x]) for x in row_labels_amt],
-    "年份品-FBA口径": [round(y_f[x]) for x in row_labels_amt],
-    "非年份品-FBA口径": [round(n_f[x]) for x in row_labels_amt]
-})
+df_sku_year = build_sku_table(met_year_total, met_year_fba, "年份品")
+df_sku_nonyear = build_sku_table(met_nonyear_total, met_nonyear_fba, "非年份品")
 
-# ---------------------- 6. 一行三列、无横向滑动 ----------------------
-col1, col2, col3 = st.columns(3)
+# ========== 表2：库存数量 统计表 ==========
+def build_stock_table(met_t, met_fba, name_type):
+    rows = []
+    for label in row_list:
+        if label == "全部SKU/库存/金额":
+            curr_t = met_t["curr_total_stock"]
+            diff_t = met_t["diff_total_stock"]
+            pct_t = "-"
+            curr_f = met_fba["curr_total_stock"]
+            diff_f = met_fba["diff_total_stock"]
+            pct_f = "-"
+        elif label == "滞销合计(低+中+高)":
+            curr_t = met_t["unsold_stock_curr"]
+            diff_t = met_t["unsold_stock_diff"]
+            pct_t = f"{met_t['pct_stock']:.1%}"
+            curr_f = met_fba["unsold_stock_curr"]
+            diff_f = met_fba["unsold_stock_diff"]
+            pct_f = f"{met_fba['pct_stock']:.1%}"
+        else:
+            curr_t = met_t[f"{label}_unsold_stock_curr"] if label != "健康" else met_t[f"{label}_stock_curr"]
+            diff_t = met_t[f"{label}_unsold_stock_diff"] if label != "健康" else met_t[f"{label}_stock_diff"]
+            pct_t = f"{met_t[f'{label}_pct_stock']:.1%}" if label != "健康" else "-"
 
-with col1:
-    st.markdown("#### 📊 SKU数对比")
+            curr_f = met_fba[f"{label}_unsold_stock_curr"] if label != "健康" else met_fba[f"{label}_stock_curr"]
+            diff_f = met_fba[f"{label}_unsold_stock_diff"] if label != "健康" else met_fba[f"{label}_stock_diff"]
+            pct_f = f"{met_fba[f'{label}_pct_stock']:.1%}" if label != "健康" else "-"
+
+        rows.append({
+            "分类": label,
+            f"{name_type}-总库存_当前": f"{curr_t:,}",
+            f"{name_type}-总库存_环比": f"{diff_t:+,}",
+            f"{name_type}-总库存_占比": pct_t,
+            f"{name_type}-FBA口径_当前": f"{curr_f:,}",
+            f"{name_type}-FBA口径_环比": f"{diff_f:+,}",
+            f"{name_type}-FBA口径_占比": pct_f,
+        })
+    return pd.DataFrame(rows)
+
+df_stock_year = build_stock_table(met_year_total, met_year_fba, "年份品")
+df_stock_nonyear = build_stock_table(met_nonyear_total, met_nonyear_fba, "非年份品")
+
+# ========== 表3：库存金额 统计表 ==========
+def build_amt_table(met_t, met_fba, name_type):
+    rows = []
+    for label in row_list:
+        if label == "全部SKU/库存/金额":
+            curr_t = met_t["curr_total_amt"]
+            diff_t = met_t["diff_total_amt"]
+            pct_t = "-"
+            curr_f = met_fba["curr_total_amt"]
+            diff_f = met_fba["diff_total_amt"]
+            pct_f = "-"
+        elif label == "滞销合计(低+中+高)":
+            curr_t = met_t["unsold_amt_curr"]
+            diff_t = met_t["unsold_amt_diff"]
+            pct_t = f"{met_t['pct_amt']:.1%}"
+            curr_f = met_fba["unsold_amt_curr"]
+            diff_f = met_fba["unsold_amt_diff"]
+            pct_f = f"{met_fba['pct_amt']:.1%}"
+        else:
+            curr_t = met_t[f"{label}_unsold_amt_curr"] if label != "健康" else met_t[f"{label}_amt_curr"]
+            diff_t = met_t[f"{label}_unsold_amt_diff"] if label != "健康" else met_t[f"{label}_amt_diff"]
+            pct_t = f"{met_t[f'{label}_pct_amt']:.1%}" if label != "健康" else "-"
+
+            curr_f = met_fba[f"{label}_unsold_amt_curr"] if label != "健康" else met_fba[f"{label}_amt_curr"]
+            diff_f = met_fba[f"{label}_unsold_amt_diff"] if label != "健康" else met_fba[f"{label}_amt_diff"]
+            pct_f = f"{met_fba[f'{label}_pct_amt']:.1%}" if label != "健康" else "-"
+
+        rows.append({
+            "分类": label,
+            f"{name_type}-总库存_当前": f"{curr_t:,}",
+            f"{name_type}-总库存_环比": f"{diff_t:+,}",
+            f"{name_type}-总库存_占比": pct_t,
+            f"{name_type}-FBA口径_当前": f"{curr_f:,}",
+            f"{name_type}-FBA口径_环比": f"{diff_f:+,}",
+            f"{name_type}-FBA口径_占比": pct_f,
+        })
+    return pd.DataFrame(rows)
+
+df_amt_year = build_amt_table(met_year_total, met_year_fba, "年份品")
+df_amt_nonyear = build_amt_table(met_nonyear_total, met_nonyear_fba, "非年份品")
+
+# -------------------------- 4. 页面布局：一行三列 + 固定列宽 无横向滚动 --------------------------
+# 先展示 年份品 三张表
+st.markdown("### 📅 年份品 综合拆解表")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.markdown("#### 📊 SKU 明细（含环比/占比）")
     st.dataframe(
-        df_sku,
+        df_sku_year,
         use_container_width=True,
         hide_index=True,
-        height=350
+        height=320,
+        column_config={"分类": st.column_config.TextColumn(width="small")}
+    )
+with c2:
+    st.markdown("#### 📦 库存数量明细（含环比/占比）")
+    st.dataframe(
+        df_stock_year,
+        use_container_width=True,
+        hide_index=True,
+        height=320,
+        column_config={"分类": st.column_config.TextColumn(width="small")}
+    )
+with c3:
+    st.markdown("#### 💰 库存金额明细（含环比/占比）")
+    st.dataframe(
+        df_amt_year,
+        use_container_width=True,
+        hide_index=True,
+        height=320,
+        column_config={"分类": st.column_config.TextColumn(width="small")}
     )
 
-with col2:
-    st.markdown("#### 📦 库存数量对比")
-    st.dataframe(
-        df_qty,
-        use_container_width=True,
-        hide_index=True,
-        height=350
-    )
+st.divider()
 
-with col3:
-    st.markdown("#### 💰 库存金额对比")
+# 再展示 非年份品 三张表
+st.markdown("### 📦 非年份品 综合拆解表")
+c4, c5, c6 = st.columns(3)
+with c4:
+    st.markdown("#### 📊 SKU 明细（含环比/占比）")
     st.dataframe(
-        df_amt,
+        df_sku_nonyear,
         use_container_width=True,
         hide_index=True,
-        height=350
+        height=320,
+        column_config={"分类": st.column_config.TextColumn(width="small")}
+    )
+with c5:
+    st.markdown("#### 📦 库存数量明细（含环比/占比）")
+    st.dataframe(
+        df_stock_nonyear,
+        use_container_width=True,
+        hide_index=True,
+        height=320,
+        column_config={"分类": st.column_config.TextColumn(width="small")}
+    )
+with c6:
+    st.markdown("#### 💰 库存金额明细（含环比/占比）")
+    st.dataframe(
+        df_amt_nonyear,
+        use_container_width=True,
+        hide_index=True,
+        height=320,
+        column_config={"分类": st.column_config.TextColumn(width="small")}
     )
 
 

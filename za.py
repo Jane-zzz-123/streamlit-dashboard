@@ -1397,9 +1397,6 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
     df_target[col_list] = df_target.apply(alloc_row, axis=1)
     return df_target
 
-# ===================== 【关键修正】FBA专属分摊函数（严格对齐扣减顺序） =====================
-# ===================== 【修复后 FBA专属分摊函数】 =====================
-# ===================== 【按你逻辑重写的FBA分摊函数】 =====================
 def alloc_qty_fba_correct(df_target):
     def alloc_row(row):
         # 1. 读取原始基础数据（全部只读，不污染原列）
@@ -1455,8 +1452,8 @@ def alloc_qty_fba_correct(df_target):
         # FBA 扣 年货前采购
         fba_pre = remain_fba
 
-        # 返回顺序：年货前、年货、年前、年后（和你原有字段顺序严格对齐）
-        return pd.Series([fba_pre, fba_goods, fba_before, fba_pre])
+        # ========== 唯一修复：最后一项改为 fba_after ==========
+        return pd.Series([fba_pre, fba_goods, fba_before, fba_after])
 
     # FBA对应字段列
     fba_cols = [

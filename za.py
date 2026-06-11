@@ -1580,7 +1580,7 @@ pct_of_pur_before_total = safe_pct(curr_sum_total["before_qty"], total_pur_befor
 pct_of_pur_after_total = safe_pct(curr_sum_total["after_qty"], total_pur_after)
 
 # -------- FBA占比 --------
-total_curr_qty_fba = curr_sum_fba["pre_qty"] + curr_sum_fba["goods_qty"] + curr_sum_fba["before_qty"] + curr_sum_fba
+total_curr_qty_fba = curr_sum_fba["pre_qty"] + curr_sum_fba["goods_qty"] + curr_sum_fba["before_qty"] + curr_sum_fba["after_qty"]
 pct_pre_fba = safe_pct(curr_sum_fba["pre_qty"], total_curr_qty_fba)
 pct_goods_fba = safe_pct(curr_sum_fba["goods_qty"], total_curr_qty_fba)
 pct_before_fba = safe_pct(curr_sum_fba["before_qty"], total_curr_qty_fba)

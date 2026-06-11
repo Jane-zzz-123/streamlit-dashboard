@@ -1397,19 +1397,16 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
     df_target[col_list] = df_target.apply(alloc_row, axis=1)
     return df_target
 
-
-# ===================== 【最终版FBA分摊函数】严格按你的逻辑 =====================
-# ===================== 【最终稳定版FBA分摊函数】 =====================
+# ===================== FBA分摊函数（修复稳定版，无KeyError、无重复计算） =====================
 def alloc_qty_fba_correct(df_target):
     def alloc_row(row):
-        local_qty = row["本地库存"]
-        fba_total = row["FBA滞销数量_仅FBA"]
+        local_qty = float(row["本地库存"])
+        fba_total = float(row["FBA滞销数量_仅FBA"])
 
-        # 现在列名完全匹配：年后采购 / 年前采购 / 年货采购 / 年货前采购总库存
-        pur_after = row["年后采购"]
-        pur_before = row["年前采购"]
-        pur_goods = row["年货采购"]
-        pur_pre = row["年货前采购总库存"]
+        pur_after  = float(row["年后采购"])
+        pur_before = float(row["年前采购"])
+        pur_goods  = float(row["年货采购"])
+        pur_pre    = float(row["年货前采购总库存"])
 
         # 第一步：本地库存 年后→年前→年货→年货前 扣减
         remain_local = local_qty
@@ -1429,18 +1426,18 @@ def alloc_qty_fba_correct(df_target):
         pur_pre -= deduct
         remain_local -= deduct
 
-        # 第二步：FBA滞销数量 同顺序扣减
+        # 第二步：剩余采购量分摊FBA滞销
         remain_fba = fba_total
-        fba_after = min(remain_fba, pur_after)
+        fba_after  = min(remain_fba, pur_after)
         remain_fba -= fba_after
 
         fba_before = min(remain_fba, pur_before)
         remain_fba -= fba_before
 
-        fba_goods = min(remain_fba, pur_goods)
+        fba_goods  = min(remain_fba, pur_goods)
         remain_fba -= fba_goods
 
-        fba_pre = remain_fba
+        fba_pre    = remain_fba
 
         # 返回顺序：年货前、年货、年前、年后
         return pd.Series([fba_pre, fba_goods, fba_before, fba_after])
@@ -1453,31 +1450,6 @@ def alloc_qty_fba_correct(df_target):
     ]
     df_target[fba_cols] = df_target.apply(alloc_row, axis=1)
     return df_target
-
-
-# ===================== 【关键】调用分摊函数 =====================
-# 必须在 df_curr / df_prev 生成后，渲染看板前调用
-df_merge_curr = alloc_qty_fba_correct(df_curr)
-df_merge_prev = alloc_qty_fba_correct(df_prev)
-
-# ===================== 【校验代码】必须加在这里 =====================
-st.subheader("🔍 分摊后校验")
-# 检查字段是否创建成功
-required_cols = ["年货前采购滞销数量_fba", "年货采购滞销数量_fba", "年前采购滞销数量_fba", "年后采购滞销数量_fba"]
-missing_cols = [col for col in required_cols if col not in df_merge_curr.columns]
-if missing_cols:
-    st.error(f"错误：缺少字段 {missing_cols}")
-else:
-    # 字段创建成功，进行合计校验
-    df_merge_curr["FBA拆分后合计校验"] = (
-            df_merge_curr["年货前采购滞销数量_fba"]
-            + df_merge_curr["年货采购滞销数量_fba"]
-            + df_merge_curr["年前采购滞销数量_fba"]
-            + df_merge_curr["年后采购滞销数量_fba"]
-    )
-    st.write(f"原始FBA滞销总量：{df_merge_curr['FBA滞销数量_仅FBA'].sum():,.2f}")
-    st.write(f"四项拆分后总和：{df_merge_curr['FBA拆分后合计校验'].sum():,.2f}")
-    st.write(f"单条不匹配行数：{(df_merge_curr['FBA拆分后合计校验'] != df_merge_curr['FBA滞销数量_仅FBA']).sum()}")
 
 # ===================== 5. 金额计算函数（两套规则） =====================
 def calc_amt_total(row):
@@ -1541,11 +1513,28 @@ amt_cols_total = [
 df_merge_curr[amt_cols_total] = df_merge_curr.apply(calc_amt_total, axis=1)
 df_merge_prev[amt_cols_total] = df_merge_prev.apply(calc_amt_total, axis=1)
 
-# ===================== 【重点修改】7. FBA维度 计算（替换为修正后的函数） =====================
+# ===================== 7. FBA维度 分摊（仅调用一次，禁止重复） =====================
 df_merge_curr = alloc_qty_fba_correct(df_merge_curr)
 df_merge_prev = alloc_qty_fba_correct(df_merge_prev)
 
-# FBA金额
+# ===================== 【校验代码】 =====================
+st.subheader("🔍 分摊后校验")
+required_cols = ["年货前采购滞销数量_fba", "年货采购滞销数量_fba", "年前采购滞销数量_fba", "年后采购滞销数量_fba"]
+missing_cols = [col for col in required_cols if col not in df_merge_curr.columns]
+if missing_cols:
+    st.error(f"错误：缺少字段 {missing_cols}")
+else:
+    df_merge_curr["FBA拆分后合计校验"] = (
+            df_merge_curr["年货前采购滞销数量_fba"]
+            + df_merge_curr["年货采购滞销数量_fba"]
+            + df_merge_curr["年前采购滞销数量_fba"]
+            + df_merge_curr["年后采购滞销数量_fba"]
+    )
+    st.write(f"原始FBA滞销总量：{df_merge_curr['FBA滞销数量_仅FBA'].sum():,.2f}")
+    st.write(f"四项拆分后总和：{df_merge_curr['FBA拆分后合计校验'].sum():,.2f}")
+    st.write(f"单条不匹配行数：{(df_merge_curr['FBA拆分后合计校验'] != df_merge_curr['FBA滞销数量_仅FBA']).sum()}")
+
+# ===================== 8. FBA金额计算 =====================
 amt_cols_fba = [
     "年货前采购滞销金额_fba",
     "年货采购滞销金额_fba",
@@ -1555,7 +1544,7 @@ amt_cols_fba = [
 df_merge_curr[amt_cols_fba] = df_merge_curr.apply(calc_amt_fba, axis=1)
 df_merge_prev[amt_cols_fba] = df_merge_prev.apply(calc_amt_fba, axis=1)
 
-# ===================== 8. 汇总函数 =====================
+# ===================== 9. 汇总函数 =====================
 def sum_data(df, suffix):
     return {
         "pre_qty": int(df[f"年货前采购滞销数量{suffix}"].sum()),
@@ -1609,7 +1598,7 @@ pct_of_pur_goods_fba = safe_pct(curr_sum_fba["goods_qty"], total_pur_year)
 pct_of_pur_before_fba = safe_pct(curr_sum_fba["before_qty"], total_pur_before)
 pct_of_pur_after_fba = safe_pct(curr_sum_fba["after_qty"], total_pur_after)
 
-# ===================== 9. 环比格式化 =====================
+# ===================== 10. 环比格式化 =====================
 def fmt_num_curr(curr, prev):
     diff = curr - prev
     if diff > 0:
@@ -1628,7 +1617,7 @@ def fmt_amt_curr(curr, prev):
     else:
         return f"{curr:,.2f}", '<span style="color:#666">持平</span>'
 
-# ===================== 10. 页面渲染 =====================
+# ===================== 11. 页面渲染 =====================
 # 第一组：总库存（本地+FBA）
 st.markdown("### 📊 维度一：总库存（本地 + FBA+AWD在途）滞销来源")
 c1, c2, c3, c4 = st.columns(4)

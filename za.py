@@ -124,7 +124,7 @@ def classify_risk_and_unsold(df, year_option, target_date):
     is_year = df["是否年份"].astype(str).str.strip() == "是"
 
     # ---------- 1. 基准天数 ----------
-    target_days_common = 100
+    target_days_common = 120
     target_days_year = (target_date - df["时间"]).dt.days  # 到2026-10-31的天数
     df["目标基准天数"] = np.where(
         (is_year) & (year_option == "按照清库存口径（预计售罄时间）"),

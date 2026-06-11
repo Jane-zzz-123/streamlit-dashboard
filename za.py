@@ -1412,21 +1412,24 @@ def calc_amt_total(row):
     qty_before = row["年前采购滞销数量_total"]
     qty_after = row["年后采购滞销数量_total"]
 
-    remain_local = local_total
-    def calc_single(qty):
+    # 为了避免 nonlocal 问题，每次调用都从本地库存从头扣减
+    def calc_single(qty, remain_local_ref):
         if qty <= 0:
             return 0
-        use_local = min(qty, remain_local)
+        use_local = min(qty, remain_local_ref[0])
         use_fba = qty - use_local
-        remain_local -= use_local
+        remain_local_ref[0] -= use_local
         return round(use_local * cost + use_fba * (cost + freight), 2)
 
-    return pd.Series([
-        calc_single(qty_pre),
-        calc_single(qty_goods),
-        calc_single(qty_before),
-        calc_single(qty_after)
-    ])
+    # 用列表模拟可变对象，实现“状态传递”
+    remain_local = [local_total]
+
+    amt_after = calc_single(qty_after, remain_local)
+    amt_before = calc_single(qty_before, remain_local)
+    amt_goods = calc_single(qty_goods, remain_local)
+    amt_pre = calc_single(qty_pre, remain_local)
+
+    return pd.Series([amt_pre, amt_goods, amt_before, amt_after])
 
 def calc_amt_fba(row):
     """FBA口径：纯海外库存，统一 成本+头程"""

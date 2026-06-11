@@ -224,10 +224,18 @@ def classify_risk_and_unsold(df, year_option, target_date):
 
     df["滞销风险等级_FBA"] = risk_fba
     unhealthy_fba = df["滞销风险等级_FBA"] != "健康"
-
+    # ---------- 1. 基准天数 ----------
+    target_days_common1 = 90
+    target_days_year = (target_date - df["时间"]).dt.days  # 到2026-10-31的天数
+    df["目标基准天数1"] = np.where(
+        (is_year) & (year_option == "按照清库存口径（预计售罄时间）"),
+        target_days_year,
+        target_days_common1
+    )
+    base1 = df["目标基准天数1"]
     df["FBA滞销数量_仅FBA"] = np.where(
         unhealthy_fba,
-        (df["FBA+AWD+在途库存"] - df["日均"] * base).clip(lower=0).round(2),
+        (df["FBA+AWD+在途库存"] - df["日均"] * base1).clip(lower=0).round(2),
         0
     )
     df["FBA滞销金额_仅FBA"] = (df["FBA滞销数量_仅FBA"] * (df["采购成本"] + df["头程费用"])).round(2)

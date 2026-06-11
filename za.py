@@ -1399,41 +1399,50 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
 
 # ===================== 【关键修正】FBA专属分摊函数（严格对齐扣减顺序） =====================
 # ===================== 【修复后 FBA专属分摊函数】 =====================
-def alloc_qty_fba_correct(df_target):
+# ===================== 【按你逻辑重写的FBA分摊函数】 =====================
+def alloc_qty_fba_by_your_logic(df_target):
     """
-    修复点：每行独立使用采购副本，不修改原始字段
-    规则：本地 → FBA 均按 年后→年前→年货→年货前 顺序扣减
+    严格按你的逻辑实现：
+    1. 先扣本地库存（年后→年前→年货→年货前）
+    2. 再用FBA滞销量分配剩余采购量（同顺序）
     """
+
     def alloc_row(row):
+        # 1. 读取原始数据（只读，不修改）
         local_stock = row["本地库存"]
         fba_unsold = row["FBA滞销数量_仅FBA"]
-
-        # 关键：每行单独新建副本，绝对不修改原始采购值
+        # 采购量副本，扣减本地库存用
         pur_after = row["年后采购"]
         pur_before = row["年前采购"]
         pur_goods = row["年货采购"]
         pur_pre = row["年货前采购总库存"]
 
-        # 第一步：扣减本地库存
+        # -------- 第一步：按顺序扣减本地库存（年后→年前→年货→年货前） --------
         remain_local = local_stock
+
+        # 年后采购扣本地
         deduct_after_local = min(remain_local, pur_after)
         pur_after -= deduct_after_local
         remain_local -= deduct_after_local
 
+        # 年前采购扣本地
         deduct_before_local = min(remain_local, pur_before)
         pur_before -= deduct_before_local
         remain_local -= deduct_before_local
 
+        # 年货采购扣本地
         deduct_goods_local = min(remain_local, pur_goods)
         pur_goods -= deduct_goods_local
         remain_local -= deduct_goods_local
 
+        # 年货前采购扣本地
         deduct_pre_local = min(remain_local, pur_pre)
         pur_pre -= deduct_pre_local
         remain_local -= deduct_pre_local
 
-        # 第二步：扣减FBA滞销数量
+        # -------- 第二步：按顺序分配FBA滞销量（同顺序） --------
         remain_fba = fba_unsold
+
         deduct_after_fba = min(remain_fba, pur_after)
         remain_fba -= deduct_after_fba
 
@@ -1445,9 +1454,10 @@ def alloc_qty_fba_correct(df_target):
 
         deduct_pre_fba = remain_fba
 
-        # 返回顺序：年货前、年货、年前、年后（与原有字段对齐）
+        # 返回顺序：年货前、年货、年前、年后（和你总库存口径的字段顺序一致）
         return pd.Series([deduct_pre_fba, deduct_goods_fba, deduct_before_fba, deduct_after_fba])
 
+    # 定义FBA字段列
     fba_cols = [
         "年货前采购滞销数量_fba",
         "年货采购滞销数量_fba",
@@ -1520,8 +1530,8 @@ df_merge_curr[amt_cols_total] = df_merge_curr.apply(calc_amt_total, axis=1)
 df_merge_prev[amt_cols_total] = df_merge_prev.apply(calc_amt_total, axis=1)
 
 # ===================== 【重点修改】7. FBA维度 计算（替换为修正后的函数） =====================
-df_merge_curr = alloc_qty_fba_correct(df_merge_curr)
-df_merge_prev = alloc_qty_fba_correct(df_merge_prev)
+df_merge_curr = alloc_qty_fba_by_your_logic(df_merge_curr)
+df_merge_prev = alloc_qty_fba_by_your_logic(df_merge_prev)
 
 # FBA金额
 amt_cols_fba = [

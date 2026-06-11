@@ -1142,14 +1142,15 @@ met_nonyear_fba = get_segment_metrics(
     unsold_amt_col="FBA滞销金额_仅FBA"
 )
 
-# 格式化单元格（和你示例一致：数值（占比） ↑/↓ 差值）
+# 格式化单元格并存储差值，方便后续上色
 def format_cell(val, diff, pct=None, unit=""):
     arrow = "↑" if diff >= 0 else "↓"
     diff_str = f"{arrow}{diff:+d}".replace("+", "")
     if pct is not None:
-        return f"{val:,}{unit} ({pct:.1%}) {diff_str}"
+        text = f"{val:,}{unit} ({pct:.1%}) {diff_str}"
     else:
-        return f"{val:,}{unit} {diff_str}"
+        text = f"{val:,}{unit} {diff_str}"
+    return text, diff  # 同时返回文本和差值
 
 row_list = [
     "全部",
@@ -1165,22 +1166,31 @@ def build_table(m_year, m_nonyear, unit=""):
     rows = []
     for lab in row_list:
         if lab == "全部":
-            y_cell = format_cell(m_year["curr_total_sku"], m_year["diff_total_sku"], unit=unit) if unit==" 个" else format_cell(m_year["curr_total_stock"], m_year["diff_total_stock"], unit=unit) if unit==" 件" else format_cell(m_year["curr_total_amt"], m_year["diff_total_amt"], unit=unit)
-            ny_cell = format_cell(m_nonyear["curr_total_sku"], m_nonyear["diff_total_sku"], unit=unit) if unit==" 个" else format_cell(m_nonyear["curr_total_stock"], m_nonyear["diff_total_stock"], unit=unit) if unit==" 件" else format_cell(m_nonyear["curr_total_amt"], m_nonyear["diff_total_amt"], unit=unit)
+            if unit == " 个":
+                y_text, y_diff = format_cell(m_year["curr_total_sku"], m_year["diff_total_sku"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["curr_total_sku"], m_nonyear["diff_total_sku"], unit=unit)
+            elif unit == " 件":
+                y_text, y_diff = format_cell(m_year["curr_total_stock"], m_year["diff_total_stock"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["curr_total_stock"], m_nonyear["diff_total_stock"], unit=unit)
+            else:
+                y_text, y_diff = format_cell(m_year["curr_total_amt"], m_year["diff_total_amt"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["curr_total_amt"], m_nonyear["diff_total_amt"], unit=unit)
+
         elif lab == "滞销合计(低+中+高)":
             if unit == " 个":
-                y_cell = format_cell(m_year["unsold_sku_curr"], m_year["unsold_sku_diff"], m_year["pct_sku"], unit=unit)
-                ny_cell = format_cell(m_nonyear["unsold_sku_curr"], m_nonyear["unsold_sku_diff"], m_nonyear["pct_sku"], unit=unit)
+                y_text, y_diff = format_cell(m_year["unsold_sku_curr"], m_year["unsold_sku_diff"], m_year["pct_sku"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["unsold_sku_curr"], m_nonyear["unsold_sku_diff"], m_nonyear["pct_sku"], unit=unit)
             elif unit == " 件":
-                y_cell = format_cell(m_year["unsold_stock_curr"], m_year["unsold_stock_diff"], m_year["pct_stock"], unit=unit)
-                ny_cell = format_cell(m_nonyear["unsold_stock_curr"], m_nonyear["unsold_stock_diff"], m_nonyear["pct_stock"], unit=unit)
+                y_text, y_diff = format_cell(m_year["unsold_stock_curr"], m_year["unsold_stock_diff"], m_year["pct_stock"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["unsold_stock_curr"], m_nonyear["unsold_stock_diff"], m_nonyear["pct_stock"], unit=unit)
             else:
-                y_cell = format_cell(m_year["unsold_amt_curr"], m_year["unsold_amt_diff"], m_year["pct_amt"], unit=unit)
-                ny_cell = format_cell(m_nonyear["unsold_amt_curr"], m_nonyear["unsold_amt_diff"], m_nonyear["pct_amt"], unit=unit)
+                y_text, y_diff = format_cell(m_year["unsold_amt_curr"], m_year["unsold_amt_diff"], m_year["pct_amt"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["unsold_amt_curr"], m_nonyear["unsold_amt_diff"], m_nonyear["pct_amt"], unit=unit)
+
         else:
             if unit == " 个":
-                y_cell = format_cell(m_year[f"{lab}_sku_curr"], m_year[f"{lab}_sku_diff"], m_year[f"{lab}_pct_sku"] if lab!="健康" else None, unit=unit)
-                ny_cell = format_cell(m_nonyear[f"{lab}_sku_curr"], m_nonyear[f"{lab}_sku_diff"], m_nonyear[f"{lab}_pct_sku"] if lab!="健康" else None, unit=unit)
+                y_text, y_diff = format_cell(m_year[f"{lab}_sku_curr"], m_year[f"{lab}_sku_diff"], m_year[f"{lab}_pct_sku"] if lab!="健康" else None, unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear[f"{lab}_sku_curr"], m_nonyear[f"{lab}_sku_diff"], m_nonyear[f"{lab}_pct_sku"] if lab!="健康" else None, unit=unit)
             elif unit == " 件":
                 val_y = m_year[f"{lab}_unsold_stock_curr"] if lab!="健康" else m_year[f"{lab}_stock_curr"]
                 diff_y = m_year[f"{lab}_unsold_stock_diff"] if lab!="健康" else m_year[f"{lab}_stock_diff"]
@@ -1190,8 +1200,8 @@ def build_table(m_year, m_nonyear, unit=""):
                 diff_ny = m_nonyear[f"{lab}_unsold_stock_diff"] if lab!="健康" else m_nonyear[f"{lab}_stock_diff"]
                 pct_ny = m_nonyear[f"{lab}_pct_stock"] if lab!="健康" else None
 
-                y_cell = format_cell(val_y, diff_y, pct_y, unit=unit)
-                ny_cell = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
+                y_text, y_diff = format_cell(val_y, diff_y, pct_y, unit=unit)
+                ny_text, ny_diff = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
             else:
                 val_y = m_year[f"{lab}_unsold_amt_curr"] if lab!="健康" else m_year[f"{lab}_amt_curr"]
                 diff_y = m_year[f"{lab}_unsold_amt_diff"] if lab!="健康" else m_year[f"{lab}_amt_diff"]
@@ -1201,12 +1211,23 @@ def build_table(m_year, m_nonyear, unit=""):
                 diff_ny = m_nonyear[f"{lab}_unsold_amt_diff"] if lab!="健康" else m_nonyear[f"{lab}_amt_diff"]
                 pct_ny = m_nonyear[f"{lab}_pct_amt"] if lab!="健康" else None
 
-                y_cell = format_cell(val_y, diff_y, pct_y, unit=unit)
-                ny_cell = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
-        rows.append({"分类": lab, "年份品": y_cell, "非年份品": ny_cell})
-    return pd.DataFrame(rows)
+                y_text, y_diff = format_cell(val_y, diff_y, pct_y, unit=unit)
+                ny_text, ny_diff = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
 
-# 生成表格
+        rows.append({
+            "分类": lab,
+            "年份品": y_text,
+            "年份品_diff": y_diff,
+            "年份品_color": "red" if y_diff >= 0 else "green",
+            "非年份品": ny_text,
+            "非年份品_diff": ny_diff,
+            "非年份品_color": "red" if ny_diff >= 0 else "green"
+        })
+
+    df = pd.DataFrame(rows)
+    return df
+
+# 生成表格（包含差值和颜色信息）
 # 1. 总库存口径
 df_sku_total = build_table(met_year_total, met_nonyear_total, unit=" 个")
 df_stock_total = build_table(met_year_total, met_nonyear_total, unit=" 件")
@@ -1217,32 +1238,46 @@ df_sku_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 个")
 df_stock_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 件")
 df_amt_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 元")
 
+# 自定义颜色函数
+def color_text(val):
+    if "↑" in val:
+        return "color: red"
+    elif "↓" in val:
+        return "color: green"
+    else:
+        return ""
+
+# 渲染带颜色的表格
+def render_colored_df(df, title):
+    st.markdown(title)
+    display_df = df[["分类", "年份品", "非年份品"]].copy()
+    st.dataframe(
+        display_df.style.applymap(color_text, subset=["年份品", "非年份品"]),
+        use_container_width=True,
+        hide_index=True,
+        height=320
+    )
+
 # 渲染页面：先总库存口径，再FBA口径，每块里一行三列
 st.markdown("### 📦 总库存口径")
 col1, col2, col3 = st.columns(3)
 with col1:
-    st.markdown("#### 📊 SKU 统计（年份品/非年份品）")
-    st.dataframe(df_sku_total, use_container_width=True, hide_index=True, height=320)
+    render_colored_df(df_sku_total, "#### 📊 SKU 统计（年份品/非年份品）")
 with col2:
-    st.markdown("#### 📦 库存数量统计（年份品/非年份品）")
-    st.dataframe(df_stock_total, use_container_width=True, hide_index=True, height=320)
+    render_colored_df(df_stock_total, "#### 📦 库存数量统计（年份品/非年份品）")
 with col3:
-    st.markdown("#### 💰 库存金额统计（年份品/非年份品）")
-    st.dataframe(df_amt_total, use_container_width=True, hide_index=True, height=320)
+    render_colored_df(df_amt_total, "#### 💰 库存金额统计（年份品/非年份品）")
 
 st.divider()
 
 st.markdown("### 🚀 FBA+AWD+在途口径")
 col4, col5, col6 = st.columns(3)
 with col4:
-    st.markdown("#### 📊 SKU 统计（年份品/非年份品）")
-    st.dataframe(df_sku_fba, use_container_width=True, hide_index=True, height=320)
+    render_colored_df(df_sku_fba, "#### 📊 SKU 统计（年份品/非年份品）")
 with col5:
-    st.markdown("#### 📦 库存数量统计（年份品/非年份品）")
-    st.dataframe(df_stock_fba, use_container_width=True, hide_index=True, height=320)
+    render_colored_df(df_stock_fba, "#### 📦 库存数量统计（年份品/非年份品）")
 with col6:
-    st.markdown("#### 💰 库存金额统计（年份品/非年份品）")
-    st.dataframe(df_amt_fba, use_container_width=True, hide_index=True, height=320)
+    render_colored_df(df_amt_fba, "#### 💰 库存金额统计（年份品/非年份品）")
 
 
 

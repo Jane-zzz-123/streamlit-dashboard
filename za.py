@@ -1226,10 +1226,10 @@ def build_table(m_year, m_nonyear, unit=""):
             "分类": lab,
             "年份品": y_text,
             "年份品_diff": y_diff,
-            "年份品_color": "red" if y_diff >= 0 else "green",
+            "年份品_color": "red" if y_diff > 0 else "green" if y_diff < 0 else None,
             "非年份品": ny_text,
             "非年份品_diff": ny_diff,
-            "非年份品_color": "red" if ny_diff >= 0 else "green"
+            "非年份品_color": "red" if ny_diff > 0 else "green" if ny_diff < 0 else None
         })
 
     df = pd.DataFrame(rows)
@@ -1246,9 +1246,11 @@ df_sku_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 个")
 df_stock_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 件")
 df_amt_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 元")
 
-# 自定义颜色函数
+# 自定义颜色函数（优化版：差值为0不上色）
 def color_text(val):
-    if "↑" in val:
+    if "↑0" in val or "↓0" in val:
+        return ""  # 差值为0，保持默认黑色
+    elif "↑" in val:
         return "color: red"
     elif "↓" in val:
         return "color: green"

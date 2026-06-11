@@ -261,7 +261,20 @@ if len(time_list) >= 2:
 
 df_curr = df_merge[df_merge["年月"] == sel_month].copy()
 df_prev = df_merge[df_merge["年月"] == prev_month].copy()
+# ===================== ✅ 在这里加源头校验代码！ =====================
+st.subheader("🔍 源头字段校验：FBA滞销数量_仅FBA 原始合计")
+curr_fba_total = df_curr["FBA滞销数量_仅FBA"].sum()
+prev_fba_total = df_prev["FBA滞销数量_仅FBA"].sum()
 
+st.write(f"当前月（{sel_month}）FBA滞销数量_仅FBA 原始总和：**{curr_fba_total:,.2f}**")
+st.write(f"目标预期值：107,804")
+st.write(f"差额：{curr_fba_total - 107804:,.2f}")
+
+# 同时校验拆分前的总库存口径，方便对比
+st.write("---")
+curr_total_unsale = df_curr["总滞销库存"].sum()
+st.write(f"当前月 总滞销库存 原始总和：{curr_total_unsale:,.2f}")
+st.write(f"FBA滞销数量_仅FBA 占比：{curr_fba_total / curr_total_unsale:.1%}")
 # ===================== 指标计算 =====================
 def calc_metrics(df_curr, df_prev, risk_name):
     # 定义风险等级列表

@@ -1296,7 +1296,7 @@ st.subheader("📦 滞销库存来源分析（按采购类型）")
 
 # ===================== 1. 基础配置 =====================
 stock_date = pd.to_datetime(df_curr["时间"].iloc[0])
-risk_unsale = ["低滞销风险", "中滞销风险"]
+risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
 df_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_unsale)].copy()
 
 # 上月滞销数据
@@ -1370,7 +1370,7 @@ df_merge_all_prev["年货前采购总库存"] = (
 df_merge_curr = df_merge_all[df_merge_all["MSKU"].isin(df_unsale["MSKU"])].copy()
 df_merge_prev = df_merge_all_prev[df_merge_all_prev["MSKU"].isin(df_unsale_prev["MSKU"])].copy()
 
-# ===================== 4. 通用数量分摊函数（总库存专用：年后→年前→年货→年货前） =====================
+# ===================== 4. 通用数量分摊函数（年后→年前→年货→年货前） =====================
 def alloc_qty_by_purchase(df_target, qty_col, suffix):
     """总库存口径分摊，原有逻辑不变"""
     def alloc_row(row):
@@ -1397,57 +1397,63 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
     df_target[col_list] = df_target.apply(alloc_row, axis=1)
     return df_target
 
-# ===================== 【重点新增】FBA专属分摊函数（核心修复） =====================
-def alloc_qty_fba_full(df_target):
+# ===================== 【关键修正】FBA专属分摊函数（严格对齐扣减顺序） =====================
+def alloc_qty_fba_correct(df_target):
     """
-    FBA口径专属分摊函数
-    规则：
-    1. 优先扣减【本地库存】，顺序：年后 → 年前 → 年货 → 年货前
-    2. 剩余滞销量，再扣减【FBA库存】，顺序同上
-    3. 输出字段：年货前/年货/年前/年后_fba
+    【100%对齐业务规则】FBA口径分摊函数
+    1. 本地库存按「年后 → 年前 → 年货 → 年货前」扣减
+    2. 剩余FBA滞销量，继续按同样顺序扣减采购量
     """
     def alloc_row(row):
-        total_unsold = row["滞销总库存"]    # 整体滞销量
-        local = row["本地库存"]             # 本地库存
-        fba_unsold = row["FBA滞销数量_仅FBA"]# FBA纯滞销量
+        # 原始数据
+        total_unsold = row["滞销总库存"]
+        local_stock = row["本地库存"]
+        fba_unsold = row["FBA滞销数量_仅FBA"]
 
-        # 四类原始采购量
+        # 四类采购量（原始值，扣减过程中会被修改）
         pur_after = row["年后采购"]
         pur_before = row["年前采购"]
         pur_goods = row["年货采购"]
         pur_pre = row["年货前采购总库存"]
 
         # -------- 第一步：扣减本地库存（固定顺序：年后→年前→年货→年货前） --------
-        remain_local = local
-        # 年后
+        remain_local = local_stock
+        # 年后采购扣减本地
         deduct_after_local = min(remain_local, pur_after)
         pur_after -= deduct_after_local
         remain_local -= deduct_after_local
-        # 年前
+        # 年前采购扣减本地
         deduct_before_local = min(remain_local, pur_before)
         pur_before -= deduct_before_local
         remain_local -= deduct_before_local
-        # 年货
+        # 年货采购扣减本地
         deduct_goods_local = min(remain_local, pur_goods)
         pur_goods -= deduct_goods_local
         remain_local -= deduct_goods_local
-        # 年货前
+        # 年货前采购扣减本地
         deduct_pre_local = min(remain_local, pur_pre)
         pur_pre -= deduct_pre_local
         remain_local -= deduct_pre_local
 
         # -------- 第二步：扣减FBA滞销量（同顺序） --------
         remain_fba = fba_unsold
-        fba_after = min(remain_fba, pur_after)
-        remain_fba -= fba_after
-        fba_before = min(remain_fba, pur_before)
-        remain_fba -= fba_before
-        fba_goods = min(remain_fba, pur_goods)
-        remain_fba -= fba_goods
-        fba_pre = remain_fba
+        # 年后采购扣减FBA
+        deduct_after_fba = min(remain_fba, pur_after)
+        pur_after -= deduct_after_fba
+        remain_fba -= deduct_after_fba
+        # 年前采购扣减FBA
+        deduct_before_fba = min(remain_fba, pur_before)
+        pur_before -= deduct_before_fba
+        remain_fba -= deduct_before_fba
+        # 年货采购扣减FBA
+        deduct_goods_fba = min(remain_fba, pur_goods)
+        pur_goods -= deduct_goods_fba
+        remain_fba -= deduct_goods_fba
+        # 年货前采购扣减FBA
+        deduct_pre_fba = remain_fba
 
-        # 返回顺序：年货前、年货、年前、年后（和原有字段顺序一致）
-        return pd.Series([fba_pre, fba_goods, fba_before, fba_after])
+        # 返回顺序：年货前、年货、年前、年后（和总库存口径字段顺序一致）
+        return pd.Series([deduct_pre_fba, deduct_goods_fba, deduct_before_fba, deduct_after_fba])
 
     # 定义FBA字段列
     fba_cols = [
@@ -1463,7 +1469,6 @@ def alloc_qty_fba_full(df_target):
 def calc_amt_total(row):
     """总库存口径：本地=成本，FBA=成本+头程"""
     local_total = row["本地库存"]
-    fba_total = row["FBA_AWD_在途库存"]
     cost = row["采购成本"]
     freight = row["头程费用"]
 
@@ -1489,7 +1494,7 @@ def calc_amt_total(row):
     return pd.Series([amt_pre, amt_goods, amt_before, amt_after])
 
 def calc_amt_fba(row):
-    """FBA口径：全部按 成本+头程 计价"""
+    """FBA口径：统一按 成本+头程 计价"""
     cost = row["采购成本"]
     freight = row["头程费用"]
 
@@ -1508,7 +1513,7 @@ def calc_amt_fba(row):
         calc_single(qty_after)
     ])
 
-# ===================== 6. 【1】总库存维度 计算（原逻辑不变） =====================
+# ===================== 6. 【1】总库存维度 计算 =====================
 df_merge_curr = alloc_qty_by_purchase(df_merge_curr, qty_col="滞销总库存", suffix="_total")
 df_merge_prev = alloc_qty_by_purchase(df_merge_prev, qty_col="滞销总库存", suffix="_total")
 
@@ -1522,12 +1527,11 @@ amt_cols_total = [
 df_merge_curr[amt_cols_total] = df_merge_curr.apply(calc_amt_total, axis=1)
 df_merge_prev[amt_cols_total] = df_merge_prev.apply(calc_amt_total, axis=1)
 
-# ===================== 【重点修改】7. FBA维度 计算（替换为新分摊函数） =====================
-# 移除旧的 alloc_qty_by_purchase 调用，使用专属FBA函数
-df_merge_curr = alloc_qty_fba_full(df_merge_curr)
-df_merge_prev = alloc_qty_fba_full(df_merge_prev)
+# ===================== 【重点修改】7. FBA维度 计算（替换为修正后的函数） =====================
+df_merge_curr = alloc_qty_fba_correct(df_merge_curr)
+df_merge_prev = alloc_qty_fba_correct(df_merge_prev)
 
-# FBA金额（逻辑不变）
+# FBA金额
 amt_cols_fba = [
     "年货前采购滞销金额_fba",
     "年货采购滞销金额_fba",
@@ -1546,8 +1550,8 @@ def sum_data(df, suffix):
         "after_qty": int(df[f"年后采购滞销数量{suffix}"].sum()),
         "pre_amt": round(df[f"年货前采购滞销金额{suffix}"].sum(), 2),
         "goods_amt": round(df[f"年货采购滞销金额{suffix}"].sum(), 2),
-        "before_amt": round(df[f"年前采购滞销金额{suffix}"].sum()),
-        "after_amt": round(df[f"年后采购滞销金额{suffix}"].sum()),
+        "before_amt": round(df[f"年前采购滞销金额{suffix}"].sum(), 2),
+        "after_amt": round(df[f"年后采购滞销金额{suffix}"].sum(), 2),
     }
 
 # 汇总数据
@@ -1557,7 +1561,7 @@ prev_sum_total = sum_data(df_merge_prev, suffix="_total")
 curr_sum_fba = sum_data(df_merge_curr, suffix="_fba")
 prev_sum_fba = sum_data(df_merge_prev, suffix="_fba")
 
-# 公共基础库存/采购量
+# 公共基础采购库存
 total_pre_all_stock = int(df_merge_all["年货前采购总库存"].sum())
 total_pur_year = msku_pur_curr["年货采购"].sum()
 total_pur_before = msku_pur_curr["年前采购"].sum()
@@ -1565,7 +1569,7 @@ total_pur_after = msku_pur_curr["年后采购"].sum()
 
 # 占比通用函数
 def safe_pct(val, total):
-    return val / total * 100 if total else 0
+    return val / total * 100 if total != 0 else 0
 
 # -------- 总库存占比 --------
 total_curr_qty_total = curr_sum_total["pre_qty"] + curr_sum_total["goods_qty"] + curr_sum_total["before_qty"] + curr_sum_total["after_qty"]
@@ -1604,13 +1608,13 @@ def fmt_num_curr(curr, prev):
 def fmt_amt_curr(curr, prev):
     diff = curr - prev
     if diff > 0:
-        return f"{curr:,.2f}", f'<span style="color:#d32f">↑ +{diff:,.2f}</span>'
+        return f"{curr:,.2f}", f'<span style="color:#d32f2f">↑ +{diff:,.2f}</span>'
     elif diff < 0:
         return f"{curr:,.2f}", f'<span style="color:#388e3c">↓ {diff:,.2f}</span>'
     else:
         return f"{curr:,.2f}", '<span style="color:#666">持平</span>'
 
-# ===================== 10. 页面渲染（卡片代码完全不变） =====================
+# ===================== 10. 页面渲染 =====================
 # 第一组：总库存（本地+FBA）
 st.markdown("### 📊 维度一：总库存（本地 + FBA+AWD在途）滞销来源")
 c1, c2, c3, c4 = st.columns(4)

@@ -1398,64 +1398,56 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
     return df_target
 
 # ===================== 【关键修正】FBA专属分摊函数（严格对齐扣减顺序） =====================
+# ===================== 【修复后 FBA专属分摊函数】 =====================
 def alloc_qty_fba_correct(df_target):
     """
-    【100%对齐业务规则】FBA口径分摊函数
-    1. 本地库存按「年后 → 年前 → 年货 → 年货前」扣减
-    2. 剩余FBA滞销量，继续按同样顺序扣减采购量
+    修复点：每行独立使用采购副本，不修改原始字段
+    规则：本地 → FBA 均按 年后→年前→年货→年货前 顺序扣减
     """
     def alloc_row(row):
-        # 原始数据
-        total_unsold = row["滞销总库存"]
         local_stock = row["本地库存"]
         fba_unsold = row["FBA滞销数量_仅FBA"]
 
-        # 四类采购量（原始值，扣减过程中会被修改）
+        # 关键：每行单独新建副本，绝对不修改原始采购值
         pur_after = row["年后采购"]
         pur_before = row["年前采购"]
         pur_goods = row["年货采购"]
         pur_pre = row["年货前采购总库存"]
 
-        # -------- 第一步：扣减本地库存（固定顺序：年后→年前→年货→年货前） --------
+        # 第一步：扣减本地库存
         remain_local = local_stock
-        # 年后采购扣减本地
         deduct_after_local = min(remain_local, pur_after)
         pur_after -= deduct_after_local
         remain_local -= deduct_after_local
-        # 年前采购扣减本地
+
         deduct_before_local = min(remain_local, pur_before)
         pur_before -= deduct_before_local
         remain_local -= deduct_before_local
-        # 年货采购扣减本地
+
         deduct_goods_local = min(remain_local, pur_goods)
         pur_goods -= deduct_goods_local
         remain_local -= deduct_goods_local
-        # 年货前采购扣减本地
+
         deduct_pre_local = min(remain_local, pur_pre)
         pur_pre -= deduct_pre_local
         remain_local -= deduct_pre_local
 
-        # -------- 第二步：扣减FBA滞销量（同顺序） --------
+        # 第二步：扣减FBA滞销数量
         remain_fba = fba_unsold
-        # 年后采购扣减FBA
         deduct_after_fba = min(remain_fba, pur_after)
-        pur_after -= deduct_after_fba
         remain_fba -= deduct_after_fba
-        # 年前采购扣减FBA
+
         deduct_before_fba = min(remain_fba, pur_before)
-        pur_before -= deduct_before_fba
         remain_fba -= deduct_before_fba
-        # 年货采购扣减FBA
+
         deduct_goods_fba = min(remain_fba, pur_goods)
-        pur_goods -= deduct_goods_fba
         remain_fba -= deduct_goods_fba
-        # 年货前采购扣减FBA
+
         deduct_pre_fba = remain_fba
 
-        # 返回顺序：年货前、年货、年前、年后（和总库存口径字段顺序一致）
+        # 返回顺序：年货前、年货、年前、年后（与原有字段对齐）
         return pd.Series([deduct_pre_fba, deduct_goods_fba, deduct_before_fba, deduct_after_fba])
 
-    # 定义FBA字段列
     fba_cols = [
         "年货前采购滞销数量_fba",
         "年货采购滞销数量_fba",

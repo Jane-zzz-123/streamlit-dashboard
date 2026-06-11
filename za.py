@@ -1397,19 +1397,28 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
     df_target[col_list] = df_target.apply(alloc_row, axis=1)
     return df_target
 
-def alloc_qty_fba_correct(df_target):
-    def alloc_row(row):
-        # 1. 读取原始基础数据（全部只读，不污染原列）
-        local_qty = row["本地库存"]          # 本地库存
-        fba_unsold = row["FBA滞销数量_仅FBA"]# FBA纯滞销量
 
-        # 四类原始采购（新建副本，全程只操作副本）
+# ===================== 【最终版FBA分摊函数】严格按你的逻辑 =====================
+def alloc_qty_fba_correct(df_target):
+    """
+    1. 每行独立副本，不污染任何原始数据
+    2. 第一步：用【本地库存】按「年后→年前→年货→年货前」扣减采购
+    3. 第二步：用【FBA滞销数量_仅FBA】按同顺序扣减剩余采购
+    4. 输出顺序：年货前、年货、年前、年后（与字段严格对齐）
+    """
+
+    def alloc_row(row):
+        # 1. 读取原始数据（全部只读）
+        local_qty = row["本地库存"]
+        fba_unsold = row["FBA滞销数量_仅FBA"]
+
+        # 2. 创建采购副本（关键：每行独立，绝不污染其他行）
         pur_after = row["年后采购"]
         pur_before = row["年前采购"]
         pur_goods = row["年货采购"]
         pur_pre = row["年货前采购总库存"]
 
-        # ===================== 第一步：本地库存 按 年后→年前→年货→年货前 扣采购 =====================
+        # ===================== 第一步：本地库存扣减采购 =====================
         remain_local = local_qty
 
         # 扣 年后采购
@@ -1432,9 +1441,7 @@ def alloc_qty_fba_correct(df_target):
         pur_pre -= deduct
         remain_local -= deduct
 
-        # 👉 至此：pur_after / pur_before / pur_goods / pur_pre = 剔除本地后的剩余采购
-
-        # ===================== 第二步：FBA滞销量 继续同顺序扣剩余采购 =====================
+        # ===================== 第二步：FBA滞销量扣减剩余采购 =====================
         remain_fba = fba_unsold
 
         # FBA 扣 年后采购
@@ -1452,10 +1459,10 @@ def alloc_qty_fba_correct(df_target):
         # FBA 扣 年货前采购
         fba_pre = remain_fba
 
-        # ========== 唯一修复：最后一项改为 fba_after ==========
+        # 【关键修正】返回顺序：年货前、年货、年前、年后
         return pd.Series([fba_pre, fba_goods, fba_before, fba_after])
 
-    # FBA对应字段列
+    # 字段列（与你原代码完全一致）
     fba_cols = [
         "年货前采购滞销数量_fba",
         "年货采购滞销数量_fba",

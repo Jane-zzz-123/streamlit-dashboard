@@ -1366,9 +1366,9 @@ df_merge_all_prev["年货前采购总库存"] = (
     df_merge_all_prev["总库存"] - df_merge_all_prev["年货采购"] - df_merge_all_prev["年前采购"] - df_merge_all_prev["年后采购"]
 ).clip(lower=0)
 
-# 筛选滞销SKU
-df_merge_curr = df_merge_all[df_merge_all["MSKU"].isin(df_unsale["MSKU"])].copy()
-df_merge_prev = df_merge_all_prev[df_merge_all_prev["MSKU"].isin(df_unsale_prev["MSKU"])].copy()
+# 用全量数据
+df_merge_curr = df_merge_all.copy()
+df_merge_prev = df_merge_all_prev.copy()
 
 # ===================== 4. 通用数量分摊函数（年后→年前→年货→年货前） =====================
 def alloc_qty_by_purchase(df_target, qty_col, suffix):

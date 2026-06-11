@@ -1401,23 +1401,17 @@ def alloc_qty_by_purchase(df_target, qty_col, suffix):
 # ===================== 【最终版FBA分摊函数】严格按你的逻辑 =====================
 # ===================== 【最终稳定版FBA分摊函数】 =====================
 def alloc_qty_fba_correct(df_target):
-    """
-    严格按你的逻辑：
-    1. 本地库存按「年后→年前→年货→年货前」扣减采购
-    2. FBA滞销量按同顺序扣减剩余采购
-    """
-
     def alloc_row(row):
         local_qty = row["本地库存"]
         fba_total = row["FBA滞销数量_仅FBA"]
 
-        # 每行独立副本，不污染原数据
+        # 现在列名完全匹配：年后采购 / 年前采购 / 年货采购 / 年货前采购总库存
         pur_after = row["年后采购"]
         pur_before = row["年前采购"]
         pur_goods = row["年货采购"]
         pur_pre = row["年货前采购总库存"]
 
-        # 第一步：本地库存扣减采购
+        # 第一步：本地库存 年后→年前→年货→年货前 扣减
         remain_local = local_qty
         deduct = min(remain_local, pur_after)
         pur_after -= deduct
@@ -1435,7 +1429,7 @@ def alloc_qty_fba_correct(df_target):
         pur_pre -= deduct
         remain_local -= deduct
 
-        # 第二步：FBA滞销量扣减剩余采购
+        # 第二步：FBA滞销数量 同顺序扣减
         remain_fba = fba_total
         fba_after = min(remain_fba, pur_after)
         remain_fba -= fba_after
@@ -1448,10 +1442,9 @@ def alloc_qty_fba_correct(df_target):
 
         fba_pre = remain_fba
 
-        # 返回顺序：年货前、年货、年前、年后（和字段严格对应）
+        # 返回顺序：年货前、年货、年前、年后
         return pd.Series([fba_pre, fba_goods, fba_before, fba_after])
 
-    # 定义要创建的字段
     fba_cols = [
         "年货前采购滞销数量_fba",
         "年货采购滞销数量_fba",

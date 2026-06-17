@@ -53,28 +53,34 @@ if "user_shops" not in st.session_state:
 
 
 # ===================== 【2. 登录页面逻辑】 =====================
+# ===================== 【2. 登录页面逻辑（优化版：账号下拉选择）】 =====================
 def login_page():
     st.title("🔐 库存滞销看板 - 登录")
     st.divider()
 
-    # 登录表单
-    username = st.text_input("请输入账号")
+    # 提取所有可用账号列表
+    all_user_list = list(USER_AUTH.keys())
+    # 下拉选择账号，不用手动输入
+    select_username = st.selectbox("请选择登录账号", options=["请选择账号"] + all_user_list)
+
     password = st.text_input("请输入密码", type="password")
     login_btn = st.button("登录", type="primary")
 
     if login_btn:
-        # 账号密码校验
-        if username not in USER_AUTH:
-            st.error("❌ 账号不存在，请重新输入")
+        # 判断是否选了账号
+        if select_username == "请选择账号":
+            st.error("❌ 请先选择你的登录账号")
             return
-        if USER_AUTH[username]["pwd"] != password:
+        # 账号密码校验
+        target_user = USER_AUTH[select_username]
+        if target_user["pwd"] != password:
             st.error("❌ 密码错误，请重新输入")
             return
 
         # 登录成功，写入状态
         st.session_state.login_status = True
-        st.session_state.current_user = username
-        st.session_state.user_shops = USER_AUTH[username]["shops"]
+        st.session_state.current_user = select_username
+        st.session_state.user_shops = target_user["shops"]
         st.rerun()  # 刷新页面进入看板
 
 

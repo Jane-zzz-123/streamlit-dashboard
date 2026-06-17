@@ -1789,7 +1789,7 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
 
 
 
-# ===================== 完整全套代码：三列表格+彩色环比涨跌 =====================
+# ===================== 完整全套代码：HTML表格渲染彩色环比（无span明文） =====================
 import plotly.express as px
 import plotly.io as pio
 pio.templates.default = "plotly_white"
@@ -1883,8 +1883,8 @@ def draw_single_pie(df_source, pur_name, chart_type, stock_type, color_year="#ef
     fig.update_layout(height=360)
     return fig
 
-# ========== 带彩色HTML格式化函数：红涨绿跌，持平无颜色 ==========
-def fmt_qty_color_html(curr, prev):
+# ========== HTML彩色格式化函数：红涨#d32f2f 绿跌#388e3c 持平无颜色 ==========
+def fmt_qty_html(curr, prev):
     curr_int = int(curr)
     prev_int = int(prev)
     diff = curr_int - prev_int
@@ -1895,7 +1895,7 @@ def fmt_qty_color_html(curr, prev):
     else:
         return f"{curr_int:,} 持平"
 
-def fmt_amt_color_html(curr, prev):
+def fmt_amt_html(curr, prev):
     curr_2 = round(curr, 2)
     prev_2 = round(prev, 2)
     diff = curr_2 - prev_2
@@ -1906,7 +1906,7 @@ def fmt_amt_color_html(curr, prev):
     else:
         return f"{curr_2:,.2f} 持平"
 
-# ===================== 页面渲染循环（三列表格+彩色环比） =====================
+# ===================== 页面渲染循环（HTML表格，正常渲染颜色） =====================
 st.divider()
 st.header("📦 分采购类型滞销细分（双口径 × 年份品/非年份品）")
 
@@ -1916,67 +1916,76 @@ for pur in pur_config_list:
     row_year = agg_df[agg_df["商品类型"] == "年份品"].iloc[0]
     row_non = agg_df[agg_df["商品类型"] == "非年份品"].iloc[0]
 
-    # 总库存口径合计值
+    # 合计值
     total_qty_t = row_non["qty_total"] + row_year["qty_total"]
     total_qty_t_prev = row_non["qty_total_prev"] + row_year["qty_total_prev"]
     total_amt_t = row_non["amt_total"] + row_year["amt_total"]
     total_amt_t_prev = row_non["amt_total_prev"] + row_year["amt_total_prev"]
 
-    # FBA口径合计值
     total_qty_f = row_non["qty_fba"] + row_year["qty_fba"]
     total_qty_f_prev = row_non["qty_fba_prev"] + row_year["qty_fba_prev"]
     total_amt_f = row_non["amt_fba"] + row_year["amt_fba"]
     total_amt_f_prev = row_non["amt_fba_prev"] + row_year["amt_fba_prev"]
 
-    # 构建表格行
-    table_rows = [
-        # 第一层：滞销总数量
-        {
-            "指标名称": "滞销总数量",
-            "总库存口径": fmt_qty_color_html(total_qty_t, total_qty_t_prev),
-            "FBA+AWD+在途口径": fmt_qty_color_html(total_qty_f, total_qty_f_prev)
-        },
-        {
-            "指标名称": "年份品滞销数量（占比）",
-            "总库存口径": f"{fmt_qty_color_html(row_year['qty_total'], row_year['qty_total_prev'])} 占比{safe_pct(row_year['qty_total'], total_qty_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_qty_color_html(row_year['qty_fba'], row_year['qty_fba_prev'])} 占比{safe_pct(row_year['qty_fba'], total_qty_f):.2f}%"
-        },
-        {
-            "指标名称": "非年份品滞销数量（占比）",
-            "总库存口径": f"{fmt_qty_color_html(row_non['qty_total'], row_non['qty_total_prev'])} 占比{safe_pct(row_non['qty_total'], total_qty_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_qty_color_html(row_non['qty_fba'], row_non['qty_fba_prev'])} 占比{safe_pct(row_non['qty_fba'], total_qty_f):.2f}%"
-        },
-        # 第二层：滞销总金额
-        {
-            "指标名称": "滞销总金额",
-            "总库存口径": fmt_amt_color_html(total_amt_t, total_amt_t_prev),
-            "FBA+AWD+在途口径": fmt_amt_color_html(total_amt_f, total_amt_f_prev)
-        },
-        {
-            "指标名称": "年份品滞销金额（占比）",
-            "总库存口径": f"{fmt_amt_color_html(row_year['amt_total'], row_year['amt_total_prev'])} 占比{safe_pct(row_year['amt_total'], total_amt_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_amt_color_html(row_year['amt_fba'], row_year['amt_fba_prev'])} 占比{safe_pct(row_year['amt_fba'], total_amt_f):.2f}%"
-        },
-        {
-            "指标名称": "非年份品滞销金额（占比）",
-            "总库存口径": f"{fmt_amt_color_html(row_non['amt_total'], row_non['amt_total_prev'])} 占比{safe_pct(row_non['amt_total'], total_amt_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_amt_color_html(row_non['amt_fba'], row_non['amt_fba_prev'])} 占比{safe_pct(row_non['amt_fba'], total_amt_f):.2f}%"
-        }
+    # 组装每一行单元格内容
+    rows_data = [
+        [
+            "滞销总数量",
+            fmt_qty_html(total_qty_t, total_qty_t_prev),
+            fmt_qty_html(total_qty_f, total_qty_f_prev)
+        ],
+        [
+            "年份品滞销数量（占比）",
+            f"{fmt_qty_html(row_year['qty_total'], row_year['qty_total_prev'])} 占比{safe_pct(row_year['qty_total'], total_qty_t):.2f}%",
+            f"{fmt_qty_html(row_year['qty_fba'], row_year['qty_fba_prev'])} 占比{safe_pct(row_year['qty_fba'], total_qty_f):.2f}%"
+        ],
+        [
+            "非年份品滞销数量（占比）",
+            f"{fmt_qty_html(row_non['qty_total'], row_non['qty_total_prev'])} 占比{safe_pct(row_non['qty_total'], total_qty_t):.2f}%",
+            f"{fmt_qty_html(row_non['qty_fba'], row_non['qty_fba_prev'])} 占比{safe_pct(row_non['qty_fba'], total_qty_f):.2f}%"
+        ],
+        [
+            "滞销总金额",
+            fmt_amt_html(total_amt_t, total_amt_t_prev),
+            fmt_amt_html(total_amt_f, total_amt_f_prev)
+        ],
+        [
+            "年份品滞销金额（占比）",
+            f"{fmt_amt_html(row_year['amt_total'], row_year['amt_total_prev'])} 占比{safe_pct(row_year['amt_total'], total_amt_t):.2f}%",
+            f"{fmt_amt_html(row_year['amt_fba'], row_year['amt_fba_prev'])} 占比{safe_pct(row_year['amt_fba'], total_amt_f):.2f}%"
+        ],
+        [
+            "非年份品滞销金额（占比）",
+            f"{fmt_amt_html(row_non['amt_total'], row_non['amt_total_prev'])} 占比{safe_pct(row_non['amt_total'], total_amt_t):.2f}%",
+            f"{fmt_amt_html(row_non['amt_fba'], row_non['amt_fba_prev'])} 占比{safe_pct(row_non['amt_fba'], total_amt_f):.2f}%"
+        ]
     ]
 
-    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（双口径横向对比）")
-    df_table = pd.DataFrame(table_rows)
-    # 开启HTML渲染，才能显示颜色
-    st.dataframe(
-        df_table,
-        use_container_width=True,
-        hide_index=True,
-        height=280,
-        column_config={
-            "总库存口径": st.column_config.TextColumn("总库存口径", help="红色上涨，绿色下降"),
-            "FBA+AWD+在途口径": st.column_config.TextColumn("FBA+AWD+在途口径", help="红色上涨，绿色下降")
-        }
-    )
+    # 拼接完整HTML表格字符串
+    html_table = f"""
+##### {pur['name_cn']} 滞销明细汇总（双口径横向对比）
+<table width="100%" border="1" cellpadding="8" cellspacing="0">
+<thead>
+<tr style="background:#f5f5f5">
+<th align="left">指标名称</th>
+<th align="left">总库存口径</th>
+<th align="left">FBA+AWD+在途口径</th>
+</tr>
+</thead>
+<tbody>
+"""
+    for r in rows_data:
+        html_table += f"""
+<tr>
+<td>{r[0]}</td>
+<td>{r[1]}</td>
+<td>{r[2]}</td>
+</tr>
+"""
+    html_table += "</tbody></table>"
+
+    # 使用markdown渲染HTML，支持颜色
+    st.markdown(html_table, unsafe_allow_html=True)
     st.divider()
 
     # 一行四列饼图不变
@@ -1996,7 +2005,7 @@ for pur in pur_config_list:
     st.divider()
     st.divider()
 
-# 底部MSKU明细
+# 底部MSKU明细（不变，无彩色需求）
 with st.expander("📄 全量MSKU明细：所有采购分摊数据 + 年份品标识"):
     final_show_cols = show_cols.copy()
     if "是否年份" not in final_show_cols:

@@ -2005,16 +2005,7 @@ for pur in pur_config_list:
     st.divider()
     st.divider()
 
-# 底部MSKU明细（不变，无彩色需求）
-with st.expander("📄 全量MSKU明细：所有采购分摊数据 + 年份品标识"):
-    final_show_cols = show_cols.copy()
-    if "是否年份" not in final_show_cols:
-        final_show_cols.insert(3, "是否年份")
-    st.dataframe(
-        df_merge_curr[final_show_cols].sort_values("滞销总库存", ascending=False),
-        use_container_width=True,
-        height=650
-    )
+
 
 
 

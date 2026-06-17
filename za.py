@@ -1786,12 +1786,13 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
         use_container_width=True,
         height=600
     )
-# ===================== 新增模块：按采购类型 + 年份/非年份品拆分统计 =====================
+
+# ===================== 新增模块：分四类采购独立拆分（口径×年份品双维度） =====================
 import plotly.express as px
 import plotly.io as pio
 pio.templates.default = "plotly_white"
-# ===================== 新增模块：按采购类型 + 年份/非年份品拆分统计 =====================
-# 1. 合并商品【是否年份】标识到滞销数据表（适配字段：是否年份 = 是/否）
+
+# 1. 合并商品【是否年份】标识到当月/上月数据表
 df_merge_curr = df_merge_curr.merge(
     df_curr[["MSKU", "是否年份"]].drop_duplicates("MSKU"),
     on="MSKU", how="left"
@@ -1802,169 +1803,147 @@ df_merge_prev = df_merge_prev.merge(
     on="MSKU", how="left"
 ).fillna({"是否年份": "否"})
 
-
-# 2. 通用聚合函数：按采购类型+年份品分组汇总（支持total/fba双后缀）
-def agg_by_pur_yeartype(df, suffix):
-    """
-    suffix: "_total" / "_fba"
-    返回：df_agg 分组汇总表，字段包含数量、金额
-    """
-    group_cols = ["是否年份"]
-    agg_map = {
-        f"年货前采购滞销数量{suffix}": "sum",
-        f"年货采购滞销数量{suffix}": "sum",
-        f"年前采购滞销数量{suffix}": "sum",
-        f"年后采购滞销数量{suffix}": "sum",
-        f"年货前采购滞销金额{suffix}": "sum",
-        f"年货采购滞销金额{suffix}": "sum",
-        f"年前采购滞销金额{suffix}": "sum",
-        f"年后采购滞销金额{suffix}": "sum",
+# 2. 定义4类采购配置（固定展示顺序）
+pur_config_list = [
+    {
+        "name_cn": "年货前采购",
+        "qty_total_col": "年货前采购滞销数量_total",
+        "amt_total_col": "年货前采购滞销金额_total",
+        "qty_fba_col": "年货前采购滞销数量_fba",
+        "amt_fba_col": "年货前采购滞销金额_fba",
+        "color": "#9ca3af"
+    },
+    {
+        "name_cn": "年货采购",
+        "qty_total_col": "年货采购滞销数量_total",
+        "amt_total_col": "年货采购滞销金额_total",
+        "qty_fba_col": "年货采购滞销数量_fba",
+        "amt_fba_col": "年货采购滞销金额_fba",
+        "color": "#f59e0b"
+    },
+    {
+        "name_cn": "年前采购",
+        "qty_total_col": "年前采购滞销数量_total",
+        "amt_total_col": "年前采购滞销金额_total",
+        "qty_fba_col": "年前采购滞销数量_fba",
+        "amt_fba_col": "年前采购滞销金额_fba",
+        "color": "#ef4444"
+    },
+    {
+        "name_cn": "年后采购",
+        "qty_total_col": "年后采购滞销数量_total",
+        "amt_total_col": "年后采购滞销金额_total",
+        "qty_fba_col": "年后采购滞销数量_fba",
+        "amt_fba_col": "年后采购滞销金额_fba",
+        "color": "#3b82f6"
     }
-    df_agg = df.groupby(group_cols, as_index=False).agg(agg_map)
-    # 长表转换：一行一条采购类型
-    melt_list = []
-    pur_types = [
-        ("年货前", f"年货前采购滞销数量{suffix}", f"年货前采购滞销金额{suffix}"),
-        ("年货", f"年货采购滞销数量{suffix}", f"年货采购滞销金额{suffix}"),
-        ("年前", f"年前采购滞销数量{suffix}", f"年前采购滞销金额{suffix}"),
-        ("年后", f"年后采购滞销数量{suffix}", f"年后采购滞销金额{suffix}"),
-    ]
-    for pur_name, qty_col, amt_col in pur_types:
-        temp = df_agg.copy()
-        temp["采购类型"] = pur_name
-        temp["滞销数量"] = temp[qty_col]
-        temp["滞销金额"] = temp[amt_col]
-        melt_list.append(temp[["是否年份", "采购类型", "滞销数量", "滞销金额"]])
-    df_long = pd.concat(melt_list, ignore_index=True)
-    return df_long
+]
 
+# 3. 单类采购聚合函数：按【是否年份】分组，同时取出total/fba 数量、金额当月&上月
+def agg_single_pur(df_curr, df_prev, pur_cfg):
+    # 当月聚合
+    curr_agg = df_curr.groupby("是否年份").agg(
+        qty_total=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["qty_total_col"]].sum()),
+        amt_total=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["amt_total_col"]].sum()),
+        qty_fba=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["qty_fba_col"]].sum()),
+        amt_fba=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["amt_fba_col"]].sum())
+    ).reset_index()
+    # 上月聚合
+    prev_agg = df_prev.groupby("是否年份").agg(
+        qty_total_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["qty_total_col"]].sum()),
+        amt_total_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["amt_total_col"]].sum()),
+        qty_fba_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["qty_fba_col"]].sum()),
+        amt_fba_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["amt_fba_col"]].sum())
+    ).reset_index()
+    # 合并当月上月
+    merge_df = curr_agg.merge(prev_agg, on="是否年份", how="left").fillna(0)
+    # 增加商品类型名称
+    merge_df["商品类型"] = merge_df["是否年份"].map({"是": "年份品", "否": "非年份品"})
+    return merge_df
 
-# 3. 当月、上月分别聚合
-# 总库存口径
-curr_long_total = agg_by_pur_yeartype(df_merge_curr, suffix="_total")
-prev_long_total = agg_by_pur_yeartype(df_merge_prev, suffix="_total")
-# FBA口径
-curr_long_fba = agg_by_pur_yeartype(df_merge_curr, suffix="_fba")
-prev_long_fba = agg_by_pur_yeartype(df_merge_prev, suffix="_fba")
-
-
-# 4. 合并当月+上月数据，计算环比 + 文字映射
-def merge_curr_prev_long(curr_df, prev_df):
-    merge_key = ["是否年份", "采购类型"]
-    df_all = curr_df.merge(
-        prev_df,
-        on=merge_key,
-        suffixes=("_curr", "_prev"),
-        how="left"
-    ).fillna(0)
-    # 计算差值
-    df_all["数量环比差"] = df_all["滞销数量_curr"] - df_all["滞销数量_prev"]
-    df_all["金额环比差"] = df_all["滞销金额_curr"] - df_all["滞销金额_prev"]
-    # 映射：是=年份品，否=非年份品
-    df_all["商品类型"] = df_all["是否年份"].map({"是": "年份品", "否": "非年份品"})
-    return df_all
-
-
-df_table_total = merge_curr_prev_long(curr_long_total, prev_long_total)
-df_table_fba = merge_curr_prev_long(curr_long_fba, prev_long_fba)
-
-
-# 5. 饼图绘制函数
-def draw_pie_chart(df_source, title_text, value_col="滞销数量_curr"):
+# 4. 绘制饼图通用函数（区分数量/金额、总库存/FBA口径）
+def draw_single_pie(df_source, pur_name, chart_type, stock_type, color_year="#ef4444", color_non="#666666"):
+    """
+    chart_type: qty/amt
+    stock_type: total/fba
+    """
+    val_col = f"{chart_type}_{stock_type}"
+    title_map = {
+        ("qty", "total"): f"{pur_name}｜总库存口径-滞销数量占比",
+        ("amt", "total"): f"{pur_name}｜总库存口径-滞销金额占比",
+        ("qty", "fba"): f"{pur_name}｜FBA+AWD口径-滞销数量占比",
+        ("amt", "fba"): f"{pur_name}｜FBA+AWD口径-滞销金额占比",
+    }
     fig = px.pie(
         df_source,
-        values=value_col,
-        names="采购类型",
-        title=title_text,
+        values=val_col,
+        names="商品类型",
+        title=title_map[(chart_type, stock_type)],
         hole=0.3,
         color_discrete_map={
-            "年货前": "#9ca3af",
-            "年货": "#f59e0b",
-            "年前": "#ef4444",
-            "年后": "#3b82f6"
+            "年份品": color_year,
+            "非年份品": color_non
         }
     )
-    fig.update_traces(texttemplate="%{percent:.2%}<br>%{value:,.0f}件", textposition="inside")
-    fig.update_layout(height=400)
+    fig.update_traces(texttemplate="%{percent:.2%}<br>%{value:,.0f}", textposition="inside")
+    fig.update_layout(height=380)
     return fig
 
+# ===================== 循环渲染4类采购独立模块 =====================
+st.divider()
+st.header("📦 分采购类型滞销细分（双口径 × 年份品/非年份品）")
 
-# 6. 表格渲染函数（四行采购类型，分年份/非年份）
-def render_summary_table(df_input, table_title):
-    st.subheader(table_title)
-    # 计算整体总滞销，用于求占比
-    total_all_qty = df_input["滞销数量_curr"].sum()
+for pur in pur_config_list:
+    st.subheader(f"===== {pur['name_cn']} 滞销拆解 =====")
+    # 1. 聚合当前采购的当月、上月数据
+    agg_df = agg_single_pur(df_merge_curr, df_merge_prev, pur)
+    # 2. 构建明细表（匹配你图二的层级结构）
     table_rows = []
-    pur_order = ["年货前", "年货", "年前", "年后"]
-    for pur in pur_order:
-        row_data = df_input[df_input["采购类型"] == pur].copy()
-        # 区分 年份品 / 非年份品
-        year_row = row_data[row_data["商品类型"] == "年份品"].iloc[0]
-        non_year_row = row_data[row_data["商品类型"] == "非年份品"].iloc[0]
-
-        # 格式化数量（复用原有环比样式）
-        qty_year_str, qty_year_fluc = fmt_num_curr(int(year_row["滞销数量_curr"]), int(year_row["滞销数量_prev"]))
-        qty_non_str, qty_non_fluc = fmt_num_curr(int(non_year_row["滞销数量_curr"]), int(non_year_row["滞销数量_prev"]))
-        total_pur_qty = int(year_row["滞销数量_curr"] + non_year_row["滞销数量_curr"])
-        pur_pct = safe_pct(total_pur_qty, total_all_qty)
-
-        # 格式化金额
-        amt_year_str, amt_year_fluc = fmt_amt_curr(round(year_row["滞销金额_curr"], 2),
-                                                   round(year_row["滞销金额_prev"], 2))
-        amt_non_str, amt_non_fluc = fmt_amt_curr(round(non_year_row["滞销金额_curr"], 2),
-                                                 round(non_year_row["滞销金额_prev"], 2))
-
+    for _, row in agg_df.iterrows():
+        typ = row["商品类型"]
+        # 总库存口径 数量格式化
+        qty_t_str, qty_t_fluc = fmt_num_curr(int(row["qty_total"]), int(row["qty_total_prev"]))
+        amt_t_str, amt_t_fluc = fmt_amt_curr(round(row["amt_total"],2), round(row["amt_total_prev"],2))
+        total_cell = f"件：{qty_t_str} {qty_t_fluc}<br>金额：{amt_t_str} {amt_t_fluc}"
+        # FBA口径 数量格式化
+        qty_f_str, qty_f_fluc = fmt_num_curr(int(row["qty_fba"]), int(row["qty_fba_prev"]))
+        amt_f_str, amt_f_fluc = fmt_amt_curr(round(row["amt_fba"],2), round(row["amt_fba_prev"],2))
+        fba_cell = f"件：{qty_f_str} {qty_f_fluc}<br>金额：{amt_f_str} {amt_f_fluc}"
         table_rows.append({
-            "采购类型": pur,
-            "合计滞销件数(环比)": f"{total_pur_qty:,}（整体占比{pur_pct:.2f}%）",
-            "年份品-件数(环比)": f"{qty_year_str} {qty_year_fluc}",
-            "非年份品-件数(环比)": f"{qty_non_str} {qty_non_fluc}",
-            "年份品-金额(环比)": f"{amt_year_str} {amt_year_fluc}",
-            "非年份品-金额(环比)": f"{amt_non_str} {amt_non_fluc}",
+            "商品分类": typ,
+            "总库存口径（本地+FBA+AWD+在途）": total_cell,
+            "FBA+AWD+在途口径（仅海外）": fba_cell
         })
-    df_show_table = pd.DataFrame(table_rows)
-    st.dataframe(df_show_table, use_container_width=True, hide_index=True)
+    # 渲染汇总表格
+    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（年份品/非年份品 双口径对比）")
+    st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
     st.divider()
 
+    # 3. 四饼图并排：2行2列布局
+    c_pie1, c_pie2 = st.columns(2)
+    c_pie3, c_pie4 = st.columns(2)
+    # 左1：总库存-数量
+    with c_pie1:
+        fig1 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="total", color_year=pur["color"])
+        st.plotly_chart(fig1, use_container_width=True)
+    # 左2：总库存-金额
+    with c_pie2:
+        fig2 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="total", color_year=pur["color"])
+        st.plotly_chart(fig2, use_container_width=True)
+    # 右1：FBA-数量
+    with c_pie3:
+        fig3 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="fba", color_year=pur["color"])
+        st.plotly_chart(fig3, use_container_width=True)
+    # 右2：FBA-金额
+    with c_pie4:
+        fig4 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="fba", color_year=pur["color"])
+        st.plotly_chart(fig4, use_container_width=True)
+    st.divider()
+    st.divider()
 
-# ===================== 页面渲染：总库存口径 分年份/非年份分析 =====================
-st.divider()
-st.header("📊 滞销拆分：采购类型 × 年份品/非年份品（双口径）")
-st.markdown("## 维度一：总库存口径（本地+FBA+AWD+在途）")
-# 汇总表格
-render_summary_table(df_table_total, "总库存口径 - 四类采购滞销分拆（年份品/非年份品）")
-
-# 左右两列饼图：年份品内部结构 / 非年份品内部结构
-col_pie1, col_pie2 = st.columns(2)
-with col_pie1:
-    df_pie_year = df_table_total[df_table_total["商品类型"] == "年份品"]
-    fig_year = draw_pie_chart(df_pie_year, "总库存口径｜年份品滞销-采购类型占比")
-    st.plotly_chart(fig_year, use_container_width=True)
-with col_pie2:
-    df_pie_non = df_table_total[df_table_total["商品类型"] == "非年份品"]
-    fig_non = draw_pie_chart(df_pie_non, "总库存口径｜非年份品滞销-采购类型占比")
-    st.plotly_chart(fig_non, use_container_width=True)
-
-# ===================== 页面渲染：FBA+AWD+在途口径 =====================
-st.divider()
-st.markdown("## 维度二：FBA+AWD+在途口径（仅海外库存，剔除本地仓）")
-render_summary_table(df_table_fba, "FBA口径 - 四类采购滞销分拆（年份品/非年份品）")
-
-col_pie3, col_pie4 = st.columns(2)
-with col_pie3:
-    df_pie_year_fba = df_table_fba[df_table_fba["商品类型"] == "年份品"]
-    fig_year_fba = draw_pie_chart(df_pie_year_fba, "FBA口径｜年份品滞销-采购类型占比")
-    st.plotly_chart(fig_year_fba, use_container_width=True)
-with col_pie4:
-    df_pie_non_fba = df_table_fba[df_table_fba["商品类型"] == "非年份品"]
-    fig_non_fba = draw_pie_chart(df_pie_non_fba, "FBA口径｜非年份品滞销-采购类型占比")
-    st.plotly_chart(fig_non_fba, use_container_width=True)
-
-# ===================== 明细展开：带年份品标识的完整明细表 =====================
-st.divider()
-with st.expander("📄 MSKU明细：采购类型分摊+年份品标识 全量数据"):
+# ===================== 全局MSKU明细（统一底部展开） =====================
+with st.expander("📄 全量MSKU明细：所有采购分摊数据 + 年份品标识"):
     final_show_cols = show_cols.copy()
-    # 插入【是否年份】字段到明细表格
     if "是否年份" not in final_show_cols:
         final_show_cols.insert(3, "是否年份")
     st.dataframe(
@@ -1972,6 +1951,9 @@ with st.expander("📄 MSKU明细：采购类型分摊+年份品标识 全量数
         use_container_width=True,
         height=650
     )
+
+
+
 
 
 

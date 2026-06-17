@@ -1787,7 +1787,10 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
         height=600
     )
 
-# ===================== 新增模块：分四类采购独立拆分（层级表格+一行四列饼图） =====================
+
+
+
+# ===================== 新增模块：分四类采购独立拆分（分层表格+一行四列饼图+新增占比） =====================
 import plotly.express as px
 import plotly.io as pio
 pio.templates.default = "plotly_white"
@@ -1901,43 +1904,68 @@ for pur in pur_config_list:
     row_year = agg_df[agg_df["商品类型"] == "年份品"].iloc[0]
     row_non = agg_df[agg_df["商品类型"] == "非年份品"].iloc[0]
 
-    # 封装单元格渲染函数：统一生成「数值+变色环比」字符串
-    def cell_qty_curr(curr_val, prev_val):
-        num_str, fluct_html = fmt_num_curr(int(curr_val), int(prev_val))
-        return f"{num_str} {fluct_html}"
-    def cell_amt_curr(curr_val, prev_val):
-        num_str, fluct_html = fmt_amt_curr(round(curr_val,2), round(curr_val,2))
-        return f"{num_str} {fluct_html}"
+    # ========== 计算当前采购下，总库存 / FBA口径的合计值（用于算占比） ==========
+    # 总库存口径合计
+    total_qty_total_all = row_non["qty_total"] + row_year["qty_total"]
+    total_amt_total_all = row_non["amt_total"] + row_year["amt_total"]
+    # FBA口径合计
+    total_qty_fba_all = row_non["qty_fba"] + row_year["qty_fba"]
+    total_amt_fba_all = row_non["amt_fba"] + row_year["amt_fba"]
 
-    # 2. 构建匹配图二层级的汇总表格
+    # 封装单元格渲染函数：统一生成「数值+环比+占比」完整字符串，修复金额参数BUG
+    def cell_qty_full(curr_val, prev_val, total_all):
+        num_str, fluct_html = fmt_num_curr(int(curr_val), int(prev_val))
+        pct = safe_pct(curr_val, total_all)
+        return f"{num_str} {fluct_html}<br>占比：{pct:.2f}%"
+
+    def cell_amt_full(curr_val, prev_val, total_all):
+        num_str, fluct_html = fmt_amt_curr(round(curr_val,2), round(prev_val,2))
+        pct = safe_pct(curr_val, total_all)
+        return f"{num_str} {fluct_html}<br>占比：{pct:.2f}%"
+
+    # 2. 构建完全匹配Excel分层结构的汇总表格（新增合计行、带占比）
     table_rows = [
+        # 第一层：滞销总数量 合计行
         {
-            "指标大类": "滞销数量",
-            "细分项": "非年份品滞销数量",
-            "总库存口径": cell_qty_curr(row_non["qty_total"], row_non["qty_total_prev"]),
-            "FBA+AWD+在途口径": cell_qty_curr(row_non["qty_fba"], row_non["qty_fba_prev"])
+            "指标大类": "滞销总数量",
+            "细分项": f"{pur['name_cn']}全部商品",
+            "总库存口径": f"{int(total_qty_total_all):,} <span style='color:#666'>合计</span>",
+            "FBA+AWD+在途口径": f"{int(total_qty_fba_all):,} <span style='color:#666'>合计</span>"
         },
         {
             "指标大类": "滞销数量",
-            "细分项": "年份品滞销数量",
-            "总库存口径": cell_qty_curr(row_year["qty_total"], row_year["qty_total_prev"]),
-            "FBA+AWD+在途口径": cell_qty_curr(row_year["qty_fba"], row_year["qty_fba_prev"])
+            "细分项": "非年份品数量（占比）",
+            "总库存口径": cell_qty_full(row_non["qty_total"], row_non["qty_total_prev"], total_qty_total_all),
+            "FBA+AWD+在途口径": cell_qty_full(row_non["qty_fba"], row_non["qty_fba_prev"], total_qty_fba_all)
+        },
+        {
+            "指标大类": "滞销数量",
+            "细分项": "年份品数量（占比）",
+            "总库存口径": cell_qty_full(row_year["qty_total"], row_year["qty_total_prev"], total_qty_total_all),
+            "FBA+AWD+在途口径": cell_qty_full(row_year["qty_fba"], row_year["qty_fba_prev"], total_qty_fba_all)
+        },
+        # 第二层：滞销总金额 合计行
+        {
+            "指标大类": "滞销总金额",
+            "细分项": f"{pur['name_cn']}全部商品",
+            "总库存口径": f"{round(total_amt_total_all,2):,.2f} <span style='color:#666'>合计</span>",
+            "FBA+AWD+在途口径": f"{round(total_amt_fba_all,2):,.2f} <span style='color:#666'>合计</span>"
         },
         {
             "指标大类": "滞销金额",
-            "细分项": "非年份品滞销金额",
-            "总库存口径": cell_amt_curr(row_non["amt_total"], row_non["amt_total_prev"]),
-            "FBA+AWD+在途口径": cell_amt_curr(row_non["amt_fba"], row_non["amt_fba_prev"])
+            "细分项": "非年份品金额（占比）",
+            "总库存口径": cell_amt_full(row_non["amt_total"], row_non["amt_total_prev"], total_amt_total_all),
+            "FBA+AWD+在途口径": cell_amt_full(row_non["amt_fba"], row_non["amt_fba_prev"], total_amt_fba_all)
         },
         {
             "指标大类": "滞销金额",
-            "细分项": "年份品滞销金额",
-            "总库存口径": cell_amt_curr(row_year["amt_total"], row_year["amt_total_prev"]),
-            "FBA+AWD+在途口径": cell_amt_curr(row_year["amt_fba"], row_year["amt_fba_prev"])
+            "细分项": "年份品金额（占比）",
+            "总库存口径": cell_amt_full(row_year["amt_total"], row_year["amt_total_prev"], total_amt_total_all),
+            "FBA+AWD+在途口径": cell_amt_full(row_year["amt_fba"], row_year["amt_fba_prev"], total_amt_fba_all)
         }
     ]
-    # 渲染汇总表格（完全匹配你Excel截图层级）
-    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（分层指标+双口径对比）")
+    # 渲染汇总表格（完全匹配你Excel截图分层层级，单元格内置占比+环比）
+    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（分层指标+双口径对比，含环比&内部占比）")
     st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
     st.divider()
 

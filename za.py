@@ -389,43 +389,33 @@ df_prev = df_filter[df_filter["年月"] == prev_month].copy()
 
 # ===================== 指标计算 =====================
 def calc_metrics(df_curr, df_prev, risk_name):
-    # 定义风险等级列表
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
-
     if risk_name == "整体":
-        # ========== 【修正核心】整体卡片：分别计算当前月、上月的低+中+高 ==========
         curr_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
         prev_unsale = df_prev[df_prev["滞销风险等级"].isin(risk_list)]
 
-        # 整体SKU数
         sku_c = df_curr["MSKU"].nunique()
         sku_p = df_prev["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        # 整体总库存
-        stk_c = df_curr["总库存"].sum()
-        stk_p = df_prev["总库存"].sum()
+        stk_c = float(df_curr["总库存"].sum())
+        stk_p = float(df_prev["总库存"].sum())
         stk_diff = stk_c - stk_p
 
-        # 整体总金额
-        amt_c = df_curr["总库存金额"].sum()
-        amt_p = df_prev["总库存金额"].sum()
+        amt_c = float(df_curr["总库存金额"].sum())
+        amt_p = float(df_prev["总库存金额"].sum())
         amt_diff = amt_c - amt_p
 
-        # 滞销库存
-        u_stk_c = curr_unsale["总滞销库存"].sum()
-        u_stk_p = prev_unsale["总滞销库存"].sum()
+        u_stk_c = float(curr_unsale["总滞销库存"].sum())
+        u_stk_p = float(prev_unsale["总滞销库存"].sum())
         u_stk_diff = u_stk_c - u_stk_p
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-        # 滞销金额
-        u_amt_c = curr_unsale["总滞销金额"].sum()
-        u_amt_p = prev_unsale["总滞销金额"].sum()
+        u_amt_c = float(curr_unsale["总滞销金额"].sum())
+        u_amt_p = float(prev_unsale["总滞销金额"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
-
     else:
-        # ========== 单个风险等级卡片 ==========
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
         p = df_prev[df_prev["滞销风险等级"] == risk_name]
 
@@ -433,35 +423,28 @@ def calc_metrics(df_curr, df_prev, risk_name):
         sku_p = p["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        stk_c = c["总库存"].sum()
-        stk_p = p["总库存"].sum()
+        stk_c = float(c["总库存"].sum())
+        stk_p = float(p["总库存"].sum())
         stk_diff = stk_c - stk_p
 
-        amt_c = c["总库存金额"].sum()
-        amt_p = p["总库存金额"].sum()
+        amt_c = float(c["总库存金额"].sum())
+        amt_p = float(p["总库存金额"].sum())
         amt_diff = amt_c - amt_p
 
-        u_stk_c = c["总滞销库存"].sum()
-        u_stk_p = p["总滞销库存"].sum()
+        u_stk_c = float(c["总滞销库存"].sum())
+        u_stk_p = float(p["总滞销库存"].sum())
         u_stk_diff = u_stk_c - u_stk_p
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-        u_amt_c = c["总滞销金额"].sum()
-        u_amt_p = p["总滞销金额"].sum()
+        u_amt_c = float(c["总滞销金额"].sum())
+        u_amt_p = float(p["总滞销金额"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
-
     return {
-        # SKU 指标
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
-        # 总库存 指标
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
-        # 总金额 指标
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
-        # 滞销库存 指标
-        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff,
-        "unsale_stock_pct": pct_stk,
-        # 滞销金额 指标
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
         "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
     }
 
@@ -472,6 +455,7 @@ def render_card_compact(title, m):
 
     # 数值格式化：正数红色，负数绿色
     def fmt(d):
+        d = float(d)
         return ("#e53935", f"+{d:,.0f}") if d >= 0 else ("#2e7d32", f"{d:,.0f}")
 
     # 各指标的环比颜色+符号
@@ -504,44 +488,33 @@ def render_card_compact(title, m):
 
 # ===================== 【新增】FBA+AWD+在途库存 指标计算（和总库存结构完全一样） =====================
 def calc_metrics_fba(df_curr, df_prev, risk_name):
-    # 定义风险等级列表
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
-
     if risk_name == "整体":
-        # 当前月：筛选当前月的低/中/高SKU
         curr_unsale = df_curr[df_curr["滞销风险等级_FBA"].isin(risk_list)]
-        # 上月：筛选上月的低/中/高SKU
         prev_unsale = df_prev[df_prev["滞销风险等级_FBA"].isin(risk_list)]
 
-        # 整体SKU数：当前月所有SKU
         sku_c = df_curr["MSKU"].nunique()
         sku_p = df_prev["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        # 【改成 FBA 库存】
-        stk_c = df_curr["FBA+AWD+在途库存"].sum()
-        stk_p = df_prev["FBA+AWD+在途库存"].sum()
+        stk_c = float(df_curr["FBA+AWD+在途库存"].sum())
+        stk_p = float(df_prev["FBA+AWD+在途库存"].sum())
         stk_diff = stk_c - stk_p
 
-        # 【改成 FBA 金额】
-        amt_c = df_curr["FBA金额"].sum()
-        amt_p = df_prev["FBA金额"].sum()
+        amt_c = float(df_curr["FBA金额"].sum())
+        amt_p = float(df_prev["FBA金额"].sum())
         amt_diff = amt_c - amt_p
 
-        # 【改成 FBA 滞销库存】
-        u_stk_c = curr_unsale["FBA滞销数量_仅FBA"].sum()
-        u_stk_p = prev_unsale["FBA滞销数量_仅FBA"].sum()
+        u_stk_c = float(curr_unsale["FBA滞销数量_仅FBA"].sum())
+        u_stk_p = float(prev_unsale["FBA滞销数量_仅FBA"].sum())
         u_stk_diff = u_stk_c - u_stk_p
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-        # 【改成 FBA 滞销金额】
-        u_amt_c = curr_unsale["FBA滞销金额_仅FBA"].sum()
-        u_amt_p = prev_unsale["FBA滞销金额_仅FBA"]
+        u_amt_c = float(curr_unsale["FBA滞销金额_仅FBA"].sum())
+        u_amt_p = float(prev_unsale["FBA滞销金额_仅FBA"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
-
     else:
-        # 单个风险等级：使用 FBA 风险字段
         c = df_curr[df_curr["滞销风险等级_FBA"] == risk_name]
         p = df_prev[df_prev["滞销风险等级_FBA"] == risk_name]
 
@@ -549,33 +522,28 @@ def calc_metrics_fba(df_curr, df_prev, risk_name):
         sku_p = p["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        # 【FBA 库存】
-        stk_c = c["FBA+AWD+在途库存"].sum()
-        stk_p = p["FBA+AWD+在途库存"].sum()
+        stk_c = float(c["FBA+AWD+在途库存"].sum())
+        stk_p = float(p["FBA+AWD+在途库存"].sum())
         stk_diff = stk_c - stk_p
 
-        # 【FBA 金额】
-        amt_c = c["FBA金额"].sum()
-        amt_p = p["FBA金额"].sum()
+        amt_c = float(c["FBA金额"].sum())
+        amt_p = float(p["FBA金额"].sum())
         amt_diff = amt_c - amt_p
 
-        # 【FBA 滞销】
-        u_stk_c = c["FBA滞销数量_仅FBA"].sum()
-        u_stk_p = p["FBA滞销数量_仅FBA"].sum()
+        u_stk_c = float(c["FBA滞销数量_仅FBA"].sum())
+        u_stk_p = float(p["FBA滞销数量_仅FBA"].sum())
         u_stk_diff = u_stk_c - u_stk_p
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-        u_amt_c = c["FBA滞销金额_仅FBA"].sum()
-        u_amt_p = p["FBA滞销金额_仅FBA"].sum()
+        u_amt_c = float(c["FBA滞销金额_仅FBA"].sum())
+        u_amt_p = float(p["FBA滞销金额_仅FBA"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
-
     return {
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
-        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff,
-        "unsale_stock_pct": pct_stk,
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
         "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
     }
 

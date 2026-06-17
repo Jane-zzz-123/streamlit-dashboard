@@ -1789,7 +1789,7 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
 
 
 
-# ===================== 完整全套代码：复刻Excel双层三列表格 =====================
+# ===================== 完整全套代码：三列表格+彩色环比涨跌 =====================
 import plotly.express as px
 import plotly.io as pio
 pio.templates.default = "plotly_white"
@@ -1883,30 +1883,30 @@ def draw_single_pie(df_source, pur_name, chart_type, stock_type, color_year="#ef
     fig.update_layout(height=360)
     return fig
 
-# 纯文本格式化函数（无HTML，↑↓标识涨跌）
-def fmt_qty_plain(curr, prev):
+# ========== 带彩色HTML格式化函数：红涨绿跌，持平无颜色 ==========
+def fmt_qty_color_html(curr, prev):
     curr_int = int(curr)
     prev_int = int(prev)
     diff = curr_int - prev_int
     if diff > 0:
-        return f"{curr_int:,} ↑+{diff:,}"
+        return f"{curr_int:,} <span style='color:#d32f2f'>↑+{diff:,}</span>"
     elif diff < 0:
-        return f"{curr_int:,} ↓{diff:,}"
+        return f"{curr_int:,} <span style='color:#388e3c'>↓{diff:,}</span>"
     else:
         return f"{curr_int:,} 持平"
 
-def fmt_amt_plain(curr, prev):
+def fmt_amt_color_html(curr, prev):
     curr_2 = round(curr, 2)
     prev_2 = round(prev, 2)
     diff = curr_2 - prev_2
     if diff > 0:
-        return f"{curr_2:,.2f} ↑+{diff:,.2f}"
+        return f"{curr_2:,.2f} <span style='color:#d32f2f'>↑+{diff:,.2f}</span>"
     elif diff < 0:
-        return f"{curr_2:,.2f} ↓{diff:,.2f}"
+        return f"{curr_2:,.2f} <span style='color:#388e3c'>↓{diff:,.2f}</span>"
     else:
         return f"{curr_2:,.2f} 持平"
 
-# ===================== 页面渲染循环（核心：3列表格复刻Excel样式） =====================
+# ===================== 页面渲染循环（三列表格+彩色环比） =====================
 st.divider()
 st.header("📦 分采购类型滞销细分（双口径 × 年份品/非年份品）")
 
@@ -1928,49 +1928,54 @@ for pur in pur_config_list:
     total_amt_f = row_non["amt_fba"] + row_year["amt_fba"]
     total_amt_f_prev = row_non["amt_fba_prev"] + row_year["amt_fba_prev"]
 
-    # 构建和你Excel完全一致的表格行
+    # 构建表格行
     table_rows = [
         # 第一层：滞销总数量
         {
             "指标名称": "滞销总数量",
-            "总库存口径": fmt_qty_plain(total_qty_t, total_qty_t_prev),
-            "FBA+AWD+在途口径": fmt_qty_plain(total_qty_f, total_qty_f_prev)
+            "总库存口径": fmt_qty_color_html(total_qty_t, total_qty_t_prev),
+            "FBA+AWD+在途口径": fmt_qty_color_html(total_qty_f, total_qty_f_prev)
         },
         {
-            "指标名称": "  年份品滞销数量（占比）",
-            "总库存口径": f"{fmt_qty_plain(row_year['qty_total'], row_year['qty_total_prev'])} 占比{safe_pct(row_year['qty_total'], total_qty_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_qty_plain(row_year['qty_fba'], row_year['qty_fba_prev'])} 占比{safe_pct(row_year['qty_fba'], total_qty_f):.2f}%"
+            "指标名称": "年份品滞销数量（占比）",
+            "总库存口径": f"{fmt_qty_color_html(row_year['qty_total'], row_year['qty_total_prev'])} 占比{safe_pct(row_year['qty_total'], total_qty_t):.2f}%",
+            "FBA+AWD+在途口径": f"{fmt_qty_color_html(row_year['qty_fba'], row_year['qty_fba_prev'])} 占比{safe_pct(row_year['qty_fba'], total_qty_f):.2f}%"
         },
         {
-            "指标名称": "  非年份品滞销数量（占比）",
-            "总库存口径": f"{fmt_qty_plain(row_non['qty_total'], row_non['qty_total_prev'])} 占比{safe_pct(row_non['qty_total'], total_qty_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_qty_plain(row_non['qty_fba'], row_non['qty_fba_prev'])} 占比{safe_pct(row_non['qty_fba'], total_qty_f):.2f}%"
+            "指标名称": "非年份品滞销数量（占比）",
+            "总库存口径": f"{fmt_qty_color_html(row_non['qty_total'], row_non['qty_total_prev'])} 占比{safe_pct(row_non['qty_total'], total_qty_t):.2f}%",
+            "FBA+AWD+在途口径": f"{fmt_qty_color_html(row_non['qty_fba'], row_non['qty_fba_prev'])} 占比{safe_pct(row_non['qty_fba'], total_qty_f):.2f}%"
         },
         # 第二层：滞销总金额
         {
             "指标名称": "滞销总金额",
-            "总库存口径": fmt_amt_plain(total_amt_t, total_amt_t_prev),
-            "FBA+AWD+在途口径": fmt_amt_plain(total_amt_f, total_amt_f_prev)
+            "总库存口径": fmt_amt_color_html(total_amt_t, total_amt_t_prev),
+            "FBA+AWD+在途口径": fmt_amt_color_html(total_amt_f, total_amt_f_prev)
         },
         {
-            "指标名称": "  年份品滞销金额（占比）",
-            "总库存口径": f"{fmt_amt_plain(row_year['amt_total'], row_year['amt_total_prev'])} 占比{safe_pct(row_year['amt_total'], total_amt_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_amt_plain(row_year['amt_fba'], row_year['amt_fba_prev'])} 占比{safe_pct(row_year['amt_fba'], total_amt_f):.2f}%"
+            "指标名称": "年份品滞销金额（占比）",
+            "总库存口径": f"{fmt_amt_color_html(row_year['amt_total'], row_year['amt_total_prev'])} 占比{safe_pct(row_year['amt_total'], total_amt_t):.2f}%",
+            "FBA+AWD+在途口径": f"{fmt_amt_color_html(row_year['amt_fba'], row_year['amt_fba_prev'])} 占比{safe_pct(row_year['amt_fba'], total_amt_f):.2f}%"
         },
         {
-            "指标名称": "  非年份品滞销金额（占比）",
-            "总库存口径": f"{fmt_amt_plain(row_non['amt_total'], row_non['amt_total_prev'])} 占比{safe_pct(row_non['amt_total'], total_amt_t):.2f}%",
-            "FBA+AWD+在途口径": f"{fmt_amt_plain(row_non['amt_fba'], row_non['amt_fba_prev'])} 占比{safe_pct(row_non['amt_fba'], total_amt_f):.2f}%"
+            "指标名称": "非年份品滞销金额（占比）",
+            "总库存口径": f"{fmt_amt_color_html(row_non['amt_total'], row_non['amt_total_prev'])} 占比{safe_pct(row_non['amt_total'], total_amt_t):.2f}%",
+            "FBA+AWD+在途口径": f"{fmt_amt_color_html(row_non['amt_fba'], row_non['amt_fba_prev'])} 占比{safe_pct(row_non['amt_fba'], total_amt_f):.2f}%"
         }
     ]
 
-    # 渲染三列表格，完美匹配你Excel截图结构
-    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（双口径横向对比·缩进分层）")
+    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（双口径横向对比）")
+    df_table = pd.DataFrame(table_rows)
+    # 开启HTML渲染，才能显示颜色
     st.dataframe(
-        pd.DataFrame(table_rows),
+        df_table,
         use_container_width=True,
         hide_index=True,
-        height=280
+        height=280,
+        column_config={
+            "总库存口径": st.column_config.TextColumn("总库存口径", help="红色上涨，绿色下降"),
+            "FBA+AWD+在途口径": st.column_config.TextColumn("FBA+AWD+在途口径", help="红色上涨，绿色下降")
+        }
     )
     st.divider()
 

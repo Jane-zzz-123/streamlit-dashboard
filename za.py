@@ -1787,7 +1787,7 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
         height=600
     )
 
-# ===================== 新增模块：分四类采购独立拆分（口径×年份品双维度） =====================
+# ===================== 新增模块：分四类采购独立拆分（层级表格+一行四列饼图） =====================
 import plotly.express as px
 import plotly.io as pio
 pio.templates.default = "plotly_white"
@@ -1882,11 +1882,11 @@ def draw_single_pie(df_source, pur_name, chart_type, stock_type, color_year="#ef
         hole=0.3,
         color_discrete_map={
             "年份品": color_year,
-            "非年份品": color_non
+            "非年份品": "#6386e8"
         }
     )
     fig.update_traces(texttemplate="%{percent:.2%}<br>%{value:,.0f}", textposition="inside")
-    fig.update_layout(height=380)
+    fig.update_layout(height=360)
     return fig
 
 # ===================== 循环渲染4类采购独立模块 =====================
@@ -1897,44 +1897,65 @@ for pur in pur_config_list:
     st.subheader(f"===== {pur['name_cn']} 滞销拆解 =====")
     # 1. 聚合当前采购的当月、上月数据
     agg_df = agg_single_pur(df_merge_curr, df_merge_prev, pur)
-    # 2. 构建明细表（匹配你图二的层级结构）
-    table_rows = []
-    for _, row in agg_df.iterrows():
-        typ = row["商品类型"]
-        # 总库存口径 数量格式化
-        qty_t_str, qty_t_fluc = fmt_num_curr(int(row["qty_total"]), int(row["qty_total_prev"]))
-        amt_t_str, amt_t_fluc = fmt_amt_curr(round(row["amt_total"],2), round(row["amt_total_prev"],2))
-        total_cell = f"件：{qty_t_str} {qty_t_fluc}<br>金额：{amt_t_str} {amt_t_fluc}"
-        # FBA口径 数量格式化
-        qty_f_str, qty_f_fluc = fmt_num_curr(int(row["qty_fba"]), int(row["qty_fba_prev"]))
-        amt_f_str, amt_f_fluc = fmt_amt_curr(round(row["amt_fba"],2), round(row["amt_fba_prev"],2))
-        fba_cell = f"件：{qty_f_str} {qty_f_fluc}<br>金额：{amt_f_str} {amt_f_fluc}"
-        table_rows.append({
-            "商品分类": typ,
-            "总库存口径（本地+FBA+AWD+在途）": total_cell,
-            "FBA+AWD+在途口径（仅海外）": fba_cell
-        })
-    # 渲染汇总表格
-    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（年份品/非年份品 双口径对比）")
+    # 拆分年份品、非年份品单行数据
+    row_year = agg_df[agg_df["商品类型"] == "年份品"].iloc[0]
+    row_non = agg_df[agg_df["商品类型"] == "非年份品"].iloc[0]
+
+    # 封装单元格渲染函数：统一生成「数值+变色环比」字符串
+    def cell_qty_curr(curr_val, prev_val):
+        num_str, fluct_html = fmt_num_curr(int(curr_val), int(prev_val))
+        return f"{num_str} {fluct_html}"
+    def cell_amt_curr(curr_val, prev_val):
+        num_str, fluct_html = fmt_amt_curr(round(curr_val,2), round(curr_val,2))
+        return f"{num_str} {fluct_html}"
+
+    # 2. 构建匹配图二层级的汇总表格
+    table_rows = [
+        {
+            "指标大类": "滞销数量",
+            "细分项": "非年份品滞销数量",
+            "总库存口径": cell_qty_curr(row_non["qty_total"], row_non["qty_total_prev"]),
+            "FBA+AWD+在途口径": cell_qty_curr(row_non["qty_fba"], row_non["qty_fba_prev"])
+        },
+        {
+            "指标大类": "滞销数量",
+            "细分项": "年份品滞销数量",
+            "总库存口径": cell_qty_curr(row_year["qty_total"], row_year["qty_total_prev"]),
+            "FBA+AWD+在途口径": cell_qty_curr(row_year["qty_fba"], row_year["qty_fba_prev"])
+        },
+        {
+            "指标大类": "滞销金额",
+            "细分项": "非年份品滞销金额",
+            "总库存口径": cell_amt_curr(row_non["amt_total"], row_non["amt_total_prev"]),
+            "FBA+AWD+在途口径": cell_amt_curr(row_non["amt_fba"], row_non["amt_fba_prev"])
+        },
+        {
+            "指标大类": "滞销金额",
+            "细分项": "年份品滞销金额",
+            "总库存口径": cell_amt_curr(row_year["amt_total"], row_year["amt_total_prev"]),
+            "FBA+AWD+在途口径": cell_amt_curr(row_year["amt_fba"], row_year["amt_fba_prev"])
+        }
+    ]
+    # 渲染汇总表格（完全匹配你Excel截图层级）
+    st.markdown(f"##### {pur['name_cn']} 滞销明细汇总（分层指标+双口径对比）")
     st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
     st.divider()
 
-    # 3. 四饼图并排：2行2列布局
-    c_pie1, c_pie2 = st.columns(2)
-    c_pie3, c_pie4 = st.columns(2)
-    # 左1：总库存-数量
+    # 3. 一行四列饼图（左2总库存、右2FBA口径）
+    c_pie1, c_pie2, c_pie3, c_pie4 = st.columns(4)
+    # 第1张：总库存-数量占比
     with c_pie1:
         fig1 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="total", color_year=pur["color"])
         st.plotly_chart(fig1, use_container_width=True)
-    # 左2：总库存-金额
+    # 第2张：总库存-金额占比
     with c_pie2:
         fig2 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="total", color_year=pur["color"])
         st.plotly_chart(fig2, use_container_width=True)
-    # 右1：FBA-数量
+    # 第3张：FBA-数量占比
     with c_pie3:
         fig3 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="fba", color_year=pur["color"])
         st.plotly_chart(fig3, use_container_width=True)
-    # 右2：FBA-金额
+    # 第4张：FBA-金额占比
     with c_pie4:
         fig4 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="fba", color_year=pur["color"])
         st.plotly_chart(fig4, use_container_width=True)

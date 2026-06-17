@@ -7,8 +7,97 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 
-# ===================== 页面配置 =====================
+# ===================== 【1. 全局配置：账号&店铺权限（在这里维护人员权限）】 =====================
+# 格式：用户名: {"pwd": "密码", "shops": ["店铺A", "店铺B"]}
+# shops = ["全部"] 代表超级管理员，可查看所有店铺
+USER_AUTH = {
+    # 超级管理员（可查看全部店铺）
+    "admin": {
+        "pwd": "admin1234",
+        "shops": ["全部"]
+    },
+    # 运营1：仅负责 店铺01、店铺02
+    "黄怡": {
+        "pwd": "syc-huangyi123",
+        "shops": ["思业成-US"]
+    },
+    "小娇": {
+        "pwd": "pt and ys-xiaojiao",
+        "shops": ["拼途-US","艺胜-US"]
+    },
+    "楷纯": {
+        "pwd": "zy and cr-kaichun",
+        "shops": ["争艳-US","辰瑞-US"]
+    },
+    "淑谊": {
+        "pwd": "sx and jy-shuyi",
+        "shops": ["势兴-US","进益-US"]
+    },
+    "佰英": {
+        "pwd": "cq-baiying123",
+        "shops": ["创奇-US"]
+    },
+    "李珊": {
+        "pwd": "dm-lishan123",
+        "shops": ["大卖-US"]
+    },
+}
+
+# 初始化session_state（Streamlit状态存储）
+if "login_status" not in st.session_state:
+    st.session_state.login_status = False
+if "current_user" not in st.session_state:
+    st.session_state.current_user = ""
+if "user_shops" not in st.session_state:
+    st.session_state.user_shops = []
+
+
+# ===================== 【2. 登录页面逻辑】 =====================
+def login_page():
+    st.title("🔐 库存滞销看板 - 登录")
+    st.divider()
+
+    # 登录表单
+    username = st.text_input("请输入账号")
+    password = st.text_input("请输入密码", type="password")
+    login_btn = st.button("登录", type="primary")
+
+    if login_btn:
+        # 账号密码校验
+        if username not in USER_AUTH:
+            st.error("❌ 账号不存在，请重新输入")
+            return
+        if USER_AUTH[username]["pwd"] != password:
+            st.error("❌ 密码错误，请重新输入")
+            return
+
+        # 登录成功，写入状态
+        st.session_state.login_status = True
+        st.session_state.current_user = username
+        st.session_state.user_shops = USER_AUTH[username]["shops"]
+        st.rerun()  # 刷新页面进入看板
+
+
+# 未登录则只展示登录页，终止后续代码
+if not st.session_state.login_status:
+    login_page()
+    st.stop()
+
+# ===================== 【3. 主页面开始（已登录）】 =====================
 st.set_page_config(page_title="库存滞销复盘看板", layout="wide")
+
+# 顶部用户信息 + 退出按钮
+col_user, col_logout = st.columns([8, 1])
+with col_user:
+    st.info(f"👤 当前登录用户：{st.session_state.current_user} | 可查看店铺：{st.session_state.user_shops}")
+with col_logout:
+    if st.button("退出登录"):
+        # 清空登录状态
+        st.session_state.login_status = False
+        st.session_state.current_user = ""
+        st.session_state.user_shops = []
+        st.rerun()
+
 st.title("📊 整体滞销情况分析")
 
 # ===================== 常量配置 =====================
@@ -21,6 +110,7 @@ RISK_COLORS = {
     "中滞销风险": "#ffebee",
     "高滞销风险": "#ffcdd2",
 }
+
 
 # ===================== 数据加载 =====================
 @st.cache_data(ttl=3600, show_spinner="正在加载数据...")
@@ -43,7 +133,9 @@ def load_data(file: str = "moon-date.xlsx") -> Tuple[pd.DataFrame, ...]:
 
     return dfs["snap"], dfs["prod"], dfs["sale"], dfs["pur"]
 
+
 df_snap, df_prod, df_sale, df_pur = load_data()
+
 
 # ===================== 数据加工：按你最新公式 100% 重写 =====================
 def build_master_df(df_snap, df_prod, df_sale, df_pur):
@@ -54,7 +146,8 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
     df_prod_use = df_prod[prod_cols].drop_duplicates(subset=["MSKU"])
     df = df.merge(df_prod_use, on="MSKU", how="left")
 
-    pur_pivot = df_pur.pivot_table(index="MSKU", columns="采购类型", values="采购量", aggfunc="sum", fill_value=0).reset_index()
+    pur_pivot = df_pur.pivot_table(index="MSKU", columns="采购类型", values="采购量", aggfunc="sum",
+                                   fill_value=0).reset_index()
     rename_map = {}
     if "年前采购" in pur_pivot.columns: rename_map["年前采购"] = "年前采购总量"
     if "年后采购" in pur_pivot.columns: rename_map["年后采购"] = "年后采购总量"
@@ -66,23 +159,23 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
 
     # ===================== 【最新公式】FBA+AWD+在途库存 =====================
     df["FBA+AWD+在途库存"] = (
-        df["FBA库存"].fillna(0)
-        + df["FBA在途"].fillna(0)
-        + df["海外仓可用"].fillna(0)
-        + df["海外仓在途"].fillna(0)
+            df["FBA库存"].fillna(0)
+            + df["FBA在途"].fillna(0)
+            + df["海外仓可用"].fillna(0)
+            + df["海外仓在途"].fillna(0)
     ).round(2)
 
     # ===================== 本地库存 =====================
     df["本地库存"] = (
-        df["本地可用"].fillna(0)
-        + df["待检待上架量"].fillna(0)
-        + df["待交付"].fillna(0)
+            df["本地可用"].fillna(0)
+            + df["待检待上架量"].fillna(0)
+            + df["待交付"].fillna(0)
     ).round(2)
 
     # ===================== 【最新公式】总库存 =====================
     df["总库存"] = (
-        df["FBA+AWD+在途库存"]
-        + df["本地库存"]
+            df["FBA+AWD+在途库存"]
+            + df["本地库存"]
     ).round(2)
 
     # 日均销量防0处理
@@ -116,7 +209,39 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
 
     return df
 
+
 df_merge = build_master_df(df_snap, df_prod, df_sale, df_pur)
+
+# ===================== 【4. 新增：店铺筛选 + 权限过滤】 =====================
+st.divider()
+st.subheader("📌 筛选条件")
+
+# 1. 获取当前用户有权限的店铺列表
+user_allow_shops = st.session_state.user_shops
+all_shops = df_merge["店铺"].dropna().unique().tolist()
+
+# 2. 构建下拉框可选店铺
+if "全部" in user_allow_shops:
+    # 管理员：可选 全部 + 所有单个店铺
+    shop_options = ["全部"] + sorted(all_shops)
+else:
+    # 普通运营：仅能选自己负责的店铺，无"全部"选项
+    shop_options = sorted(user_allow_shops)
+
+# 店铺选择器（核心新增）
+sel_shop = st.selectbox("选择店铺", shop_options, index=0)
+
+# 3. 根据选择 + 权限 过滤数据
+if sel_shop == "全部":
+    # 选全部：使用用户权限内所有店铺
+    if "全部" in user_allow_shops:
+        df_filter = df_merge.copy()
+    else:
+        df_filter = df_merge[df_merge["店铺"].isin(user_allow_shops)].copy()
+else:
+    # 选单个店铺：精准过滤
+    df_filter = df_merge[df_merge["店铺"] == sel_shop].copy()
+
 
 # ===================== 风险等级 + 滞销数量 100% 按你要求 =====================
 def classify_risk_and_unsold(df, year_option, target_date):
@@ -143,8 +268,8 @@ def classify_risk_and_unsold(df, year_option, target_date):
         # 全部按周转天数
         turn = df["周转天数"]
         risk = np.where(turn <= 120, "健康",
-                 np.where(turn <= 150, "低滞销风险",
-                 np.where(turn <= 180, "中滞销风险", "高滞销风险")))
+                        np.where(turn <= 150, "低滞销风险",
+                                 np.where(turn <= 180, "中滞销风险", "高滞销风险")))
     else:
         # 清库存口径：分年份/非年份
         # --- 非年份品：按周转天数 ---
@@ -153,7 +278,7 @@ def classify_risk_and_unsold(df, year_option, target_date):
         risk.loc[mask_non_year] = np.where(
             turn_non_year <= 120, "健康",
             np.where(turn_non_year <= 150, "低滞销风险",
-            np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
+                     np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
         )
 
         # --- 年份品：按 over_days 严格区间（0-10,10-20,>20）---
@@ -162,8 +287,8 @@ def classify_risk_and_unsold(df, year_option, target_date):
         risk.loc[mask_year] = np.where(
             over_year <= 0, "健康",
             np.where((over_year > 0) & (over_year <= 10), "低滞销风险",
-            np.where((over_year > 10) & (over_year <= 20), "中滞销风险",
-            "高滞销风险"))
+                     np.where((over_year > 10) & (over_year <= 20), "中滞销风险",
+                              "高滞销风险"))
         )
 
     df["滞销风险等级"] = risk
@@ -203,23 +328,23 @@ def classify_risk_and_unsold(df, year_option, target_date):
     if year_option == "按照库存周转天数口径":
         turn_fba = df["周转天数_FBA"]
         risk_fba = np.where(turn_fba <= 90, "健康",
-                   np.where(turn_fba <= 120, "低滞销风险",
-                   np.where(turn_fba <= 150, "中滞销风险", "高滞销风险")))
+                            np.where(turn_fba <= 120, "低滞销风险",
+                                     np.where(turn_fba <= 150, "中滞销风险", "高滞销风险")))
     else:
         mask_non_year = ~is_year
         turn_non_year_fba = df.loc[mask_non_year, "周转天数_FBA"]
         risk_fba.loc[mask_non_year] = np.where(
             turn_non_year_fba <= 90, "健康",
             np.where(turn_non_year_fba <= 120, "低滞销风险",
-            np.where(turn_non_year_fba <= 150, "中滞销风险", "高滞销风险"))
+                     np.where(turn_non_year_fba <= 150, "中滞销风险", "高滞销风险"))
         )
         mask_year = is_year
         over_year_fba = over_days_fba.loc[mask_year]
-        risk_fba.loc[mask_year] = np.where(
+        risk_fba = np.where(
             over_year_fba <= 0, "健康",
             np.where((over_year_fba > 0) & (over_year_fba <= 10), "低滞销风险",
-            np.where((over_year_fba > 10) & (over_year_fba <= 20), "中滞销风险",
-            "高滞销风险"))
+                     np.where((over_year_fba > 10) & (over_year_fba <= 20), "中滞销风险",
+                              "高滞销风险"))
         )
 
     df["滞销风险等级_FBA"] = risk_fba
@@ -242,25 +367,27 @@ def classify_risk_and_unsold(df, year_option, target_date):
 
     return df
 
+
 # ===================== 界面 =====================
 st.subheader("⚙️ 年份品计算口径")
 year_option = st.radio("", ["按照清库存口径（预计售罄时间）", "按照库存周转天数口径"], horizontal=True)
 
-# 计算风险 + 滞销
-df_merge = classify_risk_and_unsold(df_merge, year_option, TARGET_CLEAR_DATE)
+# 使用**过滤后的数据集**计算风险（关键：替换成 df_filter）
+df_filter = classify_risk_and_unsold(df_filter, year_option, TARGET_CLEAR_DATE)
 
 st.divider()
-df_merge["年月"] = df_merge["时间"].dt.to_period("M")
-time_list = sorted(df_merge["年月"].dropna().astype(str).unique())
-sel_month = st.selectbox("选择统计时间", time_list, index=len(time_list)-1)
+df_filter["年月"] = df_filter["时间"].dt.to_period("M")
+time_list = sorted(df_filter["年月"].dropna().astype(str).unique())
+sel_month = st.selectbox("选择统计时间", time_list, index=len(time_list) - 1)
 
 prev_month = sel_month
 if len(time_list) >= 2:
     idx = time_list.index(sel_month)
-    prev_month = time_list[idx-1] if idx > 0 else sel_month
+    prev_month = time_list[idx - 1] if idx > 0 else sel_month
 
-df_curr = df_merge[df_merge["年月"] == sel_month].copy()
-df_prev = df_merge[df_merge["年月"] == prev_month].copy()
+df_curr = df_filter[df_filter["年月"] == sel_month].copy()
+df_prev = df_filter[df_filter["年月"] == prev_month].copy()
+
 
 # ===================== 指标计算 =====================
 def calc_metrics(df_curr, df_prev, risk_name):
@@ -269,40 +396,38 @@ def calc_metrics(df_curr, df_prev, risk_name):
 
     if risk_name == "整体":
         # ========== 【修正核心】整体卡片：分别计算当前月、上月的低+中+高 ==========
-        # 当前月：筛选当前月的低/中/高SKU
         curr_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
-        # 上月：筛选上月的低/中/高SKU（不是用当前月的SKU去上月找！）
         prev_unsale = df_prev[df_prev["滞销风险等级"].isin(risk_list)]
 
-        # 整体SKU数：当前月所有SKU
+        # 整体SKU数
         sku_c = df_curr["MSKU"].nunique()
         sku_p = df_prev["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        # 整体总库存：当前月所有SKU
+        # 整体总库存
         stk_c = df_curr["总库存"].sum()
         stk_p = df_prev["总库存"].sum()
         stk_diff = stk_c - stk_p
 
-        # 整体总金额：当前月所有SKU
+        # 整体总金额
         amt_c = df_curr["总库存金额"].sum()
         amt_p = df_prev["总库存金额"].sum()
         amt_diff = amt_c - amt_p
 
-        # 滞销库存：当前月低+中+高SKU的库存
+        # 滞销库存
         u_stk_c = curr_unsale["总滞销库存"].sum()
         u_stk_p = prev_unsale["总滞销库存"].sum()
         u_stk_diff = u_stk_c - u_stk_p
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-        # 滞销金额：当前月低+中+高SKU的金额
+        # 滞销金额
         u_amt_c = curr_unsale["总滞销金额"].sum()
         u_amt_p = prev_unsale["总滞销金额"].sum()
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
 
     else:
-        # ========== 单个风险等级卡片：逻辑不变 ==========
+        # ========== 单个风险等级卡片 ==========
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
         p = df_prev[df_prev["滞销风险等级"] == risk_name]
 
@@ -336,10 +461,12 @@ def calc_metrics(df_curr, df_prev, risk_name):
         # 总金额 指标
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
         # 滞销库存 指标
-        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff,
+        "unsale_stock_pct": pct_stk,
         # 滞销金额 指标
         "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
     }
+
 
 # ===================== 卡片渲染 =====================
 def render_card_compact(title, m):
@@ -347,7 +474,7 @@ def render_card_compact(title, m):
 
     # 数值格式化：正数红色，负数绿色
     def fmt(d):
-        return ("#e53935", f"+{d:,.0f}") if d >=0 else ("#2e7d32", f"{d:,.0f}")
+        return ("#e53935", f"+{d:,.0f}") if d >= 0 else ("#2e7d32", f"{d:,.0f}")
 
     # 各指标的环比颜色+符号
     sku_c, sku_s = fmt(m["sku_diff"])
@@ -366,12 +493,16 @@ def render_card_compact(title, m):
     if title != "健康":
         usc, uss = fmt(m["unsale_stock_diff"])
         uac, uas = fmt(m["unsale_amt_diff"])
-        parts.append(f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span></div>')
-        parts.append(f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
+        parts.append(
+            f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span></div>')
+        parts.append(
+            f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
 
     # 总金额：当前值 + 上月值 + 环比
-    parts.append(f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
+    parts.append(
+        f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
     st.html("".join(parts))
+
 
 # ===================== 【新增】FBA+AWD+在途库存 指标计算（和总库存结构完全一样） =====================
 def calc_metrics_fba(df_curr, df_prev, risk_name):
@@ -407,7 +538,7 @@ def calc_metrics_fba(df_curr, df_prev, risk_name):
 
         # 【改成 FBA 滞销金额】
         u_amt_c = curr_unsale["FBA滞销金额_仅FBA"].sum()
-        u_amt_p = prev_unsale["FBA滞销金额_仅FBA"].sum()
+        u_amt_p = prev_unsale["FBA滞销金额_仅FBA"]
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
 
@@ -445,10 +576,10 @@ def calc_metrics_fba(df_curr, df_prev, risk_name):
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
-        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff,
+        "unsale_stock_pct": pct_stk,
         "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
     }
-
 
 # ===================== 输出 =====================
 st.divider()

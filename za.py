@@ -21,6 +21,10 @@ USER_AUTH = {
         "pwd": "syc-huangyi123",
         "shops": ["思业成-US"]
     },
+    "黄怡-定行": {
+        "pwd": "dx-HHHyi123",
+        "shops": ["定行-US"]
+    },
     "小娇": {
         "pwd": "pt and ys-xiaojiao",
         "shops": ["拼途-US","艺胜-US"]

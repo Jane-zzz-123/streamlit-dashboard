@@ -1786,10 +1786,11 @@ with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA
         use_container_width=True,
         height=600
     )
-
 # ===================== 新增模块：按采购类型 + 年份/非年份品拆分统计 =====================
+import plotly.express as px
+import plotly.io as pio
 pio.templates.default = "plotly_white"
-
+# ===================== 新增模块：按采购类型 + 年份/非年份品拆分统计 =====================
 # 1. 合并商品【是否年份】标识到滞销数据表（适配字段：是否年份 = 是/否）
 df_merge_curr = df_merge_curr.merge(
     df_curr[["MSKU", "是否年份"]].drop_duplicates("MSKU"),

@@ -390,7 +390,8 @@ if len(time_list) >= 2:
 df_curr = df_filter[df_filter["年月"] == sel_month].copy()
 df_prev = df_filter[df_filter["年月"] == prev_month].copy()
 
-
+# 新增这一行，仅此一处改动
+active_shops = df_filter["店铺"].unique().tolist()
 # ===================== 指标计算 =====================
 def calc_metrics(df_curr, df_prev, risk_name):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
@@ -1406,9 +1407,12 @@ stock_date_prev = pd.to_datetime(df_prev["时间"].iloc[0])
 
 
 # ===================== 2. 采购数据：只算库存日期之前 =====================
-def get_pur_before(df_pur_raw, date_limit):
+# 改造函数，新增shop_list入参，过滤采购表对应店铺
+def get_pur_before(df_pur_raw, date_limit, shop_list):
     pur_clean = df_pur_raw.copy()
     pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
+    # 新增：过滤当前权限/筛选的店铺
+    pur_clean = pur_clean[pur_clean["店铺"].isin(shop_list)]
 
     date_upper = date_limit + pd.DateOffset(years=1)
     pur_before = pur_clean[
@@ -1428,8 +1432,8 @@ def get_pur_before(df_pur_raw, date_limit):
     return msku_pur
 
 
-msku_pur_curr = get_pur_before(df_pur, stock_date)
-msku_pur_prev = get_pur_before(df_pur, stock_date_prev)
+msku_pur_curr = get_pur_before(df_pur, stock_date, active_shops)
+msku_pur_prev = get_pur_before(df_pur, stock_date_prev, active_shops)
 
 # ===================== 3. 数据整合（总库存 + FBA 双维度） =====================
 inv_full_all = df_curr.groupby("MSKU").agg(

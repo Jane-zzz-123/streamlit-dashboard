@@ -252,6 +252,7 @@ else:
 # ===================== 风险等级 + 滞销数量 100% 按你要求 =====================
 def classify_risk_and_unsold(df, year_option, target_date):
     df = df.copy()
+    df_idx = df.index
     is_year = df["是否年份"].astype(str).str.strip() == "是"
 
     # ---------- 1. 基准天数 ----------
@@ -267,97 +268,88 @@ def classify_risk_and_unsold(df, year_option, target_date):
     df["预计总库存用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数"], unit="D")
     over_days = (df["预计总库存用完时间"] - target_date).dt.days
 
-    # ---------- 3. 风险判定 ----------
-    risk = pd.Series("高滞销风险", index=df.index)
+    # ---------- 3. 总库存风险判定 ----------
+    risk = pd.Series("高滞销风险", index=df_idx)
 
     if year_option == "按照库存周转天数口径":
-        # 全部按周转天数
         turn = df["周转天数"]
-        risk = np.where(turn <= 120, "健康",
-                        np.where(turn <= 150, "低滞销风险",
-                                 np.where(turn <= 180, "中滞销风险", "高滞销风险")))
+        risk = pd.Series(np.where(turn <= 120, "健康",
+                 np.where(turn <= 150, "低滞销风险",
+                 np.where(turn <= 180, "中滞销风险", "高滞销风险"))), index=df_idx)
     else:
-        # 清库存口径：分年份/非年份
-        # --- 非年份品：按周转天数 ---
+        # 非年份品：周转天数
         mask_non_year = ~is_year
         turn_non_year = df.loc[mask_non_year, "周转天数"]
         risk.loc[mask_non_year] = np.where(
             turn_non_year <= 120, "健康",
             np.where(turn_non_year <= 150, "低滞销风险",
-                     np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
+            np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
         )
-
-        # --- 年份品：按 over_days 严格区间（0-10,10-20,>20）---
+        # 年份品：超期天数
         mask_year = is_year
         over_year = over_days.loc[mask_year]
         risk.loc[mask_year] = np.where(
             over_year <= 0, "健康",
             np.where((over_year > 0) & (over_year <= 10), "低滞销风险",
-                     np.where((over_year > 10) & (over_year <= 20), "中滞销风险",
-                              "高滞销风险"))
+            np.where((over_year > 10) & (over_year <= 20), "中滞销风险",
+            "高滞销风险"))
         )
-
     df["滞销风险等级"] = risk
 
-    # ===================== 滞销数量（你最新公式） =====================
+    # ===================== 滞销数量 =====================
     unhealthy = df["滞销风险等级"] != "健康"
     base = df["目标基准天数"]
 
-    # FBA+AWD+在途滞销数量
     df["FBA+AWD+在途滞销数量"] = np.where(
         unhealthy,
         (df["FBA+AWD+在途库存"] - df["日均"] * base).clip(lower=0).round(2),
         0
     )
-
-    # 总滞销库存
     df["总滞销库存"] = np.where(
         unhealthy,
         (df["总库存"] - df["日均"] * base).clip(lower=0).round(2),
         0
     )
-
-    # 本地滞销数量
     df["本地滞销数量"] = (df["总滞销库存"] - df["FBA+AWD+在途滞销数量"]).round(2)
 
-    # ===================== ✅ 滞销金额（你要求的正确计算） =====================
+    # ===================== 滞销金额 =====================
     df["FBA滞销金额"] = (df["FBA+AWD+在途滞销数量"] * (df["采购成本"] + df["头程费用"])).round(2)
     df["本地滞销金额"] = (df["本地滞销数量"] * df["采购成本"]).round(2)
     df["总滞销金额"] = (df["FBA滞销金额"] + df["本地滞销金额"]).round(2)
 
     # -------------------------------------------------------------------------
-    # 👇👇👇 以下是【只追加】的 FBA 独立风险等级 + 独立滞销（不影响原有代码）
+    # 修复FBA独立风险（核心修复点：用Series带索引，不再丢失长度）
     # -------------------------------------------------------------------------
     over_days_fba = (df["预计FBA用完时间"] - target_date).dt.days
-    risk_fba = pd.Series("高滞销风险", index=df.index)
+    risk_fba = pd.Series("高滞销风险", index=df_idx)
 
     if year_option == "按照库存周转天数口径":
         turn_fba = df["周转天数_FBA"]
-        risk_fba = np.where(turn_fba <= 90, "健康",
-                            np.where(turn_fba <= 120, "低滞销风险",
-                                     np.where(turn_fba <= 150, "中滞销风险", "高滞销风险")))
+        risk_fba = pd.Series(np.where(turn_fba <= 90, "健康",
+                   np.where(turn_fba <= 120, "低滞销风险",
+                   np.where(turn_fba <= 150, "中滞销风险", "高滞销风险"))), index=df_idx)
     else:
         mask_non_year = ~is_year
         turn_non_year_fba = df.loc[mask_non_year, "周转天数_FBA"]
         risk_fba.loc[mask_non_year] = np.where(
             turn_non_year_fba <= 90, "健康",
             np.where(turn_non_year_fba <= 120, "低滞销风险",
-                     np.where(turn_non_year_fba <= 150, "中滞销风险", "高滞销风险"))
+            np.where(turn_non_year_fba <= 150, "中滞销风险", "高滞销风险"))
         )
         mask_year = is_year
         over_year_fba = over_days_fba.loc[mask_year]
-        risk_fba = np.where(
+        risk_fba.loc[mask_year] = np.where(
             over_year_fba <= 0, "健康",
             np.where((over_year_fba > 0) & (over_year_fba <= 10), "低滞销风险",
-                     np.where((over_year_fba > 10) & (over_year_fba <= 20), "中滞销风险",
-                              "高滞销风险"))
+            np.where((over_year_fba > 10) & (over_year_fba <= 20), "中滞销风险",
+            "高滞销风险"))
         )
-
+    # 赋值带索引的Series，长度100%匹配df
     df["滞销风险等级_FBA"] = risk_fba
+
     unhealthy_fba = df["滞销风险等级_FBA"] != "健康"
-    # ---------- 1. 基准天数 ----------
     target_days_common1 = 90
-    target_days_year = (target_date - df["时间"]).dt.days  # 到2026-10-31的天数
+    target_days_year = (target_date - df["时间"]).dt.days
     df["目标基准天数1"] = np.where(
         (is_year) & (year_option == "按照清库存口径（预计售罄时间）"),
         target_days_year,

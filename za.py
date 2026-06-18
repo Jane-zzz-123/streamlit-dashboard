@@ -1435,43 +1435,45 @@ msku_pur_curr = get_pur_before(df_pur, stock_date, active_shops)
 msku_pur_prev = get_pur_before(df_pur, stock_date_prev, active_shops)
 
 # ===================== 3. 数据整合（总库存 + FBA 双维度） =====================
-inv_full_all = df_curr.groupby("MSKU").agg({
-    "店铺": ("店铺", "first"),
-    "品名": ("品名", "first"),
-    "日均": ("日均", "first"),
-    "7天日均": ("7天日均", "first"),
-    "14天日均": ("14天日均", "first"),
-    "28天日均": ("28天日均", "first"),
-    "采购成本": ("采购成本", "first"),
-    "头程费用": ("头程费用", "first"),
-    "FBA_AWD_在途库存": ("FBA+AWD+在途库存", "sum"),
-    "本地库存": ("本地库存", "sum"),
-    "总库存": ("总库存", "sum"),
-    "滞销总库存": ("总滞销库存", "sum"),
-    "FBA滞销数量_仅FBA": ("FBA滞销数量_仅FBA", "sum")
-}).reset_index()
+# 第一步：只聚合库存/成本类字段，不碰日均
+inv_full_all = df_curr.groupby("MSKU").agg(
+    店铺=("店铺", "first"),
+    品名=("品名", "first"),
+    采购成本=("采购成本", "first"),
+    头程费用=("头程费用", "first"),
+    FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
+    本地库存=("本地库存", "sum"),
+    总库存=("总库存", "sum"),
+    滞销总库存=("总滞销库存", "sum"),
+    FBA滞销数量_仅FBA=("FBA滞销数量_仅FBA", "sum")
+).reset_index()
 
+# 单独提取MSKU+四类日均，去重后合并进聚合表
+daily_info_curr = df_curr[["MSKU", "日均", "7天日均", "14天日均", "28天日均"]].drop_duplicates(subset="MSKU")
+inv_full_all = inv_full_all.merge(daily_info_curr, on="MSKU", how="left")
+
+# 关联采购数据
 df_merge_all = inv_full_all.merge(msku_pur_curr, on="MSKU", how="left").fillna(0)
 df_merge_all["年货前采购总库存"] = (
     df_merge_all["总库存"] - df_merge_all["年货采购"] - df_merge_all["年前采购"] - df_merge_all["年后采购"]
 ).clip(lower=0)
 
-# 上月全量数据
-inv_full_all_prev = df_prev.groupby("MSKU").agg({
-    "店铺": ("店铺", "first"),
-    "品名": ("品名", "first"),
-    "日均": ("日均", "first"),
-    "7天日均": ("7天日均", "first"),
-    "14天日均": ("14天日均", "first"),
-    "28天日均": ("28天日均", "first"),
-    "采购成本": ("采购成本", "first"),
-    "头程费用": ("头程费用", "first"),
-    "FBA_AWD_在途库存": ("FBA+AWD+在途库存", "sum"),
-    "本地库存": ("本地库存", "sum"),
-    "总库存": ("总库存", "sum"),
-    "滞销总库存": ("总滞销库存", "sum"),
-    "FBA滞销数量_仅FBA": ("FBA滞销数量_仅FBA", "sum")
-}).reset_index()
+# 上月全量数据（同步逻辑）
+inv_full_all_prev = df_prev.groupby("MSKU").agg(
+    店铺=("店铺", "first"),
+    品名=("品名", "first"),
+    采购成本=("采购成本", "first"),
+    头程费用=("头程费用", "first"),
+    FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
+    本地库存=("本地库存", "sum"),
+    总库存=("总库存", "sum"),
+    滞销总库存=("总滞销库存", "sum"),
+    FBA滞销数量_仅FBA=("FBA滞销数量_仅FBA", "sum")
+).reset_index()
+
+# 上月日均合并
+daily_info_prev = df_prev[["MSKU", "日均", "7天日均", "14天日均", "28天日均"]].drop_duplicates(subset="MSKU")
+inv_full_all_prev = inv_full_all_prev.merge(daily_info_prev, on="MSKU", how="left")
 
 df_merge_all_prev = inv_full_all_prev.merge(msku_pur_prev, on="MSKU", how="left").fillna(0)
 df_merge_all_prev["年货前采购总库存"] = (

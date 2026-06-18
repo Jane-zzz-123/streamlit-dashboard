@@ -575,7 +575,7 @@ st.divider()
 st.subheader("🌎 FBA+AWD+在途库存 滞销概览（海外优先清货）")
 metrics_all_fba = calc_metrics_fba(df_curr, df_prev, "整体", 0, 0)
 all_unsale_stock_fba = metrics_all_fba["unsale_stock_curr"]
-all_unsale_amt_fba = metrics_all_fba["unsale_amt_fba"]
+all_unsale_amt_fba = metrics_all_fba["unsale_amt_curr"]
 
 cols_fba = st.columns(5)
 for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):

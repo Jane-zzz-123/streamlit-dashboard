@@ -395,7 +395,7 @@ active_shops = df_filter["店铺"].unique().tolist()
 # ===================== 指标计算 =====================
 # ===================== 【修改后】总库存指标计算 =====================
 # ===================== 【总库存指标计算】 =====================
-def calc_metrics(df_curr, df_prev, risk_name, all_unsale_stock, all_unsale_amt):
+def calc_metrics(df_curr, df_prev, risk_name, all_unsale_stock=0, all_unsale_amt=0):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
         curr_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
@@ -495,7 +495,7 @@ def render_card_compact(title, m):
 
 # ===================== 【新增】FBA+AWD+在途库存 指标计算（和总库存结构完全一样） =====================
 # ===================== 【FBA指标计算】 =====================
-def calc_metrics_fba(df_curr, df_prev, risk_name, all_unsale_stock_fba, all_unsale_amt_fba):
+def calc_metrics_fba(df_curr, df_prev, risk_name, all_unsale_stock_fba=0, all_unsale_amt_fba=0):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
         curr_unsale = df_curr[df_curr["滞销风险等级_FBA"].isin(risk_list)]

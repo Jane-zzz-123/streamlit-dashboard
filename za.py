@@ -523,6 +523,7 @@ def calc_metrics_fba(df_curr, df_prev, risk_name, all_unsale_stock_fba, all_unsa
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
     else:
+        # 修复：df_prev过滤df_prev，不是df_curr
         c = df_curr[df_curr["滞销风险等级_FBA"] == risk_name]
         p = df_prev[df_prev["滞销风险等级_FBA"] == risk_name]
 
@@ -544,7 +545,7 @@ def calc_metrics_fba(df_curr, df_prev, risk_name, all_unsale_stock_fba, all_unsa
         pct_stk = u_stk_c / all_unsale_stock_fba if all_unsale_stock_fba != 0 else 0
 
         u_amt_c = float(c["FBA滞销金额_仅FBA"].sum())
-        u_amt_p = float(p["FBA滞销金额_仅FBA"])
+        u_amt_p = float(p["FBA滞销金额_仅FBA"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / all_unsale_amt_fba if all_unsale_amt_fba != 0 else 0
     return {

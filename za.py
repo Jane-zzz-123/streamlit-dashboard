@@ -393,7 +393,8 @@ df_prev = df_filter[df_filter["年月"] == prev_month].copy()
 # 新增这一行，仅此一处改动
 active_shops = df_filter["店铺"].unique().tolist()
 # ===================== 指标计算 =====================
-def calc_metrics(df_curr, df_prev, risk_name):
+# ===================== 【修改后】总库存指标计算 =====================
+def calc_metrics(df_curr, df_prev, risk_name, all_unsale_stock, all_unsale_amt):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
         curr_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
@@ -414,6 +415,7 @@ def calc_metrics(df_curr, df_prev, risk_name):
         u_stk_c = float(curr_unsale["总滞销库存"].sum())
         u_stk_p = float(prev_unsale["总滞销库存"].sum())
         u_stk_diff = u_stk_c - u_stk_p
+        # 整体：滞销/全库存（全局滞销率）
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
         u_amt_c = float(curr_unsale["总滞销金额"].sum())
@@ -439,12 +441,13 @@ def calc_metrics(df_curr, df_prev, risk_name):
         u_stk_c = float(c["总滞销库存"].sum())
         u_stk_p = float(p["总滞销库存"].sum())
         u_stk_diff = u_stk_c - u_stk_p
-        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+        # 分风险：该风险滞销 / 当前筛选范围内全部滞销
+        pct_stk = u_stk_c / all_unsale_stock if all_unsale_stock != 0 else 0
 
         u_amt_c = float(c["总滞销金额"].sum())
         u_amt_p = float(p["总滞销金额"].sum())
         u_amt_diff = u_amt_c - u_amt_p
-        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+        pct_amt = u_amt_c / all_unsale_amt if all_unsale_amt != 0 else 0
     return {
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
@@ -492,7 +495,7 @@ def render_card_compact(title, m):
 
 
 # ===================== 【新增】FBA+AWD+在途库存 指标计算（和总库存结构完全一样） =====================
-def calc_metrics_fba(df_curr, df_prev, risk_name):
+def calc_metrics_fba(df_curr, df_prev, risk_name, all_unsale_stock_fba, all_unsale_amt_fba):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
         curr_unsale = df_curr[df_curr["滞销风险等级_FBA"].isin(risk_list)]
@@ -538,12 +541,12 @@ def calc_metrics_fba(df_curr, df_prev, risk_name):
         u_stk_c = float(c["FBA滞销数量_仅FBA"].sum())
         u_stk_p = float(p["FBA滞销数量_仅FBA"].sum())
         u_stk_diff = u_stk_c - u_stk_p
-        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+        pct_stk = u_stk_c / all_unsale_stock_fba if all_unsale_stock_fba != 0 else 0
 
         u_amt_c = float(c["FBA滞销金额_仅FBA"].sum())
-        u_amt_p = float(p["FBA滞销金额_仅FBA"].sum())
+        u_amt_p = float(p["FBA滞销金额_仅FBA"])
         u_amt_diff = u_amt_c - u_amt_p
-        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+        pct_amt = u_amt_c / all_unsale_amt_fba if all_unsale_amt_fba != 0 else 0
     return {
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
@@ -555,18 +558,30 @@ def calc_metrics_fba(df_curr, df_prev, risk_name):
 # ===================== 输出 =====================
 st.divider()
 st.subheader("📦 整体滞销情况概览（总库存口径）")
+# 先基于【筛选后的df_curr】计算当前店铺范围全部滞销，分母自动跟随店铺切换
+metrics_all_total = calc_metrics(df_curr, df_prev, "整体", 0, 0)
+all_unsale_stock_total = metrics_all_total["unsale_stock_curr"]
+all_unsale_amt_total = metrics_all_total["unsale_amt_curr"]
+
 cols = st.columns(5)
 for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
     with cols[i]:
-        render_card_compact(t, calc_metrics(df_curr, df_prev, t))
+        # 传入当前筛选范围内全局滞销作为分母
+        m = calc_metrics(df_curr, df_prev, t, all_unsale_stock_total, all_unsale_amt_total)
+        render_card_compact(t, m)
 
-# ===================== 【新增】FBA 卡片（上下分开） =====================
+# ===================== 【新增】FBA 卡片（同样基于筛选后df_curr） =====================
 st.divider()
 st.subheader("🌎 FBA+AWD+在途库存 滞销概览（海外优先清货）")
+metrics_all_fba = calc_metrics_fba(df_curr, df_prev, "整体", 0, 0)
+all_unsale_stock_fba = metrics_all_fba["unsale_stock_curr"]
+all_unsale_amt_fba = metrics_all_fba["unsale_amt_fba"]
+
 cols_fba = st.columns(5)
 for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
     with cols_fba[i]:
-        render_card_compact(t, calc_metrics_fba(df_curr, df_prev, t))
+        m = calc_metrics_fba(df_curr, df_prev, t, all_unsale_stock_fba, all_unsale_amt_fba)
+        render_card_compact(t, m)
 
 # ===================== 【最终完整版明细表】所有字段补齐，不缺项 =====================
 with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径统一表）"):

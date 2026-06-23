@@ -9,7 +9,7 @@ import base64
 
 # 页面配置（完全保留）
 st.set_page_config(
-    page_title="FBA红单物流交期分析看板",
+    page_title="FBA红单物流时效分析看板",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -138,7 +138,7 @@ if df_all.empty:
     st.stop()
 
 # 2. 顶部筛选按钮
-st.header("FBA红单物流交期分析看板")
+st.header("FBA红单物流时效分析看板")
 data_filter = st.radio(
     "📊 选择数据范围：",
     options=["全部数据", "纯净数据（剔除异常）"],

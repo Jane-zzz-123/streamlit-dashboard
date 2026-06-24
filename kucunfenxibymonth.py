@@ -7,9 +7,107 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 
+# ===================== 【1. 全局配置：账号&店铺权限（在这里维护人员权限）】 =====================
+# 格式：用户名: {"pwd": "密码", "shops": ["店铺A", "店铺B"]}
+# shops = ["全部"] 代表超级管理员，可查看所有店铺
+USER_AUTH = {
+    # 超级管理员（可查看全部店铺）
+    "admin": {
+        "pwd": "admin1234",
+        "shops": ["全部"]
+    },
+    # 运营1：仅负责 店铺01、店铺02
+    "黄怡": {
+        "pwd": "syc-huangyi123",
+        "shops": ["思业成-US"]
+    },
+    "黄怡-定行": {
+        "pwd": "dx-HHHyi123",
+        "shops": ["定行-US"]
+    },
+    "小娇": {
+        "pwd": "pt and ys-xiaojiao",
+        "shops": ["拼途-US","艺胜-US"]
+    },
+    "楷纯": {
+        "pwd": "zy and cr-kaichun",
+        "shops": ["争艳-US","辰瑞-US"]
+    },
+    "淑谊": {
+        "pwd": "sx and jy-shuyi",
+        "shops": ["势兴-US","进益-US"]
+    },
+    "佰英": {
+        "pwd": "cq-baiying123",
+        "shops": ["创奇-US"]
+    },
+    "李珊": {
+        "pwd": "dm-lishan123",
+        "shops": ["大卖-US"]
+    },
+}
 
-# ===================== 页面配置 =====================
+# 初始化session_state（Streamlit状态存储）
+if "login_status" not in st.session_state:
+    st.session_state.login_status = False
+if "current_user" not in st.session_state:
+    st.session_state.current_user = ""
+if "user_shops" not in st.session_state:
+    st.session_state.user_shops = []
+
+
+# ===================== 【2. 登录页面逻辑】 =====================
+# ===================== 【2. 登录页面逻辑（优化版：账号下拉选择）】 =====================
+def login_page():
+    st.title("🔐 库存滞销看板(按月更新） - 登录界面验证")
+    st.divider()
+
+    # 提取所有可用账号列表
+    all_user_list = list(USER_AUTH.keys())
+    # 下拉选择账号，不用手动输入
+    select_username = st.selectbox("请选择登录账号", options=["请选择账号"] + all_user_list)
+
+    password = st.text_input("请输入密码", type="password")
+    login_btn = st.button("登录", type="primary")
+
+    if login_btn:
+        # 判断是否选了账号
+        if select_username == "请选择账号":
+            st.error("❌ 请先选择你的登录账号")
+            return
+        # 账号密码校验
+        target_user = USER_AUTH[select_username]
+        if target_user["pwd"] != password:
+            st.error("❌ 密码错误，请重新输入")
+            return
+
+        # 登录成功，写入状态
+        st.session_state.login_status = True
+        st.session_state.current_user = select_username
+        st.session_state.user_shops = target_user["shops"]
+        st.rerun()  # 刷新页面进入看板
+
+
+# 未登录则只展示登录页，终止后续代码
+if not st.session_state.login_status:
+    login_page()
+    st.stop()
+
+# ===================== 【3. 主页面开始（已登录）】 =====================
 st.set_page_config(page_title="库存滞销复盘看板", layout="wide")
+
+# 顶部用户信息 + 退出按钮
+col_user, col_logout = st.columns([8, 1])
+with col_user:
+    st.info(f"👤 当前登录用户：{st.session_state.current_user} | 可查看店铺：{st.session_state.user_shops}")
+with col_logout:
+    if st.button("退出登录"):
+        # 清空登录状态
+        st.session_state.login_status = False
+        st.session_state.current_user = ""
+        st.session_state.user_shops = []
+        st.rerun()
+
 st.title("📊 整体滞销情况分析")
 
 # ===================== 常量配置 =====================
@@ -22,6 +120,7 @@ RISK_COLORS = {
     "中滞销风险": "#ffebee",
     "高滞销风险": "#ffcdd2",
 }
+
 
 # ===================== 数据加载 =====================
 @st.cache_data(ttl=3600, show_spinner="正在加载数据...")
@@ -44,7 +143,9 @@ def load_data(file: str = "moon-date.xlsx") -> Tuple[pd.DataFrame, ...]:
 
     return dfs["snap"], dfs["prod"], dfs["sale"], dfs["pur"]
 
+
 df_snap, df_prod, df_sale, df_pur = load_data()
+
 
 # ===================== 数据加工：按你最新公式 100% 重写 =====================
 def build_master_df(df_snap, df_prod, df_sale, df_pur):
@@ -55,7 +156,8 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
     df_prod_use = df_prod[prod_cols].drop_duplicates(subset=["MSKU"])
     df = df.merge(df_prod_use, on="MSKU", how="left")
 
-    pur_pivot = df_pur.pivot_table(index="MSKU", columns="采购类型", values="采购量", aggfunc="sum", fill_value=0).reset_index()
+    pur_pivot = df_pur.pivot_table(index="MSKU", columns="采购类型", values="采购量", aggfunc="sum",
+                                   fill_value=0).reset_index()
     rename_map = {}
     if "年前采购" in pur_pivot.columns: rename_map["年前采购"] = "年前采购总量"
     if "年后采购" in pur_pivot.columns: rename_map["年后采购"] = "年后采购总量"
@@ -67,23 +169,23 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
 
     # ===================== 【最新公式】FBA+AWD+在途库存 =====================
     df["FBA+AWD+在途库存"] = (
-        df["FBA库存"].fillna(0)
-        + df["FBA在途"].fillna(0)
-        + df["海外仓可用"].fillna(0)
-        + df["海外仓在途"].fillna(0)
+            df["FBA库存"].fillna(0)
+            + df["FBA在途"].fillna(0)
+            + df["海外仓可用"].fillna(0)
+            + df["海外仓在途"].fillna(0)
     ).round(2)
 
     # ===================== 本地库存 =====================
     df["本地库存"] = (
-        df["本地可用"].fillna(0)
-        + df["待检待上架量"].fillna(0)
-        + df["待交付"].fillna(0)
+            df["本地可用"].fillna(0)
+            + df["待检待上架量"].fillna(0)
+            + df["待交付"].fillna(0)
     ).round(2)
 
     # ===================== 【最新公式】总库存 =====================
     df["总库存"] = (
-        df["FBA+AWD+在途库存"]
-        + df["本地库存"]
+            df["FBA+AWD+在途库存"]
+            + df["本地库存"]
     ).round(2)
 
     # 日均销量防0处理
@@ -94,8 +196,15 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
     df["周转天数"] = (df["总库存"] / df["日均"]).round(2)
     df["周转天数"] = df["周转天数"].clip(upper=36500)
 
+    # ===================== 【追加】FBA 独立周转天数 =====================
+    df["周转天数_FBA"] = (df["FBA+AWD+在途库存"] / df["日均"]).round(2)
+    df["周转天数_FBA"] = df["周转天数_FBA"].clip(upper=36500)
+
     # ===================== 预计用完时间 =====================
     df["预计总库存用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数"], unit="D")
+
+    # ===================== 【追加】FBA 预计用完时间 =====================
+    df["预计FBA用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数_FBA"], unit="D")
 
     # ===================== ✅ 正确金额计算（你要求的版本） =====================
     df["采购成本"] = df["采购成本"].fillna(0)
@@ -110,15 +219,48 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
 
     return df
 
+
 df_merge = build_master_df(df_snap, df_prod, df_sale, df_pur)
+
+# ===================== 【4. 新增：店铺筛选 + 权限过滤】 =====================
+st.divider()
+st.subheader("📌 筛选条件")
+
+# 1. 获取当前用户有权限的店铺列表
+user_allow_shops = st.session_state.user_shops
+all_shops = df_merge["店铺"].dropna().unique().tolist()
+
+# 2. 构建下拉框可选店铺
+if "全部" in user_allow_shops:
+    # 管理员：可选 全部 + 所有单个店铺
+    shop_options = ["全部"] + sorted(all_shops)
+else:
+    # 普通运营：仅能选自己负责的店铺，无"全部"选项
+    shop_options = sorted(user_allow_shops)
+
+# 店铺选择器（核心新增）
+sel_shop = st.selectbox("选择店铺", shop_options, index=0)
+
+# 3. 根据选择 + 权限 过滤数据
+if sel_shop == "全部":
+    # 选全部：使用用户权限内所有店铺
+    if "全部" in user_allow_shops:
+        df_filter = df_merge.copy()
+    else:
+        df_filter = df_merge[df_merge["店铺"].isin(user_allow_shops)].copy()
+else:
+    # 选单个店铺：精准过滤
+    df_filter = df_merge[df_merge["店铺"] == sel_shop].copy()
+
 
 # ===================== 风险等级 + 滞销数量 100% 按你要求 =====================
 def classify_risk_and_unsold(df, year_option, target_date):
     df = df.copy()
+    df_idx = df.index
     is_year = df["是否年份"].astype(str).str.strip() == "是"
 
     # ---------- 1. 基准天数 ----------
-    target_days_common = 100
+    target_days_common = 120
     target_days_year = (target_date - df["时间"]).dt.days  # 到2026-10-31的天数
     df["目标基准天数"] = np.where(
         (is_year) & (year_option == "按照清库存口径（预计售罄时间）"),
@@ -130,27 +272,24 @@ def classify_risk_and_unsold(df, year_option, target_date):
     df["预计总库存用完时间"] = df["时间"] + pd.to_timedelta(df["周转天数"], unit="D")
     over_days = (df["预计总库存用完时间"] - target_date).dt.days
 
-    # ---------- 3. 风险判定 ----------
-    risk = pd.Series("高滞销风险", index=df.index)
+    # ---------- 3. 总库存风险判定 ----------
+    risk = pd.Series("高滞销风险", index=df_idx)
 
     if year_option == "按照库存周转天数口径":
-        # 全部按周转天数
         turn = df["周转天数"]
-        risk = np.where(turn <= 100, "健康",
+        risk = pd.Series(np.where(turn <= 120, "健康",
                  np.where(turn <= 150, "低滞销风险",
-                 np.where(turn <= 180, "中滞销风险", "高滞销风险")))
+                 np.where(turn <= 180, "中滞销风险", "高滞销风险"))), index=df_idx)
     else:
-        # 清库存口径：分年份/非年份
-        # --- 非年份品：按周转天数 ---
+        # 非年份品：周转天数
         mask_non_year = ~is_year
         turn_non_year = df.loc[mask_non_year, "周转天数"]
         risk.loc[mask_non_year] = np.where(
-            turn_non_year <= 100, "健康",
+            turn_non_year <= 120, "健康",
             np.where(turn_non_year <= 150, "低滞销风险",
             np.where(turn_non_year <= 180, "中滞销风险", "高滞销风险"))
         )
-
-        # --- 年份品：按 over_days 严格区间（0-10,10-20,>20）---
+        # 年份品：超期天数
         mask_year = is_year
         over_year = over_days.loc[mask_year]
         risk.loc[mask_year] = np.where(
@@ -159,98 +298,131 @@ def classify_risk_and_unsold(df, year_option, target_date):
             np.where((over_year > 10) & (over_year <= 20), "中滞销风险",
             "高滞销风险"))
         )
-
     df["滞销风险等级"] = risk
 
-    # ===================== 滞销数量（你最新公式） =====================
+    # ===================== 滞销数量 =====================
     unhealthy = df["滞销风险等级"] != "健康"
     base = df["目标基准天数"]
 
-    # FBA+AWD+在途滞销数量
     df["FBA+AWD+在途滞销数量"] = np.where(
         unhealthy,
         (df["FBA+AWD+在途库存"] - df["日均"] * base).clip(lower=0).round(2),
         0
     )
-
-    # 总滞销库存
     df["总滞销库存"] = np.where(
         unhealthy,
         (df["总库存"] - df["日均"] * base).clip(lower=0).round(2),
         0
     )
-
-    # 本地滞销数量
     df["本地滞销数量"] = (df["总滞销库存"] - df["FBA+AWD+在途滞销数量"]).round(2)
 
-    # ===================== ✅ 滞销金额（你要求的正确计算） =====================
+    # ===================== 滞销金额 =====================
     df["FBA滞销金额"] = (df["FBA+AWD+在途滞销数量"] * (df["采购成本"] + df["头程费用"])).round(2)
     df["本地滞销金额"] = (df["本地滞销数量"] * df["采购成本"]).round(2)
     df["总滞销金额"] = (df["FBA滞销金额"] + df["本地滞销金额"]).round(2)
 
+    # -------------------------------------------------------------------------
+    # 修复FBA独立风险（核心修复点：用Series带索引，不再丢失长度）
+    # -------------------------------------------------------------------------
+    over_days_fba = (df["预计FBA用完时间"] - target_date).dt.days
+    risk_fba = pd.Series("高滞销风险", index=df_idx)
+
+    if year_option == "按照库存周转天数口径":
+        turn_fba = df["周转天数_FBA"]
+        risk_fba = pd.Series(np.where(turn_fba <= 90, "健康",
+                   np.where(turn_fba <= 120, "低滞销风险",
+                   np.where(turn_fba <= 150, "中滞销风险", "高滞销风险"))), index=df_idx)
+    else:
+        mask_non_year = ~is_year
+        turn_non_year_fba = df.loc[mask_non_year, "周转天数_FBA"]
+        risk_fba.loc[mask_non_year] = np.where(
+            turn_non_year_fba <= 90, "健康",
+            np.where(turn_non_year_fba <= 120, "低滞销风险",
+            np.where(turn_non_year_fba <= 150, "中滞销风险", "高滞销风险"))
+        )
+        mask_year = is_year
+        over_year_fba = over_days_fba.loc[mask_year]
+        risk_fba.loc[mask_year] = np.where(
+            over_year_fba <= 0, "健康",
+            np.where((over_year_fba > 0) & (over_year_fba <= 10), "低滞销风险",
+            np.where((over_year_fba > 10) & (over_year_fba <= 20), "中滞销风险",
+            "高滞销风险"))
+        )
+    # 赋值带索引的Series，长度100%匹配df
+    df["滞销风险等级_FBA"] = risk_fba
+
+    unhealthy_fba = df["滞销风险等级_FBA"] != "健康"
+    target_days_common1 = 90
+    target_days_year = (target_date - df["时间"]).dt.days
+    df["目标基准天数1"] = np.where(
+        (is_year) & (year_option == "按照清库存口径（预计售罄时间）"),
+        target_days_year,
+        target_days_common1
+    )
+    base1 = df["目标基准天数1"]
+    df["FBA滞销数量_仅FBA"] = np.where(
+        unhealthy_fba,
+        (df["FBA+AWD+在途库存"] - df["日均"] * base1).clip(lower=0).round(2),
+        0
+    )
+    df["FBA滞销金额_仅FBA"] = (df["FBA滞销数量_仅FBA"] * (df["采购成本"] + df["头程费用"])).round(2)
+
     return df
+
 
 # ===================== 界面 =====================
 st.subheader("⚙️ 年份品计算口径")
 year_option = st.radio("", ["按照清库存口径（预计售罄时间）", "按照库存周转天数口径"], horizontal=True)
 
-# 计算风险 + 滞销
-df_merge = classify_risk_and_unsold(df_merge, year_option, TARGET_CLEAR_DATE)
+# 使用**过滤后的数据集**计算风险（关键：替换成 df_filter）
+df_filter = classify_risk_and_unsold(df_filter, year_option, TARGET_CLEAR_DATE)
 
 st.divider()
-df_merge["年月"] = df_merge["时间"].dt.to_period("M")
-time_list = sorted(df_merge["年月"].dropna().astype(str).unique())
-sel_month = st.selectbox("选择统计时间", time_list, index=len(time_list)-1)
+df_filter["年月"] = df_filter["时间"].dt.to_period("M")
+time_list = sorted(df_filter["年月"].dropna().astype(str).unique())
+sel_month = st.selectbox("选择统计时间", time_list, index=len(time_list) - 1)
 
 prev_month = sel_month
 if len(time_list) >= 2:
     idx = time_list.index(sel_month)
-    prev_month = time_list[idx-1] if idx > 0 else sel_month
+    prev_month = time_list[idx - 1] if idx > 0 else sel_month
 
-df_curr = df_merge[df_merge["年月"] == sel_month].copy()
-df_prev = df_merge[df_merge["年月"] == prev_month].copy()
+df_curr = df_filter[df_filter["年月"] == sel_month].copy()
+df_prev = df_filter[df_filter["年月"] == prev_month].copy()
 
+# 新增这一行，仅此一处改动
+active_shops = df_filter["店铺"].unique().tolist()
 # ===================== 指标计算 =====================
-def calc_metrics(df_curr, df_prev, risk_name):
-    # 定义风险等级列表
+# ===================== 【修改后】总库存指标计算 =====================
+# ===================== 【总库存指标计算】 =====================
+def calc_metrics(df_curr, df_prev, risk_name, all_unsale_stock=0, all_unsale_amt=0):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
-
     if risk_name == "整体":
-        # ========== 【修正核心】整体卡片：分别计算当前月、上月的低+中+高 ==========
-        # 当前月：筛选当前月的低/中/高SKU
         curr_unsale = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
-        # 上月：筛选上月的低/中/高SKU（不是用当前月的SKU去上月找！）
         prev_unsale = df_prev[df_prev["滞销风险等级"].isin(risk_list)]
 
-        # 整体SKU数：当前月所有SKU
         sku_c = df_curr["MSKU"].nunique()
         sku_p = df_prev["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        # 整体总库存：当前月所有SKU
-        stk_c = df_curr["总库存"].sum()
-        stk_p = df_prev["总库存"].sum()
+        stk_c = float(df_curr["总库存"].sum())
+        stk_p = float(df_prev["总库存"].sum())
         stk_diff = stk_c - stk_p
 
-        # 整体总金额：当前月所有SKU
-        amt_c = df_curr["总库存金额"].sum()
-        amt_p = df_prev["总库存金额"].sum()
+        amt_c = float(df_curr["总库存金额"].sum())
+        amt_p = float(df_prev["总库存金额"].sum())
         amt_diff = amt_c - amt_p
 
-        # 滞销库存：当前月低+中+高SKU的库存
-        u_stk_c = curr_unsale["总滞销库存"].sum()
-        u_stk_p = prev_unsale["总滞销库存"].sum()
+        u_stk_c = float(curr_unsale["总滞销库存"].sum())
+        u_stk_p = float(prev_unsale["总滞销库存"].sum())
         u_stk_diff = u_stk_c - u_stk_p
         pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
 
-        # 滞销金额：当前月低+中+高SKU的金额
-        u_amt_c = curr_unsale["总滞销金额"].sum()
-        u_amt_p = prev_unsale["总滞销金额"].sum()
+        u_amt_c = float(curr_unsale["总滞销金额"].sum())
+        u_amt_p = float(prev_unsale["总滞销金额"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
-
     else:
-        # ========== 单个风险等级卡片：逻辑不变 ==========
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
         p = df_prev[df_prev["滞销风险等级"] == risk_name]
 
@@ -258,36 +430,31 @@ def calc_metrics(df_curr, df_prev, risk_name):
         sku_p = p["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        stk_c = c["总库存"].sum()
-        stk_p = p["总库存"].sum()
+        stk_c = float(c["总库存"].sum())
+        stk_p = float(p["总库存"].sum())
         stk_diff = stk_c - stk_p
 
-        amt_c = c["总库存金额"].sum()
-        amt_p = p["总库存金额"].sum()
+        amt_c = float(c["总库存金额"].sum())
+        amt_p = float(p["总库存金额"].sum())
         amt_diff = amt_c - amt_p
 
-        u_stk_c = c["总滞销库存"].sum()
-        u_stk_p = p["总滞销库存"].sum()
+        u_stk_c = float(c["总滞销库存"].sum())
+        u_stk_p = float(p["总滞销库存"].sum())
         u_stk_diff = u_stk_c - u_stk_p
-        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+        pct_stk = u_stk_c / all_unsale_stock if all_unsale_stock != 0 else 0
 
-        u_amt_c = c["总滞销金额"].sum()
-        u_amt_p = p["总滞销金额"].sum()
+        u_amt_c = float(c["总滞销金额"].sum())
+        u_amt_p = float(p["总滞销金额"].sum())
         u_amt_diff = u_amt_c - u_amt_p
-        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
-
+        pct_amt = u_amt_c / all_unsale_amt if all_unsale_amt != 0 else 0
     return {
-        # SKU 指标
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
-        # 总库存 指标
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
-        # 总金额 指标
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
-        # 滞销库存 指标
         "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
-        # 滞销金额 指标
         "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
     }
+
 
 # ===================== 卡片渲染 =====================
 def render_card_compact(title, m):
@@ -295,7 +462,8 @@ def render_card_compact(title, m):
 
     # 数值格式化：正数红色，负数绿色
     def fmt(d):
-        return ("#e53935", f"+{d:,.0f}") if d >=0 else ("#2e7d32", f"{d:,.0f}")
+        d = float(d)
+        return ("#e53935", f"+{d:,.0f}") if d >= 0 else ("#2e7d32", f"{d:,.0f}")
 
     # 各指标的环比颜色+符号
     sku_c, sku_s = fmt(m["sku_diff"])
@@ -314,43 +482,162 @@ def render_card_compact(title, m):
     if title != "健康":
         usc, uss = fmt(m["unsale_stock_diff"])
         uac, uas = fmt(m["unsale_amt_diff"])
-        parts.append(f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span></div>')
-        parts.append(f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
+        parts.append(
+            f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span></div>')
+        parts.append(
+            f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
 
     # 总金额：当前值 + 上月值 + 环比
-    parts.append(f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
+    parts.append(
+        f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
     st.html("".join(parts))
 
+
+# ===================== 【新增】FBA+AWD+在途库存 指标计算（和总库存结构完全一样） =====================
+# ===================== 【FBA指标计算】 =====================
+def calc_metrics_fba(df_curr, df_prev, risk_name, all_unsale_stock_fba=0, all_unsale_amt_fba=0):
+    risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
+    if risk_name == "整体":
+        curr_unsale = df_curr[df_curr["滞销风险等级_FBA"].isin(risk_list)]
+        prev_unsale = df_prev[df_prev["滞销风险等级_FBA"].isin(risk_list)]
+
+        sku_c = df_curr["MSKU"].nunique()
+        sku_p = df_prev["MSKU"].nunique()
+        sku_diff = sku_c - sku_p
+
+        stk_c = float(df_curr["FBA+AWD+在途库存"].sum())
+        stk_p = float(df_prev["FBA+AWD+在途库存"].sum())
+        stk_diff = stk_c - stk_p
+
+        amt_c = float(df_curr["FBA金额"].sum())
+        amt_p = float(df_prev["FBA金额"].sum())
+        amt_diff = amt_c - amt_p
+
+        u_stk_c = float(curr_unsale["FBA滞销数量_仅FBA"].sum())
+        u_stk_p = float(prev_unsale["FBA滞销数量_仅FBA"].sum())
+        u_stk_diff = u_stk_c - u_stk_p
+        pct_stk = u_stk_c / stk_c if stk_c != 0 else 0
+
+        u_amt_c = float(curr_unsale["FBA滞销金额_仅FBA"].sum())
+        u_amt_p = float(prev_unsale["FBA滞销金额_仅FBA"].sum())
+        u_amt_diff = u_amt_c - u_amt_p
+        pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+    else:
+        c = df_curr[df_curr["滞销风险等级_FBA"] == risk_name]
+        p = df_prev[df_prev["滞销风险等级_FBA"] == risk_name]
+
+        sku_c = c["MSKU"].nunique()
+        sku_p = p["MSKU"].nunique()
+        sku_diff = sku_c - sku_p
+
+        stk_c = float(c["FBA+AWD+在途库存"].sum())
+        stk_p = float(p["FBA+AWD+在途库存"].sum())
+        stk_diff = stk_c - stk_p
+
+        amt_c = float(c["FBA金额"].sum())
+        amt_p = float(p["FBA金额"].sum())
+        amt_diff = amt_c - amt_p
+
+        u_stk_c = float(c["FBA滞销数量_仅FBA"].sum())
+        u_stk_p = float(p["FBA滞销数量_仅FBA"].sum())
+        u_stk_diff = u_stk_c - u_stk_p
+        pct_stk = u_stk_c / all_unsale_stock_fba if all_unsale_stock_fba != 0 else 0
+
+        u_amt_c = float(c["FBA滞销金额_仅FBA"].sum())
+        u_amt_p = float(p["FBA滞销金额_仅FBA"].sum())
+        u_amt_diff = u_amt_c - u_amt_p
+        pct_amt = u_amt_c / all_unsale_amt_fba if all_unsale_amt_fba != 0 else 0
+    return {
+        "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
+        "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
+        "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
+        "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
+        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
+    }
+
+# ===================== 输出 =====================
 # ===================== 输出 =====================
 st.divider()
-st.subheader("📦 整体滞销情况概览")
-cols = st.columns(5)
-for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
-    with cols[i]:
-        render_card_compact(t, calc_metrics(df_curr, df_prev, t))
+st.subheader("📦 整体滞销情况概览（总库存口径）")
+# 先计算全局滞销分母
+metrics_all_total = calc_metrics(df_curr, df_prev, "整体", 0, 0)
+all_unsale_stock_total = metrics_all_total["unsale_stock_curr"]
+all_unsale_amt_total = metrics_all_total["unsale_amt_curr"]
 
-# ===================== 可选：展示明细 =====================
-with st.expander("📋 查看每个MSKU计算明细（可核对公式）"):
+cols = st.columns(5)
+risk_list = ["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+for i, t in enumerate(risk_list):
+    # 补齐5个参数：df_curr, df_prev, t, all_unsale_stock_total, all_unsale_amt_total
+    m = calc_metrics(df_curr, df_prev, t, all_unsale_stock_total, all_unsale_amt_total)
+    with cols[i]:
+        render_card_compact(t, m)
+
+# FBA卡片区域
+st.divider()
+st.subheader("🌎 FBA+AWD+在途库存 滞销概览（海外优先清货）")
+metrics_all_fba = calc_metrics_fba(df_curr, df_prev, "整体", 0, 0)
+all_unsale_stock_fba = metrics_all_fba["unsale_stock_curr"]
+all_unsale_amt_fba = metrics_all_fba["unsale_amt_curr"]
+
+cols_fba = st.columns(5)
+for i, t in enumerate(["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]):
+    # 补齐5个入参
+    m = calc_metrics_fba(df_curr, df_prev, t, all_unsale_stock_fba, all_unsale_amt_fba)
+    with cols_fba[i]:
+        render_card_compact(t, m)
+
+# ===================== 【最终完整版明细表】所有字段补齐，不缺项 =====================
+with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径统一表）"):
     show_cols = [
-        "店铺","MSKU", "品名","是否年份", "时间",
-        "FBA+AWD+在途库存", "总库存", "日均", "周转天数",
-        "预计总库存用完时间", "滞销风险等级","采购成本","头程费用",
-        "FBA+AWD+在途滞销数量", "总滞销库存", "本地滞销数量",
-        "FBA金额", "本地金额", "总库存金额",
-        "FBA滞销金额", "本地滞销金额", "总滞销金额"
+        # 基础信息
+        "店铺", "MSKU", "品名", "是否年份", "时间",
+
+        # 库存数量（总库存 + FBA + 本地）
+        "FBA+AWD+在途库存", "本地库存", "总库存",
+
+        # 运营指标
+        "日均","7天日均","14天日均","28天日均","采购成本", "头程费用",
+        # ========== FBA 独立口径（完整补齐） ==========
+        "周转天数_FBA",
+        "预计FBA用完时间",
+        "滞销风险等级_FBA",
+        "FBA滞销数量_仅FBA",
+        "FBA金额",
+        "FBA滞销金额_仅FBA",  # FBA口径滞销金额
+
+        # ========== 总库存 口径 ==========
+        "周转天数",
+        "预计总库存用完时间",
+        "滞销风险等级",
+        "总滞销库存",
+        "总库存金额",
+        "总滞销金额",
+
+        # ========== 总库存下的明细拆分（FBA部分 + 本地部分） ==========
+        "FBA+AWD+在途滞销数量",
+        "FBA滞销金额",  # 总库存风险下的FBA滞销金额
+        "本地滞销数量",
+        "本地金额",
+        "本地滞销金额"
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 
-# ===================== 1行3列 滞销分析图表（文字排版+配色+环比完整版） =====================
+
+
+# ===================== 图表：3行2列 双口径对比（数据100%对齐版） =====================
 st.divider()
 st.subheader("📊 整体滞销金额 & 数量 & SKU 拆解分析")
 
-# 1. 统一计算所有等级数据
+import plotly.graph_objects as go
+
+# 1. 统一计算两套数据
 risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
-data_list = []
+
+# 总库存口径
+data_total = []
 for r in risk_list:
     m = calc_metrics(df_curr, df_prev, r)
-    data_list.append({
+    data_total.append({
         "风险等级": r,
         "SKU数": m["sku_curr"],
         "SKU_prev": m["sku_prev"],
@@ -368,600 +655,760 @@ for r in risk_list:
         "unsale_stock_prev": m["unsale_stock_prev"],
         "unsale_stock_diff": m["unsale_stock_diff"],
     })
-df_all = pd.DataFrame(data_list)
+df_total = pd.DataFrame(data_total)
 
-# 2. 整体指标
-total_amt = df_all["总金额"].sum()
-total_unsold_amt = df_all[df_all["风险等级"] != "健康"]["滞销金额"].sum()
-total_not_unsold_amt = total_amt - total_unsold_amt
-amt_diff_total = total_amt - df_all["amt_prev"].sum()
-unsale_amt_diff_total = total_unsold_amt - df_all["unsale_amt_prev"].sum()
+# FBA口径
+data_fba = []
+for r in risk_list:
+    m = calc_metrics_fba(df_curr, df_prev, r)
+    data_fba.append({
+        "风险等级": r,
+        "SKU数": m["sku_curr"],
+        "SKU_prev": m["sku_prev"],
+        "SKU_diff": m["sku_diff"],
+        "总金额": m["amt_curr"],
+        "amt_prev": m["amt_prev"],
+        "amt_diff": m["amt_diff"],
+        "总库存": m["stock_curr"],
+        "stock_prev": m["stock_prev"],
+        "stock_diff": m["stock_diff"],
+        "滞销金额": m["unsale_amt_curr"],
+        "unsale_amt_prev": m["unsale_amt_prev"],
+        "unsale_amt_diff": m["unsale_amt_diff"],
+        "滞销库存": m["unsale_stock_curr"],
+        "unsale_stock_prev": m["unsale_stock_prev"],
+        "unsale_stock_diff": m["unsale_stock_diff"],
+    })
+df_fba = pd.DataFrame(data_fba)
 
-total_stock = df_all["总库存"].sum()
-total_unsold_stock = df_all[df_all["风险等级"] != "健康"]["滞销库存"].sum()
-total_not_unsold_stock = total_stock - total_unsold_stock
-stock_diff_total = total_stock - df_all["stock_prev"].sum()
-unsale_stock_diff_total = total_unsold_stock - df_all["unsale_stock_prev"].sum()
-
-# 3. SKU 统计
-df_sku = df_all.set_index("风险等级")
-total_sku     = int(df_sku["SKU数"].sum())
-total_sku_prev= int(df_sku["SKU_prev"].sum())
-total_sku_diff= total_sku - total_sku_prev
-
-healthy_sku   = int(df_sku.loc["健康", "SKU数"])
-low_sku       = int(df_sku.loc["低滞销风险", "SKU数"])
-mid_sku       = int(df_sku.loc["中滞销风险", "SKU数"])
-high_sku      = int(df_sku.loc["高滞销风险", "SKU数"])
-
-low_sku_diff  = int(df_sku.loc["低滞销风险", "SKU_diff"])
-mid_sku_diff  = int(df_sku.loc["中滞销风险", "SKU_diff"])
-high_sku_diff = int(df_sku.loc["高滞销风险", "SKU_diff"])
-
-unsold_sku    = low_sku + mid_sku + high_sku
-unsold_sku_prev = (df_sku.loc["低滞销风险","SKU_prev"]
-                   + df_sku.loc["中滞销风险","SKU_prev"]
-                   + df_sku.loc["高滞销风险","SKU_prev"])
-unsold_sku_diff = unsold_sku - unsold_sku_prev
-
-# 取各等级金额、数量
-low_amt    = df_all[df_all["风险等级"]=="低滞销风险"]["滞销金额"].iloc[0]
-mid_amt    = df_all[df_all["风险等级"]=="中滞销风险"]["滞销金额"].iloc[0]
-high_amt   = df_all[df_all["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0]
-
-low_amt_diff  = df_all[df_all["风险等级"]=="低滞销风险"]["unsale_amt_diff"].iloc[0]
-mid_amt_diff  = df_all[df_all["风险等级"]=="中滞销风险"]["unsale_amt_diff"].iloc[0]
-high_amt_diff = df_all[df_all["风险等级"]=="高滞销风险"]["unsale_amt_diff"].iloc[0]
-
-low_stk    = df_all[df_all["风险等级"]=="低滞销风险"]["滞销库存"].iloc[0]
-mid_stk    = df_all[df_all["风险等级"]=="中滞销风险"]["滞销库存"].iloc[0]
-high_stk   = df_all[df_all["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0]
-
-low_stk_diff  = df_all[df_all["风险等级"]=="低滞销风险"]["unsale_stock_diff"].iloc[0]
-mid_stk_diff  = df_all[df_all["风险等级"]=="中滞销风险"]["unsale_stock_diff"].iloc[0]
-high_stk_diff = df_all[df_all["风险等级"]=="高滞销风险"]["unsale_stock_diff"].iloc[0]
-
-# 格式化颜色函数
-def fmt_val(val):
+# 格式化环比颜色
+def fmt_val_html(val):
     if val > 0:
         return f'<span style="color:#d32f2f">↑ +{val:,.0f}</span>'
     elif val < 0:
         return f'<span style="color:#388e3c">↓ {val:,.0f}</span>'
     else:
-        return f'<span style="color:#666">持平</span>'
+        return '<span style="color:#666">持平</span>'
 
-# 3. 1行3列布局
-col1, col2, col3 = st.columns(3)
+# 🔥 最终修复：饼图数据和表格100%对齐
+def create_double_pie(df, total_col, unsold_col):
+    # 1. 直接用我们计算好的总金额和滞销金额
+    total_val = df[total_col].sum()
+    unsold_val = df[df["风险等级"] != "健康"][unsold_col].sum()
+    not_unsold_val = total_val - unsold_val
 
-# ---------------------- 第1列：滞销金额结构 ----------------------
-with col1:
-    st.markdown("#### 💰 滞销金额结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总库存金额：<b>{total_amt:,.0f}</b> 元 {fmt_val(amt_diff_total)}<br>
-• 滞销总金额：<b>{total_unsold_amt:,.0f}</b> 元（占总 {total_unsold_amt/total_amt:.1%}）{fmt_val(unsale_amt_diff_total)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_amt:,.0f}</b> 元，占滞销 <b>{high_amt/total_unsold_amt:.1%}</b> {fmt_val(high_amt_diff)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_amt:,.0f}</b> 元，占滞销 <b>{mid_amt/total_unsold_amt:.1%}</b> {fmt_val(mid_amt_diff)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_amt:,.0f}</b> 元，占滞销 <b>{low_amt/total_unsold_amt:.1%}</b> {fmt_val(low_amt_diff)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-
-    fig1 = go.Figure()
-    fig1.add_trace(go.Pie(
-        labels=["不滞销金额", "滞销金额"],
-        values=[total_not_unsold_amt, total_unsold_amt],
+    fig = go.Figure()
+    # 左侧饼：不滞销 / 滞销（和表格数据完全一致）
+    fig.add_trace(go.Pie(
+        labels=["不滞销", "滞销"],
+        values=[not_unsold_val, unsold_val],
         domain=dict(x=[0, 0.65], y=[0, 1]),
         marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
         textinfo="label+value+percent",
         texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
         sort=False, direction="clockwise"
     ))
-    fig1.add_trace(go.Pie(
-        labels=["低滞销风险", "中滞销风险", "高滞销风险"],
-        values=df_all[df_all["风险等级"] != "健康"]["滞销金额"],
+    # 右侧细分饼：低/中/高风险
+    sub_df = df[df["风险等级"].isin(["低滞销风险", "中滞销风险", "高滞销风险"])]
+    fig.add_trace(go.Pie(
+        labels=sub_df["风险等级"],
+        values=sub_df[unsold_col],
         domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
         marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
         textinfo="label+value+percent",
         texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
         sort=False, direction="clockwise"
     ))
-    fig1.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
-    st.plotly_chart(fig1, use_container_width=True)
+    fig.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
+    return fig
 
-# ---------------------- 第2列：滞销数量结构 ----------------------
-with col2:
-    st.markdown("#### 📦 滞销数量结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总库存数量：<b>{total_stock:,.0f}</b> 件 {fmt_val(stock_diff_total)}<br>
-• 滞销总数量：<b>{total_unsold_stock:,.0f}</b> 件（占总 {total_unsold_stock/total_stock:.1%}）{fmt_val(unsale_stock_diff_total)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_stk:,.0f}</b> 件，占滞销 <b>{high_stk/total_unsold_stock:.1%}</b> {fmt_val(high_stk_diff)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_stk:,.0f}</b> 件，占滞销 <b>{mid_stk/total_unsold_stock:.1%}</b> {fmt_val(mid_stk_diff)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_stk:,.0f}</b> 件，占滞销 <b>{low_stk/total_unsold_stock:.1%}</b> {fmt_val(low_stk_diff)}
-</div>
+# ---------------------- 第1行：滞销金额 ----------------------
+st.markdown("### 💰 滞销金额对比")
+# 计算数据
+total_amt_t = df_total["总金额"].sum()
+unsold_amt_t = df_total[df_total["风险等级"] != "健康"]["滞销金额"].sum()
+low_amt_t = df_total[df_total["风险等级"] == "低滞销风险"]["滞销金额"].iloc[0]
+mid_amt_t = df_total[df_total["风险等级"] == "中滞销风险"]["滞销金额"].iloc[0]
+high_amt_t = df_total[df_total["风险等级"] == "高滞销风险"]["滞销金额"].iloc[0]
+
+total_amt_f = df_fba["总金额"].sum()
+unsold_amt_f = df_fba[df_fba["风险等级"] != "健康"]["滞销金额"].sum()
+low_amt_f = df_fba[df_fba["风险等级"] == "低滞销风险"]["滞销金额"].iloc[0]
+mid_amt_f = df_fba[df_fba["风险等级"] == "中滞销风险"]["滞销金额"].iloc[0]
+high_amt_f = df_fba[df_fba["风险等级"] == "高滞销风险"]["滞销金额"].iloc[0]
+
+# 构建HTML表格
+html_table = f"""
+<style>
+table {{width:100%;border-collapse:collapse;margin:10px 0;}}
+th, td {{border:1px solid #ddd;padding:8px;text-align:left;}}
+th {{background-color:#f2f2f2;}}
+</style>
+<table>
+  <tr>
+    <th>指标分类</th>
+    <th>总库存口径</th>
+    <th>FBA+AWD+在途口径</th>
+  </tr>
+  <tr>
+    <td>总库存金额</td>
+    <td>{total_amt_t:,.0f} 元 {fmt_val_html(df_total["amt_diff"].sum())}</td>
+    <td>{total_amt_f:,.0f} 元 {fmt_val_html(df_fba["amt_diff"].sum())}</td>
+  </tr>
+  <tr>
+    <td>滞销总金额(占整体)</td>
+    <td>{unsold_amt_t:,.0f} 元 ({unsold_amt_t/total_amt_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] != "健康"]["unsale_amt_diff"].sum())}</td>
+    <td>{unsold_amt_f:,.0f} 元 ({unsold_amt_f/total_amt_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] != "健康"]["unsale_amt_diff"].sum())}</td>
+  </tr>
+  <tr>
+    <td>高滞销风险(占滞销)</td>
+    <td>{high_amt_t:,.0f} 元 ({high_amt_t/unsold_amt_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "高滞销风险"]["unsale_amt_diff"].iloc[0])}</td>
+    <td>{high_amt_f:,.0f} 元 ({high_amt_f/unsold_amt_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "高滞销风险"]["unsale_amt_diff"].iloc[0])}</td>
+  </tr>
+  <tr>
+    <td>中滞销风险(占滞销)</td>
+    <td>{mid_amt_t:,.0f} 元 ({mid_amt_t/unsold_amt_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "中滞销风险"]["unsale_amt_diff"].iloc[0])}</td>
+    <td>{mid_amt_f:,.0f} 元 ({mid_amt_f/unsold_amt_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "中滞销风险"]["unsale_amt_diff"].iloc[0])}</td>
+  </tr>
+  <tr>
+    <td>低滞销风险(占滞销)</td>
+    <td>{low_amt_t:,.0f} 元 ({low_amt_t/unsold_amt_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "低滞销风险"]["unsale_amt_diff"].iloc[0])}</td>
+    <td>{low_amt_f:,.0f} 元 ({low_amt_f/unsold_amt_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "低滞销风险"]["unsale_amt_diff"].iloc[0])}</td>
+  </tr>
+</table>
 """
-    st.markdown(html, unsafe_allow_html=True)
+st.markdown(html_table, unsafe_allow_html=True)
 
-    fig3 = go.Figure()
-    fig3.add_trace(go.Pie(
-        labels=["不滞销数量", "滞销数量"],
-        values=[total_not_unsold_stock, total_unsold_stock],
-        domain=dict(x=[0, 0.65], y=[0, 1]),
-        marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
-        textinfo="label+value+percent",
-        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
-        sort=False, direction="clockwise"
-    ))
-    fig3.add_trace(go.Pie(
-        labels=["低滞销风险", "中滞销风险", "高滞销风险"],
-        values=df_all[df_all["风险等级"] != "健康"]["滞销库存"],
-        domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
-        marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
-        textinfo="label+value+percent",
-        texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}",
-        sort=False, direction="clockwise"
-    ))
-    fig3.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
-    st.plotly_chart(fig3, use_container_width=True)
+# 双饼图（现在和表格数据100%对齐）
+c1, c2 = st.columns(2)
+with c1:
+    st.caption("总库存口径")
+    fig_amt_t = create_double_pie(df_total, "总金额", "滞销金额")
+    st.plotly_chart(fig_amt_t, use_container_width=True)
+with c2:
+    st.caption("FBA+AWD+在途口径")
+    fig_amt_f = create_double_pie(df_fba, "总金额", "滞销金额")
+    st.plotly_chart(fig_amt_f, use_container_width=True)
 
-# ---------------------- 第3列：滞销SKU结构 ----------------------
-with col3:
-    st.markdown("#### 📊 滞销SKU结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总SKU数量：<b>{total_sku}</b> 个 {fmt_val(total_sku_diff)}<br>
-• 滞销SKU总数：<b>{unsold_sku}</b> 个（占总 {unsold_sku/total_sku:.1%}）{fmt_val(unsold_sku_diff)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_sku}</b> 个，占滞销 <b>{high_sku/unsold_sku:.1%}</b> {fmt_val(high_sku_diff)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_sku}</b> 个，占滞销 <b>{mid_sku/unsold_sku:.1%}</b> {fmt_val(mid_sku_diff)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_sku}</b> 个，占滞销 <b>{low_sku/unsold_sku:.1%}</b> {fmt_val(low_sku_diff)}
-</div>
+st.divider()
+
+# ---------------------- 第2行：滞销数量 ----------------------
+st.markdown("### 📦 滞销数量对比")
+# 计算数据
+total_stk_t = df_total["总库存"].sum()
+unsold_stk_t = df_total[df_total["风险等级"] != "健康"]["滞销库存"].sum()
+low_stk_t = df_total[df_total["风险等级"] == "低滞销风险"]["滞销库存"].iloc[0]
+mid_stk_t = df_total[df_total["风险等级"] == "中滞销风险"]["滞销库存"].iloc[0]
+high_stk_t = df_total[df_total["风险等级"] == "高滞销风险"]["滞销库存"].iloc[0]
+
+total_stk_f = df_fba["总库存"].sum()
+unsold_stk_f = df_fba[df_fba["风险等级"] != "健康"]["滞销库存"].sum()
+low_stk_f = df_fba[df_fba["风险等级"] == "低滞销风险"]["滞销库存"].iloc[0]
+mid_stk_f = df_fba[df_fba["风险等级"] == "中滞销风险"]["滞销库存"].iloc[0]
+high_stk_f = df_fba[df_fba["风险等级"] == "高滞销风险"]["滞销库存"].iloc[0]
+
+# 构建HTML表格
+html_table_stk = f"""
+<style>
+table {{width:100%;border-collapse:collapse;margin:10px 0;}}
+th, td {{border:1px solid #ddd;padding:8px;text-align:left;}}
+th {{background-color:#f2f2f2;}}
+</style>
+<table>
+  <tr>
+    <th>指标分类</th>
+    <th>总库存口径</th>
+    <th>FBA+AWD+在途口径</th>
+  </tr>
+  <tr>
+    <td>总库存数量</td>
+    <td>{total_stk_t:,.0f} 件 {fmt_val_html(df_total["stock_diff"].sum())}</td>
+    <td>{total_stk_f:,.0f} 件 {fmt_val_html(df_fba["stock_diff"].sum())}</td>
+  </tr>
+  <tr>
+    <td>滞销总数量(占整体)</td>
+    <td>{unsold_stk_t:,.0f} 件 ({unsold_stk_t/total_stk_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] != "健康"]["unsale_stock_diff"].sum())}</td>
+    <td>{unsold_stk_f:,.0f} 件 ({unsold_stk_f/total_stk_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] != "健康"]["unsale_stock_diff"].sum())}</td>
+  </tr>
+  <tr>
+    <td>高滞销风险(占滞销)</td>
+    <td>{high_stk_t:,.0f} 件 ({high_stk_t/unsold_stk_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "高滞销风险"]["unsale_stock_diff"].iloc[0])}</td>
+    <td>{high_stk_f:,.0f} 件 ({high_stk_f/unsold_stk_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "高滞销风险"]["unsale_stock_diff"].iloc[0])}</td>
+  </tr>
+  <tr>
+    <td>中滞销风险(占滞销)</td>
+    <td>{mid_stk_t:,.0f} 件 ({mid_stk_t/unsold_stk_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "中滞销风险"]["unsale_stock_diff"].iloc[0])}</td>
+    <td>{mid_stk_f:,.0f} 件 ({mid_stk_f/unsold_stk_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "中滞销风险"]["unsale_stock_diff"].iloc[0])}</td>
+  </tr>
+  <tr>
+    <td>低滞销风险(占滞销)</td>
+    <td>{low_stk_t:,.0f} 件 ({low_stk_t/unsold_stk_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "低滞销风险"]["unsale_stock_diff"].iloc[0])}</td>
+    <td>{low_stk_f:,.0f} 件 ({low_stk_f/unsold_stk_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "低滞销风险"]["unsale_stock_diff"].iloc[0])}</td>
+  </tr>
+</table>
 """
-    st.markdown(html, unsafe_allow_html=True)
+st.markdown(html_table_stk, unsafe_allow_html=True)
 
-    fig_sku = go.Figure()
-    fig_sku.add_trace(go.Pie(
-        labels=["不滞销SKU", "滞销SKU"],
-        values=[healthy_sku, unsold_sku],
-        domain=dict(x=[0, 0.65], y=[0, 1]),
-        marker=dict(colors=["#e8f5e9", "#ffcdd2"], line=dict(width=1)),
-        textinfo="label+value+percent",
-        texttemplate="%{label}<br>%{value}<br>%{percent:.1%}",
-        sort=False, direction="clockwise"
-    ))
-    fig_sku.add_trace(go.Pie(
-        labels=["低滞销风险", "中滞销风险", "高滞销风险"],
-        values=[low_sku, mid_sku, high_sku],
-        domain=dict(x=[0.72, 1], y=[0.2, 0.8]),
-        marker=dict(colors=["#fff8e1", "#ffebee", "#ffcdd2"], line=dict(width=1)),
-        textinfo="label+value+percent",
-        texttemplate="%{label}<br>%{value}<br>%{percent:.1%}",
-        sort=False, direction="clockwise"
-    ))
-    fig_sku.update_layout(height=400, showlegend=False, margin=dict(t=20, b=20, l=20, r=20))
-    st.plotly_chart(fig_sku, use_container_width=True)
+# 双饼图
+c3, c4 = st.columns(2)
+with c3:
+    st.caption("总库存口径")
+    fig_stk_t = create_double_pie(df_total, "总库存", "滞销库存")
+    st.plotly_chart(fig_stk_t, use_container_width=True)
+with c4:
+    st.caption("FBA+AWD+在途口径")
+    fig_stk_f = create_double_pie(df_fba, "总库存", "滞销库存")
+    st.plotly_chart(fig_stk_f, use_container_width=True)
 
-# ===================== 年份品 / 非年份品 滞销拆分占比分析（每一项都加环比版） =====================
+st.divider()
+
+# ---------------------- 第3行：滞销SKU ----------------------
+st.markdown("### 📊 滞销SKU对比")
+# 计算数据
+total_sku_t = df_total["SKU数"].sum()
+unsold_sku_t = df_total[df_total["风险等级"] != "健康"]["SKU数"].sum()
+low_sku_t = df_total[df_total["风险等级"] == "低滞销风险"]["SKU数"].iloc[0]
+mid_sku_t = df_total[df_total["风险等级"] == "中滞销风险"]["SKU数"].iloc[0]
+high_sku_t = df_total[df_total["风险等级"] == "高滞销风险"]["SKU数"].iloc[0]
+
+total_sku_f = df_fba["SKU数"].sum()
+unsold_sku_f = df_fba[df_fba["风险等级"] != "健康"]["SKU数"].sum()
+low_sku_f = df_fba[df_fba["风险等级"] == "低滞销风险"]["SKU数"].iloc[0]
+mid_sku_f = df_fba[df_fba["风险等级"] == "中滞销风险"]["SKU数"].iloc[0]
+high_sku_f = df_fba[df_fba["风险等级"] == "高滞销风险"]["SKU数"].iloc[0]
+
+# 构建HTML表格
+html_table_sku = f"""
+<style>
+table {{width:100%;border-collapse:collapse;margin:10px 0;}}
+th, td {{border:1px solid #ddd;padding:8px;text-align:left;}}
+th {{background-color:#f2f2f2;}}
+</style>
+<table>
+  <tr>
+    <th>指标分类</th>
+    <th>总库存口径</th>
+    <th>FBA+AWD+在途口径</th>
+  </tr>
+  <tr>
+    <td>总SKU数量</td>
+    <td>{total_sku_t} 个 {fmt_val_html(df_total["SKU_diff"].sum())}</td>
+    <td>{total_sku_f} 个 {fmt_val_html(df_fba["SKU_diff"].sum())}</td>
+  </tr>
+  <tr>
+    <td>滞销总SKU(占整体)</td>
+    <td>{unsold_sku_t} 个 ({unsold_sku_t/total_sku_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] != "健康"]["SKU_diff"].sum())}</td>
+    <td>{unsold_sku_f} 个 ({unsold_sku_f/total_sku_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] != "健康"]["SKU_diff"].sum())}</td>
+  </tr>
+  <tr>
+    <td>高滞销风险(占滞销)</td>
+    <td>{high_sku_t} 个 ({high_sku_t/unsold_sku_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "高滞销风险"]["SKU_diff"].iloc[0])}</td>
+    <td>{high_sku_f} 个 ({high_sku_f/unsold_sku_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "高滞销风险"]["SKU_diff"].iloc[0])}</td>
+  </tr>
+  <tr>
+    <td>中滞销风险(占滞销)</td>
+    <td>{mid_sku_t} 个 ({mid_sku_t/unsold_sku_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "中滞销风险"]["SKU_diff"].iloc[0])}</td>
+    <td>{mid_sku_f} 个 ({mid_sku_f/unsold_sku_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "中滞销风险"]["SKU_diff"].iloc[0])}</td>
+  </tr>
+  <tr>
+    <td>低滞销风险(占滞销)</td>
+    <td>{low_sku_t} 个 ({low_sku_t/unsold_sku_t:.1%}) {fmt_val_html(df_total[df_total["风险等级"] == "低滞销风险"]["SKU_diff"].iloc[0])}</td>
+    <td>{low_sku_f} 个 ({low_sku_f/unsold_sku_f:.1%}) {fmt_val_html(df_fba[df_fba["风险等级"] == "低滞销风险"]["SKU_diff"].iloc[0])}</td>
+  </tr>
+</table>
+"""
+st.markdown(html_table_sku, unsafe_allow_html=True)
+
+# 双饼图
+c5, c6 = st.columns(2)
+with c5:
+    st.caption("总库存口径")
+    fig_sku_t = create_double_pie(df_total, "SKU数", "SKU数")
+    st.plotly_chart(fig_sku_t, use_container_width=True)
+with c6:
+    st.caption("FBA+AWD+在途口径")
+    fig_sku_f = create_double_pie(df_fba, "SKU数", "SKU数")
+    st.plotly_chart(fig_sku_f, use_container_width=True)
+
+
+
+# ===================== 年份品 / 非年份品 滞销拆分占比分析（双口径对比版） =====================
+# ===================== 年份品 / 非年份品 滞销结构（完整表格版 + 一行六列饼图） =====================
 st.divider()
 st.subheader("📅 年份品 & 非年份品 滞销结构拆分")
 
-# 1. 按【是否年份】拆分数据
-df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()
-df_noyear_curr = df_curr[df_curr["是否年份"] == "否"].copy()
+import plotly.express as px
 
-df_year_prev = df_prev[df_prev["是否年份"] == "是"].copy()
-df_noyear_prev = df_prev[df_prev["是否年份"] == "否"].copy()
+# 1. 风险等级定义
+risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
 
-# 滞销风险范围：低/中/高
-risk_unsale = ["低滞销风险", "中滞销风险", "高滞销风险"]
+# 2. 统计函数（支持总库存/FBA口径、当月/上月）
+def stat_total(df):
+    year = df[df["是否年份"] == "是"]
+    noyear = df[df["是否年份"] == "否"]
+    y_risk = year[year["滞销风险等级"].isin(risk_list)]
+    ny_risk = noyear[noyear["滞销风险等级"].isin(risk_list)]
+    return (
+        y_risk["MSKU"].nunique(),
+        y_risk["总滞销库存"].sum(),
+        y_risk["总滞销金额"].sum(),
+        ny_risk["MSKU"].nunique(),
+        ny_risk["总滞销库存"].sum(),
+        ny_risk["总滞销金额"].sum()
+    )
 
-# 2. 封装统计函数
-def get_unsold_stat(df):
-    df_unsale = df[df["滞销风险等级"].isin(risk_unsale)]
-    sku_cnt = df_unsale["MSKU"].nunique()
-    qty_cnt = df_unsale["总滞销库存"].sum()
-    amt_cnt = df_unsale["总滞销金额"].sum()
-    return sku_cnt, qty_cnt, amt_cnt
+def stat_fba(df):
+    year = df[df["是否年份"] == "是"]
+    noyear = df[df["是否年份"] == "否"]
+    y_risk = year[year["滞销风险等级_FBA"].isin(risk_list)]
+    ny_risk = noyear[noyear["滞销风险等级_FBA"].isin(risk_list)]
+    return (
+        y_risk["MSKU"].nunique(),
+        y_risk["FBA滞销数量_仅FBA"].sum(),
+        y_risk["FBA滞销金额_仅FBA"].sum(),
+        ny_risk["MSKU"].nunique(),
+        ny_risk["FBA滞销数量_仅FBA"].sum(),
+        ny_risk["FBA滞销金额_仅FBA"].sum()
+    )
 
-# 3. 当月统计
-year_sku, year_qty, year_amt = get_unsold_stat(df_year_curr)
-noyear_sku, noyear_qty, noyear_amt = get_unsold_stat(df_noyear_curr)
+# 3. 当月/上月数据
+# 总库存
+y1_sku, y1_qty, y1_amt, ny1_sku, ny1_qty, ny1_amt = stat_total(df_curr)
+total1_sku = y1_sku + ny1_sku
+total1_qty = y1_qty + ny1_qty
+total1_amt = y1_amt + ny1_amt
 
-# 上月统计（环比用）
-year_sku_p, year_qty_p, year_amt_p = get_unsold_stat(df_year_prev)
-noyear_sku_p, noyear_qty_p, noyear_amt_p = get_unsold_stat(df_noyear_prev)
+y1p_sku, y1p_qty, y1p_amt, ny1p_sku, ny1p_qty, ny1p_amt = stat_total(df_prev)
+total1p_sku = y1p_sku + ny1p_sku
+total1p_qty = y1p_qty + ny1p_qty
+total1p_amt = y1p_amt + ny1p_amt
 
-# 4. 总计
-total_all_sku = year_sku + noyear_sku
-total_all_qty = year_qty + noyear_qty
-total_all_amt = year_amt + noyear_amt
+# FBA
+y2_sku, y2_qty, y2_amt, ny2_sku, ny2_qty, ny2_amt = stat_fba(df_curr)
+total2_sku = y2_sku + ny2_sku
+total2_qty = y2_qty + ny2_qty
+total2_amt = y2_amt + ny2_amt
 
-total_all_sku_p = year_sku_p + noyear_sku_p
-total_all_qty_p = year_qty_p + noyear_qty_p
-total_all_amt_p = year_amt_p + noyear_amt_p
+y2p_sku, y2p_qty, y2p_amt, ny2p_sku, ny2p_qty, ny2p_amt = stat_fba(df_prev)
+total2p_sku = y2p_sku + ny2p_sku
+total2p_qty = y2p_qty + ny2p_qty
+total2p_amt = y2p_amt + ny2p_amt
 
-# 环比差值
-diff_sku_total = total_all_sku - total_all_sku_p
-diff_qty_total = total_all_qty - total_all_qty_p
-diff_amt_total = total_all_amt - total_all_amt_p
+# 4. 环比差值
+def diff(a, b): return round(a) - round(b)
 
-diff_sku_year = year_sku - year_sku_p
-diff_qty_year = year_qty - year_qty_p
-diff_amt_year = year_amt - year_amt_p
+d1_sku = diff(total1_sku, total1p_sku)
+d1_qty = diff(total1_qty, total1p_qty)
+d1_amt = diff(total1_amt, total1p_amt)
+d1y_sku = diff(y1_sku, y1p_sku)
+d1y_qty = diff(y1_qty, y1p_qty)
+d1y_amt = diff(y1_amt, y1p_amt)
+d1n_sku = diff(ny1_sku, ny1p_sku)
+d1n_qty = diff(ny1_qty, ny1p_qty)
+d1n_amt = diff(ny1_amt, ny1p_amt)
 
-diff_sku_noyear = noyear_sku - noyear_sku_p
-diff_qty_noyear = noyear_qty - noyear_qty_p
-diff_amt_noyear = noyear_amt - noyear_amt_p
+d2_sku = diff(total2_sku, total2p_sku)
+d2_qty = diff(total2_qty, total2p_qty)
+d2_amt = diff(total2_amt, total2p_amt)
+d2y_sku = diff(y2_sku, y2p_sku)
+d2y_qty = diff(y2_qty, y2p_qty)
+d2y_amt = diff(y2_amt, y2p_amt)
+d2n_sku = diff(ny2_sku, ny2p_sku)
+d2n_qty = diff(ny2_qty, ny2p_qty)
+d2n_amt = diff(ny2_amt, ny2p_amt)
 
 # 格式化工具
-def safe_pct_2(val, total):
-    return f"{(val / total)*100:.2f}%" if total > 0 else "0.00%"
-
+def pct(a, b): return f"{a/b*100:.2f}%" if b > 0 else "0.00%"
 def color_num(v):
-    if v > 0:
-        return f'<span style="color:#d32f2f">↑ +{int(v):,}</span>'
-    elif v < 0:
-        return f'<span style="color:#388e3c">↓ {int(v):,}</span>'
+    if v > 0: return f'<span style="color:#d32f2f">↑ +{v:,}</span>'
+    elif v < 0: return f'<span style="color:#388e3c">↓ {v:,}</span>'
+    else: return "—"
+
+# 数值统一转整数
+total1_sku = round(total1_sku)
+y1_sku = round(y1_sku)
+ny1_sku = round(ny1_sku)
+total1_qty = round(total1_qty)
+y1_qty = round(y1_qty)
+ny1_qty = round(ny1_qty)
+total1_amt = round(total1_amt)
+y1_amt = round(y1_amt)
+ny1_amt = round(ny1_amt)
+
+total2_sku = round(total2_sku)
+y2_sku = round(y2_sku)
+ny2_sku = round(ny2_sku)
+total2_qty = round(total2_qty)
+y2_qty = round(y2_qty)
+ny2_qty = round(ny2_qty)
+total2_amt = round(total2_amt)
+y2_amt = round(y2_amt)
+ny2_amt = round(ny2_amt)
+
+# ===================== 【完整表格：细分年份/非年份】 =====================
+st.markdown("### 📊 滞销结构对比（按年份/非年份拆分）")
+html_table = f"""
+<style>
+table {{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px;}}
+th, td {{border:1px solid #ddd;padding:8px;text-align:left;}}
+th {{background-color:#f2f2f2;}}
+</style>
+<table>
+  <tr>
+    <th>指标分类</th>
+    <th>总库存口径</th>
+    <th>FBA+AWD+在途口径</th>
+  </tr>
+  <!-- SKU部分 -->
+  <tr>
+    <td>滞销SKU总数</td>
+    <td>{total1_sku:,} 个 {color_num(d1_sku)}</td>
+    <td>{total2_sku:,} 个 {color_num(d2_sku)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">年份品SKU（占比）</td>
+    <td>{y1_sku:,} 个（{pct(y1_sku, total1_sku)}）{color_num(d1y_sku)}</td>
+    <td>{y2_sku:,} 个（{pct(y2_sku, total2_sku)}）{color_num(d2y_sku)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">非年份品SKU（占比）</td>
+    <td>{ny1_sku:,} 个（{pct(ny1_sku, total1_sku)}）{color_num(d1n_sku)}</td>
+    <td>{ny2_sku:,} 个（{pct(ny2_sku, total2_sku)}）{color_num(d2n_sku)}</td>
+  </tr>
+  <!-- 数量部分 -->
+  <tr>
+    <td>滞销总数量</td>
+    <td>{total1_qty:,} 件 {color_num(d1_qty)}</td>
+    <td>{total2_qty:,} 件 {color_num(d2_qty)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">年份品数量（占比）</td>
+    <td>{y1_qty:,} 件（{pct(y1_qty, total1_qty)}）{color_num(d1y_qty)}</td>
+    <td>{y2_qty:,} 件（{pct(y2_qty, total2_qty)}）{color_num(d2y_qty)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">非年份品数量（占比）</td>
+    <td>{ny1_qty:,} 件（{pct(ny1_qty, total1_qty)}）{color_num(d1n_qty)}</td>
+    <td>{ny2_qty:,} 件（{pct(ny2_qty, total2_qty)}）{color_num(d2n_qty)}</td>
+  </tr>
+  <!-- 金额部分 -->
+  <tr>
+    <td>滞销总金额</td>
+    <td>{total1_amt:,} 元 {color_num(d1_amt)}</td>
+    <td>{total2_amt:,} 元 {color_num(d2_amt)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">年份品金额（占比）</td>
+    <td>{y1_amt:,} 元（{pct(y1_amt, total1_amt)}）{color_num(d1y_amt)}</td>
+    <td>{y2_amt:,} 元（{pct(y2_amt, total2_amt)}）{color_num(d2y_amt)}</td>
+  </tr>
+  <tr>
+    <td style="padding-left:20px;">非年份品金额（占比）</td>
+    <td>{ny1_amt:,} 元（{pct(ny1_amt, total1_amt)}）{color_num(d1n_amt)}</td>
+    <td>{ny2_amt:,} 元（{pct(ny2_amt, total2_amt)}）{color_num(d2n_amt)}</td>
+  </tr>
+</table>
+"""
+st.markdown(html_table, unsafe_allow_html=True)
+
+# ===================== 【饼图：一行六列放大版】 =====================
+st.markdown("### 🥧 占比饼图对比（总库存 ↔ FBA+AWD+在途）")
+cols = st.columns(6, gap="small")
+colors = ["#a6c9ff", "#0066cc"]
+height = 300
+
+# 总库存组
+with cols[0]:
+    fig = px.pie(names=["年份品", "非年份品"], values=[y1_sku, ny1_sku], title="总库存 - SKU占比", color_discrete_sequence=colors)
+    fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+    st.plotly_chart(fig, use_container_width=True)
+with cols[1]:
+    fig = px.pie(names=["年份品", "非年份品"], values=[y1_qty, ny1_qty], title="总库存 - 数量占比", color_discrete_sequence=colors)
+    fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+    st.plotly_chart(fig, use_container_width=True)
+with cols[2]:
+    fig = px.pie(names=["年份品", "非年份品"], values=[y1_amt, ny1_amt], title="总库存 - 金额占比", color_discrete_sequence=colors)
+    fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+# FBA组
+with cols[3]:
+    fig = px.pie(names=["年份品", "非年份品"], values=[y2_sku, ny2_sku], title="FBA - SKU占比", color_discrete_sequence=colors)
+    fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+    st.plotly_chart(fig, use_container_width=True)
+with cols[4]:
+    fig = px.pie(names=["年份品", "非年份品"], values=[y2_qty, ny2_qty], title="FBA - 数量占比", color_discrete_sequence=colors)
+    fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+    st.plotly_chart(fig, use_container_width=True)
+with cols[5]:
+    fig = px.pie(names=["年份品", "非年份品"], values=[y2_amt, ny2_amt], title="FBA - 金额占比", color_discrete_sequence=colors)
+    fig.update_layout(height=height, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
+    st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+st.subheader("📊 滞销拆解（含环比+占比 | 按口径/年份拆分）")
+
+RISK_LIST = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
+
+# 计算函数
+def get_segment_metrics(df_curr, df_prev, risk_col, stock_col, amt_col, unsold_stock_col, unsold_amt_col):
+    res = {}
+    res["curr_total_sku"] = df_curr["MSKU"].nunique()
+    res["prev_total_sku"] = df_prev["MSKU"].nunique()
+    res["diff_total_sku"] = res["curr_total_sku"] - res["prev_total_sku"]
+
+    res["curr_total_stock"] = round(df_curr[stock_col].sum())
+    res["prev_total_stock"] = round(df_prev[stock_col].sum())
+    res["diff_total_stock"] = res["curr_total_stock"] - res["prev_total_stock"]
+
+    res["curr_total_amt"] = round(df_curr[amt_col].sum())
+    res["prev_total_amt"] = round(df_prev[amt_col].sum())
+    res["diff_total_amt"] = res["curr_total_amt"] - res["prev_total_amt"]
+
+    for r in RISK_LIST:
+        dc = df_curr[df_curr[risk_col] == r]
+        dp = df_prev[df_prev[risk_col] == r]
+
+        res[f"{r}_sku_curr"] = dc["MSKU"].nunique()
+        res[f"{r}_sku_prev"] = dp["MSKU"].nunique()
+        res[f"{r}_sku_diff"] = res[f"{r}_sku_curr"] - res[f"{r}_sku_prev"]
+
+        res[f"{r}_stock_curr"] = round(dc[stock_col].sum())
+        res[f"{r}_stock_prev"] = round(dp[stock_col].sum())
+        res[f"{r}_stock_diff"] = res[f"{r}_stock_curr"] - res[f"{r}_stock_prev"]
+
+        res[f"{r}_amt_curr"] = round(dc[amt_col].sum())
+        res[f"{r}_amt_prev"] = round(dp[amt_col].sum())
+        res[f"{r}_amt_diff"] = res[f"{r}_amt_curr"] - res[f"{r}_amt_prev"]
+
+        if r != "健康":
+            res[f"{r}_unsold_stock_curr"] = round(dc[unsold_stock_col].sum())
+            res[f"{r}_unsold_stock_prev"] = round(dp[unsold_stock_col].sum())
+            res[f"{r}_unsold_stock_diff"] = res[f"{r}_unsold_stock_curr"] - res[f"{r}_unsold_stock_prev"]
+
+            res[f"{r}_unsold_amt_curr"] = round(dc[unsold_amt_col].sum())
+            res[f"{r}_unsold_amt_prev"] = round(dp[unsold_amt_col].sum())
+            res[f"{r}_unsold_amt_diff"] = res[f"{r}_unsold_amt_curr"] - res[f"{r}_unsold_amt_prev"]
+        else:
+            res[f"{r}_unsold_stock_curr"] = 0
+            res[f"{r}_unsold_stock_prev"] = 0
+            res[f"{r}_unsold_stock_diff"] = 0
+            res[f"{r}_unsold_amt_curr"] = 0
+            res[f"{r}_unsold_amt_prev"] = 0
+            res[f"{r}_unsold_amt_diff"] = 0
+
+    unsold_risk = ["低滞销风险", "中滞销风险", "高滞销风险"]
+    res["unsold_sku_curr"] = sum(res[f"{x}_sku_curr"] for x in unsold_risk)
+    res["unsold_sku_prev"] = sum(res[f"{x}_sku_prev"] for x in unsold_risk)
+    res["unsold_sku_diff"] = res["unsold_sku_curr"] - res["unsold_sku_prev"]
+
+    res["unsold_stock_curr"] = sum(res[f"{x}_unsold_stock_curr"] for x in unsold_risk)
+    res["unsold_stock_prev"] = sum(res[f"{x}_unsold_stock_prev"] for x in unsold_risk)
+    res["unsold_stock_diff"] = res["unsold_stock_curr"] - res["unsold_stock_prev"]
+
+    res["unsold_amt_curr"] = sum(res[f"{x}_unsold_amt_curr"] for x in unsold_risk)
+    res["unsold_amt_prev"] = sum(res[f"{x}_unsold_amt_prev"] for x in unsold_risk)
+    res["unsold_amt_diff"] = res["unsold_amt_curr"] - res["unsold_amt_prev"]
+
+    res["pct_sku"] = res["unsold_sku_curr"] / res["curr_total_sku"] if res["curr_total_sku"] != 0 else 0
+    res["pct_stock"] = res["unsold_stock_curr"] / res["curr_total_stock"] if res["curr_total_stock"] != 0 else 0
+    res["pct_amt"] = res["unsold_amt_curr"] / res["curr_total_amt"] if res["curr_total_amt"] != 0 else 0
+
+    for r in unsold_risk:
+        res[f"{r}_pct_sku"] = res[f"{r}_sku_curr"] / res["unsold_sku_curr"] if res["unsold_sku_curr"] != 0 else 0
+        res[f"{r}_pct_stock"] = res[f"{r}_unsold_stock_curr"] / res["unsold_stock_curr"] if res["unsold_stock_curr"] != 0 else 0
+        res[f"{r}_pct_amt"] = res[f"{r}_unsold_amt_curr"] / res["unsold_amt_curr"] if res["unsold_amt_curr"] != 0 else 0
+
+    return res
+
+# 筛选数据
+# 年份品
+df_curr_year = df_curr[df_curr["是否年份"] == "是"].copy()
+df_prev_year = df_prev[df_prev["是否年份"] == "是"].copy()
+
+# 非年份品
+df_curr_nonyear = df_curr[df_curr["是否年份"] == "否"].copy()
+df_prev_nonyear = df_prev[df_prev["是否年份"] == "否"].copy()
+
+# 计算指标
+# 1. 总库存口径 - 年份品/非年份品
+met_year_total = get_segment_metrics(
+    df_curr_year, df_prev_year,
+    risk_col="滞销风险等级",
+    stock_col="总库存",
+    amt_col="总库存金额",
+    unsold_stock_col="总滞销库存",
+    unsold_amt_col="总滞销金额"
+)
+
+met_nonyear_total = get_segment_metrics(
+    df_curr_nonyear, df_prev_nonyear,
+    risk_col="滞销风险等级",
+    stock_col="总库存",
+    amt_col="总库存金额",
+    unsold_stock_col="总滞销库存",
+    unsold_amt_col="总滞销金额"
+)
+
+# 2. FBA口径 - 年份品/非年份品
+met_year_fba = get_segment_metrics(
+    df_curr_year, df_prev_year,
+    risk_col="滞销风险等级_FBA",
+    stock_col="FBA+AWD+在途库存",
+    amt_col="FBA金额",
+    unsold_stock_col="FBA滞销数量_仅FBA",
+    unsold_amt_col="FBA滞销金额_仅FBA"
+)
+
+met_nonyear_fba = get_segment_metrics(
+    df_curr_nonyear, df_prev_nonyear,
+    risk_col="滞销风险等级_FBA",
+    stock_col="FBA+AWD+在途库存",
+    amt_col="FBA金额",
+    unsold_stock_col="FBA滞销数量_仅FBA",
+    unsold_amt_col="FBA滞销金额_仅FBA"
+)
+
+# 格式化单元格并存储差值，方便后续上色
+def format_cell(val, diff, pct=None, unit=""):
+    arrow = "↑" if diff >= 0 else "↓"
+    diff_str = f"{arrow}{diff:+d}".replace("+", "")
+    if pct is not None:
+        text = f"{val:,}{unit} ({pct:.1%}) {diff_str}"
     else:
-        return "—"
+        text = f"{val:,}{unit} {diff_str}"
+    return text, diff  # 同时返回文本和差值
 
-# ===================== 布局：文字收紧 + 饼图放大 + 每一项都加环比 =====================
-col_left, col_right = st.columns([1, 1.5], gap="small")
+row_list = [
+    "全部",
+    "滞销合计(低+中+高)",
+    "健康",
+    "低滞销风险",
+    "中滞销风险",
+    "高滞销风险"
+]
 
-with col_left:
-    st.markdown(f"""
-<div style="background:#f8f9fa; padding:12px; border-radius:8px; line-height:1.6; font-size:13px;">
-<b>📊 整体滞销结构总结</b><br>
-• 滞销SKU共 <b>{total_all_sku}</b> 个，环比 {color_num(diff_sku_total)}<br>
-　年份品 <b>{year_sku}</b> 个（{safe_pct_2(year_sku, total_all_sku)}），环比 {color_num(diff_sku_year)}<br>
-　非年份品 <b>{noyear_sku}</b> 个（{safe_pct_2(noyear_sku, total_all_sku)}），环比 {color_num(diff_sku_noyear)}<br>
-<br>
-• 滞销数量共 <b>{total_all_qty:,.0f}</b> 件，环比 {color_num(diff_qty_total)}<br>
-　年份品 <b>{year_qty:,.0f}</b> 件（{safe_pct_2(year_qty, total_all_qty)}），环比 {color_num(diff_qty_year)}<br>
-　非年份品 <b>{noyear_qty:,.0f}</b> 件（{safe_pct_2(noyear_qty, total_all_qty)}），环比 {color_num(diff_qty_noyear)}<br>
-<br>
-• 滞销金额共 <b>{total_all_amt:,.0f}</b> 元，环比 {color_num(diff_amt_total)}<br>
-　年份品 <b>{year_amt:,.0f}</b> 元（{safe_pct_2(year_amt, total_all_amt)}），环比 {color_num(diff_amt_year)}<br>
-　非年份品 <b>{noyear_amt:,.0f}</b> 元（{safe_pct_2(noyear_amt, total_all_amt)}），环比 {color_num(diff_amt_noyear)}
-</div>
-""", unsafe_allow_html=True)
+# 构建表格：SKU/数量/金额，每块里区分年份品/非年份品
+def build_table(m_year, m_nonyear, unit=""):
+    rows = []
+    for lab in row_list:
+        if lab == "全部":
+            if unit == " 个":
+                y_text, y_diff = format_cell(m_year["curr_total_sku"], m_year["diff_total_sku"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["curr_total_sku"], m_nonyear["diff_total_sku"], unit=unit)
+            elif unit == " 件":
+                y_text, y_diff = format_cell(m_year["curr_total_stock"], m_year["diff_total_stock"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["curr_total_stock"], m_nonyear["diff_total_stock"], unit=unit)
+            else:
+                y_text, y_diff = format_cell(m_year["curr_total_amt"], m_year["diff_total_amt"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["curr_total_amt"], m_nonyear["diff_total_amt"], unit=unit)
 
-with col_right:
-    c1, c2, c3 = st.columns(3, gap="small")
+        elif lab == "滞销合计(低+中+高)":
+            if unit == " 个":
+                y_text, y_diff = format_cell(m_year["unsold_sku_curr"], m_year["unsold_sku_diff"], m_year["pct_sku"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["unsold_sku_curr"], m_nonyear["unsold_sku_diff"], m_nonyear["pct_sku"], unit=unit)
+            elif unit == " 件":
+                y_text, y_diff = format_cell(m_year["unsold_stock_curr"], m_year["unsold_stock_diff"], m_year["pct_stock"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["unsold_stock_curr"], m_nonyear["unsold_stock_diff"], m_nonyear["pct_stock"], unit=unit)
+            else:
+                y_text, y_diff = format_cell(m_year["unsold_amt_curr"], m_year["unsold_amt_diff"], m_year["pct_amt"], unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear["unsold_amt_curr"], m_nonyear["unsold_amt_diff"], m_nonyear["pct_amt"], unit=unit)
 
-    # 左1：SKU占比
-    with c1:
-        pie_sku = pd.DataFrame({
-            "类型": ["年份品", "非年份品"],
-            "值": [year_sku, noyear_sku]
+        else:
+            if unit == " 个":
+                y_text, y_diff = format_cell(m_year[f"{lab}_sku_curr"], m_year[f"{lab}_sku_diff"], m_year[f"{lab}_pct_sku"] if lab!="健康" else None, unit=unit)
+                ny_text, ny_diff = format_cell(m_nonyear[f"{lab}_sku_curr"], m_nonyear[f"{lab}_sku_diff"], m_nonyear[f"{lab}_pct_sku"] if lab!="健康" else None, unit=unit)
+            elif unit == " 件":
+                val_y = m_year[f"{lab}_unsold_stock_curr"] if lab!="健康" else m_year[f"{lab}_stock_curr"]
+                diff_y = m_year[f"{lab}_unsold_stock_diff"] if lab!="健康" else m_year[f"{lab}_stock_diff"]
+                pct_y = m_year[f"{lab}_pct_stock"] if lab!="健康" else None
+
+                val_ny = m_nonyear[f"{lab}_unsold_stock_curr"] if lab!="健康" else m_nonyear[f"{lab}_stock_curr"]
+                diff_ny = m_nonyear[f"{lab}_unsold_stock_diff"] if lab!="健康" else m_nonyear[f"{lab}_stock_diff"]
+                pct_ny = m_nonyear[f"{lab}_pct_stock"] if lab!="健康" else None
+
+                y_text, y_diff = format_cell(val_y, diff_y, pct_y, unit=unit)
+                ny_text, ny_diff = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
+            else:
+                val_y = m_year[f"{lab}_unsold_amt_curr"] if lab!="健康" else m_year[f"{lab}_amt_curr"]
+                diff_y = m_year[f"{lab}_unsold_amt_diff"] if lab!="健康" else m_year[f"{lab}_amt_diff"]
+                pct_y = m_year[f"{lab}_pct_amt"] if lab!="健康" else None
+
+                val_ny = m_nonyear[f"{lab}_unsold_amt_curr"] if lab!="健康" else m_nonyear[f"{lab}_amt_curr"]
+                diff_ny = m_nonyear[f"{lab}_unsold_amt_diff"] if lab!="健康" else m_nonyear[f"{lab}_amt_diff"]
+                pct_ny = m_nonyear[f"{lab}_pct_amt"] if lab!="健康" else None
+
+                y_text, y_diff = format_cell(val_y, diff_y, pct_y, unit=unit)
+                ny_text, ny_diff = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
+
+        rows.append({
+            "分类": lab,
+            "年份品": y_text,
+            "年份品_diff": y_diff,
+            "年份品_color": "red" if y_diff > 0 else "green" if y_diff < 0 else None,
+            "非年份品": ny_text,
+            "非年份品_diff": ny_diff,
+            "非年份品_color": "red" if ny_diff > 0 else "green" if ny_diff < 0 else None
         })
-        fig = px.pie(pie_sku, names="类型", values="值", title="滞销SKU占比")
-        fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-        st.plotly_chart(fig, use_container_width=True)
 
-    # 左2：数量占比
-    with c2:
-        pie_qty = pd.DataFrame({
-            "类型": ["年份品", "非年份品"],
-            "值": [year_qty, noyear_qty]
-        })
-        fig = px.pie(pie_qty, names="类型", values="值", title="滞销数量占比")
-        fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-        st.plotly_chart(fig, use_container_width=True)
+    df = pd.DataFrame(rows)
+    return df
 
-    # 左3：金额占比
-    with c3:
-        pie_amt = pd.DataFrame({
-            "类型": ["年份品", "非年份品"],
-            "值": [year_amt, noyear_amt]
-        })
-        fig = px.pie(pie_amt, names="类型", values="值", title="滞销金额占比")
-        fig.update_layout(height=280, showlegend=False, margin=dict(t=40, b=10, l=0, r=0))
-        st.plotly_chart(fig, use_container_width=True)
+# 生成表格（包含差值和颜色信息）
+# 1. 总库存口径
+df_sku_total = build_table(met_year_total, met_nonyear_total, unit=" 个")
+df_stock_total = build_table(met_year_total, met_nonyear_total, unit=" 件")
+df_amt_total = build_table(met_year_total, met_nonyear_total, unit=" 元")
 
-# ======================================================================================
-# 👇 下面是你要的：非年份品 滞销拆解分析（和你上面原版完全同结构）
-# ======================================================================================
+# 2. FBA口径
+df_sku_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 个")
+df_stock_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 件")
+df_amt_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 元")
+
+# 自定义颜色函数（优化版：差值为0不上色）
+def color_text(val):
+    if "↑0" in val or "↓0" in val:
+        return ""  # 差值为0，保持默认黑色
+    elif "↑" in val:
+        return "color: red"
+    elif "↓" in val:
+        return "color: green"
+    else:
+        return ""
+
+# 渲染带颜色的表格
+def render_colored_df(df, title):
+    st.markdown(title)
+    display_df = df[["分类", "年份品", "非年份品"]].copy()
+    st.dataframe(
+        display_df.style.applymap(color_text, subset=["年份品", "非年份品"]),
+        use_container_width=True,
+        hide_index=True,
+        height=320
+    )
+
+# 渲染页面：先总库存口径，再FBA口径，每块里一行三列
+st.markdown("### 📦 总库存口径")
+col1, col2, col3 = st.columns(3)
+with col1:
+    render_colored_df(df_sku_total, "#### 📊 SKU 统计（年份品/非年份品）")
+with col2:
+    render_colored_df(df_stock_total, "#### 📦 库存数量统计（年份品/非年份品）")
+with col3:
+    render_colored_df(df_amt_total, "#### 💰 库存金额统计（年份品/非年份品）")
+
 st.divider()
-st.subheader("📦 非年份品 滞销金额 & 数量 & SKU 拆解分析")
 
-df_no_year_curr = df_curr[df_curr["是否年份"] == "否"].copy()
-df_no_year_prev = df_prev[df_prev["是否年份"] == "否"].copy()
-
-# 1. 统一计算所有等级数据
-risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
-data_list_no = []
-for r in risk_list:
-    m = calc_metrics(df_no_year_curr, df_no_year_prev, r)
-    data_list_no.append({
-        "风险等级": r,
-        "SKU数": m["sku_curr"],
-        "SKU_prev": m["sku_prev"],
-        "SKU_diff": m["sku_diff"],
-        "总金额": m["amt_curr"],
-        "amt_prev": m["amt_prev"],
-        "amt_diff": m["amt_diff"],
-        "总库存": m["stock_curr"],
-        "stock_prev": m["stock_prev"],
-        "stock_diff": m["stock_diff"],
-        "滞销金额": m["unsale_amt_curr"],
-        "unsale_amt_prev": m["unsale_amt_prev"],
-        "unsale_amt_diff": m["unsale_amt_diff"],
-        "滞销库存": m["unsale_stock_curr"],
-        "unsale_stock_prev": m["unsale_stock_prev"],
-        "unsale_stock_diff": m["unsale_stock_diff"],
-    })
-df_all_no = pd.DataFrame(data_list_no)
-
-# 2. 整体指标
-total_amt_no = df_all_no["总金额"].sum()
-total_unsold_amt_no = df_all_no[df_all_no["风险等级"] != "健康"]["滞销金额"].sum()
-total_not_unsold_amt_no = total_amt_no - total_unsold_amt_no
-amt_diff_total_no = total_amt_no - df_all_no["amt_prev"].sum()
-unsale_amt_diff_total_no = total_unsold_amt_no - df_all_no["unsale_amt_prev"].sum()
-
-total_stock_no = df_all_no["总库存"].sum()
-total_unsold_stock_no = df_all_no[df_all_no["风险等级"] != "健康"]["滞销库存"].sum()
-total_not_unsold_stock_no = total_stock_no - total_unsold_stock_no
-stock_diff_total_no = total_stock_no - df_all_no["stock_prev"].sum()
-unsale_stock_diff_total_no = total_unsold_stock_no - df_all_no["unsale_stock_prev"].sum()
-
-# 3. SKU 统计
-df_sku_no = df_all_no.set_index("风险等级")
-total_sku_no = int(df_sku_no["SKU数"].sum())
-total_sku_prev_no = int(df_sku_no["SKU_prev"].sum())
-total_sku_diff_no = total_sku_no - total_sku_prev_no
-
-healthy_sku_no = int(df_sku_no.loc["健康", "SKU数"])
-low_sku_no = int(df_sku_no.loc["低滞销风险", "SKU数"])
-mid_sku_no = int(df_sku_no.loc["中滞销风险", "SKU数"])
-high_sku_no = int(df_sku_no.loc["高滞销风险", "SKU数"])
-
-low_sku_diff_no = int(df_sku_no.loc["低滞销风险", "SKU_diff"])
-mid_sku_diff_no = int(df_sku_no.loc["中滞销风险", "SKU_diff"])
-high_sku_diff_no = int(df_sku_no.loc["高滞销风险", "SKU_diff"])
-
-unsold_sku_no = low_sku_no + mid_sku_no + high_sku_no
-unsold_sku_prev_no = (df_sku_no.loc["低滞销风险","SKU_prev"] + df_sku_no.loc["中滞销风险","SKU_prev"] + df_sku_no.loc["高滞销风险","SKU_prev"])
-unsold_sku_diff_no = unsold_sku_no - unsold_sku_prev_no
-
-# 取各等级金额、数量
-low_amt_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["滞销金额"].iloc[0]
-mid_amt_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["滞销金额"].iloc[0]
-high_amt_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0]
-
-low_amt_diff_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["unsale_amt_diff"].iloc[0]
-mid_amt_diff_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["unsale_amt_diff"].iloc[0]
-high_amt_diff_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["unsale_amt_diff"].iloc[0]
-
-low_stk_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["滞销库存"].iloc[0]
-mid_stk_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["滞销库存"].iloc[0]
-high_stk_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0]
-
-low_stk_diff_no = df_all_no[df_all_no["风险等级"]=="低滞销风险"]["unsale_stock_diff"].iloc[0]
-mid_stk_diff_no = df_all_no[df_all_no["风险等级"]=="中滞销风险"]["unsale_stock_diff"].iloc[0]
-high_stk_diff_no = df_all_no[df_all_no["风险等级"]=="高滞销风险"]["unsale_stock_diff"].iloc[0]
-
-# 布局
-col1_no, col2_no, col3_no = st.columns(3)
-
-# 金额
-with col1_no:
-    st.markdown("#### 💰 非年份品｜滞销金额结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总库存金额：<b>{total_amt_no:,.0f}</b> 元 {fmt_val(amt_diff_total_no)}<br>
-• 滞销总金额：<b>{total_unsold_amt_no:,.0f}</b> 元（占总 {total_unsold_amt_no/total_amt_no:.1%}）{fmt_val(unsale_amt_diff_total_no)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_amt_no:,.0f}</b> 元，占滞销 <b>{high_amt_no/total_unsold_amt_no:.1%}</b> {fmt_val(high_amt_diff_no)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_amt_no:,.0f}</b> 元，占滞销 <b>{mid_amt_no/total_unsold_amt_no:.1%}</b> {fmt_val(mid_amt_diff_no)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_amt_no:,.0f}</b> 元，占滞销 <b>{low_amt_no/total_unsold_amt_no:.1%}</b> {fmt_val(low_amt_diff_no)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["不滞销金额","滞销金额"], values=[total_not_unsold_amt_no, total_unsold_amt_no], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_amt_no,mid_amt_no,high_amt_no], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
-    st.plotly_chart(fig, use_container_width=True)
-
-# 数量
-with col2_no:
-    st.markdown("#### 📦 非年份品｜滞销数量结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总库存数量：<b>{total_stock_no:,.0f}</b> 件 {fmt_val(stock_diff_total_no)}<br>
-• 滞销总数量：<b>{total_unsold_stock_no:,.0f}</b> 件（占总 {total_unsold_stock_no/total_stock_no:.1%}）{fmt_val(unsale_stock_diff_total_no)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_stk_no:,.0f}</b> 件，占滞销 <b>{high_stk_no/total_unsold_stock_no:.1%}</b> {fmt_val(high_stk_diff_no)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_stk_no:,.0f}</b> 件，占滞销 <b>{mid_stk_no/total_unsold_stock_no:.1%}</b> {fmt_val(mid_stk_diff_no)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_stk_no:,.0f}</b> 件，占滞销 <b>{low_stk_no/total_unsold_stock_no:.1%}</b> {fmt_val(low_stk_diff_no)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["不滞销数量","滞销数量"], values=[total_not_unsold_stock_no, total_unsold_stock_no], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_stk_no,mid_stk_no,high_stk_no], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
-    st.plotly_chart(fig, use_container_width=True)
-
-# SKU
-with col3_no:
-    st.markdown("#### 📊 非年份品｜滞销SKU结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总SKU数量：<b>{total_sku_no}</b> 个 {fmt_val(total_sku_diff_no)}<br>
-• 滞销SKU总数：<b>{unsold_sku_no}</b> 个（占总 {unsold_sku_no/total_sku_no:.1%}）{fmt_val(unsold_sku_diff_no)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_sku_no}</b> 个，占滞销 <b>{high_sku_no/unsold_sku_no:.1%}</b> {fmt_val(high_sku_diff_no)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_sku_no}</b> 个，占滞销 <b>{mid_sku_no/unsold_sku_no:.1%}</b> {fmt_val(mid_sku_diff_no)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_sku_no}</b> 个，占滞销 <b>{low_sku_no/unsold_sku_no:.1%}</b> {fmt_val(low_sku_diff_no)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["不滞销SKU","滞销SKU"], values=[healthy_sku_no, unsold_sku_no], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
-    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_sku_no,mid_sku_no,high_sku_no], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
-    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
-    st.plotly_chart(fig, use_container_width=True)
+st.markdown("### 🚀 FBA+AWD+在途口径")
+col4, col5, col6 = st.columns(3)
+with col4:
+    render_colored_df(df_sku_fba, "#### 📊 SKU 统计（年份品/非年份品）")
+with col5:
+    render_colored_df(df_stock_fba, "#### 📦 库存数量统计（年份品/非年份品）")
+with col6:
+    render_colored_df(df_amt_fba, "#### 💰 库存金额统计（年份品/非年份品）")
 
 
-# ======================================================================================
-# 👇 接下来：年份品 滞销拆解分析（结构完全一样）
-# ======================================================================================
-st.divider()
-st.subheader("📅 年份品 滞销金额 & 数量 & SKU 拆解分析")
-
-df_year_curr = df_curr[df_curr["是否年份"] == "是"].copy()
-df_year_prev = df_prev[df_prev["是否年份"] == "是"].copy()
-
-risk_list = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
-data_list_yr = []
-for r in risk_list:
-    m = calc_metrics(df_year_curr, df_year_prev, r)
-    data_list_yr.append({
-        "风险等级": r,
-        "SKU数": m["sku_curr"],
-        "SKU_prev": m["sku_prev"],
-        "SKU_diff": m["sku_diff"],
-        "总金额": m["amt_curr"],
-        "amt_prev": m["amt_prev"],
-        "amt_diff": m["amt_diff"],
-        "总库存": m["stock_curr"],
-        "stock_prev": m["stock_prev"],
-        "stock_diff": m["stock_diff"],
-        "滞销金额": m["unsale_amt_curr"],
-        "unsale_amt_prev": m["unsale_amt_prev"],
-        "unsale_amt_diff": m["unsale_amt_diff"],
-        "滞销库存": m["unsale_stock_curr"],
-        "unsale_stock_prev": m["unsale_stock_prev"],
-        "unsale_stock_diff": m["unsale_stock_diff"],
-    })
-df_all_yr = pd.DataFrame(data_list_yr)
-
-# 指标
-total_amt_yr = df_all_yr["总金额"].sum()
-total_unsold_amt_yr = df_all_yr[df_all_yr["风险等级"] != "健康"]["滞销金额"].sum()
-total_not_unsold_amt_yr = total_amt_yr - total_unsold_amt_yr
-amt_diff_total_yr = total_amt_yr - df_all_yr["amt_prev"].sum()
-unsale_amt_diff_total_yr = total_unsold_amt_yr - df_all_yr["unsale_amt_prev"].sum()
-
-total_stock_yr = df_all_yr["总库存"].sum()
-total_unsold_stock_yr = df_all_yr[df_all_yr["风险等级"] != "健康"]["滞销库存"].sum()
-total_not_unsold_stock_yr = total_stock_yr - total_unsold_stock_yr
-stock_diff_total_yr = total_stock_yr - df_all_yr["stock_prev"].sum()
-unsale_stock_diff_total_yr = total_unsold_stock_yr - df_all_yr["unsale_stock_prev"].sum()
-
-# SKU
-df_sku_yr = df_all_yr.set_index("风险等级")
-total_sku_yr = int(df_sku_yr["SKU数"].sum())
-total_sku_prev_yr = int(df_sku_yr["SKU_prev"].sum())
-total_sku_diff_yr = total_sku_yr - total_sku_prev_yr
-
-healthy_sku_yr = int(df_sku_yr.loc["健康", "SKU数"])
-low_sku_yr = int(df_sku_yr.loc["低滞销风险", "SKU数"])
-mid_sku_yr = int(df_sku_yr.loc["中滞销风险", "SKU数"])
-high_sku_yr = int(df_sku_yr.loc["高滞销风险", "SKU数"])
-
-low_sku_diff_yr = int(df_sku_yr.loc["低滞销风险", "SKU_diff"])
-mid_sku_diff_yr = int(df_sku_yr.loc["中滞销风险", "SKU_diff"])
-high_sku_diff_yr = int(df_sku_yr.loc["高滞销风险", "SKU_diff"])
-
-unsold_sku_yr = low_sku_yr + mid_sku_yr + high_sku_yr
-unsold_sku_prev_yr = (df_sku_yr.loc["低滞销风险","SKU_prev"] + df_sku_yr.loc["中滞销风险","SKU_prev"] + df_sku_yr.loc["高滞销风险","SKU_prev"])
-unsold_sku_diff_yr = unsold_sku_yr - unsold_sku_prev_yr
-
-# 金额/数量
-low_amt_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["滞销金额"].iloc[0]
-mid_amt_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["滞销金额"].iloc[0]
-high_amt_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["滞销金额"].iloc[0]
-
-low_amt_diff_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["unsale_amt_diff"].iloc[0]
-mid_amt_diff_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["unsale_amt_diff"].iloc[0]
-high_amt_diff_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["unsale_amt_diff"].iloc[0]
-
-low_stk_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["滞销库存"].iloc[0]
-mid_stk_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["滞销库存"].iloc[0]
-high_stk_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["滞销库存"].iloc[0]
-
-low_stk_diff_yr = df_all_yr[df_all_yr["风险等级"]=="低滞销风险"]["unsale_stock_diff"].iloc[0]
-mid_stk_diff_yr = df_all_yr[df_all_yr["风险等级"]=="中滞销风险"]["unsale_stock_diff"].iloc[0]
-high_stk_diff_yr = df_all_yr[df_all_yr["风险等级"]=="高滞销风险"]["unsale_stock_diff"].iloc[0]
-
-# 布局
-col1_yr, col2_yr, col3_yr = st.columns(3)
-
-# 金额
-with col1_yr:
-    st.markdown("#### 💰 年份品｜滞销金额结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总库存金额：<b>{total_amt_yr:,.0f}</b> 元 {fmt_val(amt_diff_total_yr)}<br>
-• 滞销总金额：<b>{total_unsold_amt_yr:,.0f}</b> 元（占总 {total_unsold_amt_yr/total_amt_yr:.1%}）{fmt_val(unsale_amt_diff_total_yr)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_amt_yr:,.0f}</b> 元，占滞销 <b>{high_amt_yr/total_unsold_amt_yr:.1%}</b> {fmt_val(high_amt_diff_yr)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_amt_yr:,.0f}</b> 元，占滞销 <b>{mid_amt_yr/total_unsold_amt_yr:.1%}</b> {fmt_val(mid_amt_diff_yr)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_amt_yr:,.0f}</b> 元，占滞销 <b>{low_amt_yr/total_unsold_amt_yr:.1%}</b> {fmt_val(low_amt_diff_yr)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["不滞销金额","滞销金额"], values=[total_not_unsold_amt_yr, total_unsold_amt_yr], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_amt_yr,mid_amt_yr,high_amt_yr], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
-    st.plotly_chart(fig, use_container_width=True)
-
-# 数量
-with col2_yr:
-    st.markdown("#### 📦 年份品｜滞销数量结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总库存数量：<b>{total_stock_yr:,.0f}</b> 件 {fmt_val(stock_diff_total_yr)}<br>
-• 滞销总数量：<b>{total_unsold_stock_yr:,.0f}</b> 件（占总 {total_unsold_stock_yr/total_stock_yr:.1%}）{fmt_val(unsale_stock_diff_total_yr)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_stk_yr:,.0f}</b> 件，占滞销 <b>{high_stk_yr/total_unsold_stock_yr:.1%}</b> {fmt_val(high_stk_diff_yr)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_stk_yr:,.0f}</b> 件，占滞销 <b>{mid_stk_yr/total_unsold_stock_yr:.1%}</b> {fmt_val(mid_stk_diff_yr)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_stk_yr:,.0f}</b> 件，占滞销 <b>{low_stk_yr/total_unsold_stock_yr:.1%}</b> {fmt_val(low_stk_diff_yr)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["不滞销数量","滞销数量"], values=[total_not_unsold_stock_yr, total_unsold_stock_yr], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_stk_yr,mid_stk_yr,high_stk_yr], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value:,.0f}<br>%{percent:.1%}", sort=False))
-    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
-    st.plotly_chart(fig, use_container_width=True)
-
-# SKU
-with col3_yr:
-    st.markdown("#### 📊 年份品｜滞销SKU结构")
-    html = f"""
-<div style="line-height:1.8;font-size:14px">
-• 总SKU数量：<b>{total_sku_yr}</b> 个 {fmt_val(total_sku_diff_yr)}<br>
-• 滞销SKU总数：<b>{unsold_sku_yr}</b> 个（占总 {unsold_sku_yr/total_sku_yr:.1%}）{fmt_val(unsold_sku_diff_yr)}<br>
-<br>
-<b>细分滞销占比：</b><br>
-&nbsp;&nbsp;▸ 高滞销风险：<b>{high_sku_yr}</b> 个，占滞销 <b>{high_sku_yr/unsold_sku_yr:.1%}</b> {fmt_val(high_sku_diff_yr)}<br>
-&nbsp;&nbsp;▸ 中滞销风险：<b>{mid_sku_yr}</b> 个，占滞销 <b>{mid_sku_yr/unsold_sku_yr:.1%}</b> {fmt_val(mid_sku_diff_yr)}<br>
-&nbsp;&nbsp;▸ 低滞销风险：<b>{low_sku_yr}</b> 个，占滞销 <b>{low_sku_yr/unsold_sku_yr:.1%}</b> {fmt_val(low_sku_diff_yr)}
-</div>
-"""
-    st.markdown(html, unsafe_allow_html=True)
-    fig = go.Figure()
-    fig.add_trace(go.Pie(labels=["不滞销SKU","滞销SKU"], values=[healthy_sku_yr, unsold_sku_yr], domain=dict(x=[0,0.65],y=[0,1]), marker=dict(colors=["#e8f5e9","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
-    fig.add_trace(go.Pie(labels=["低","中","高"], values=[low_sku_yr,mid_sku_yr,high_sku_yr], domain=dict(x=[0.72,1],y=[0.2,0.8]), marker=dict(colors=["#fff8e1","#ffebee","#ffcdd2"]), textinfo="label+value+percent", texttemplate="%{label}<br>%{value}<br>%{percent:.1%}", sort=False))
-    fig.update_layout(height=400, showlegend=False, margin=dict(t=20,b=20,l=20,r=20))
-    st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 st.subheader("📦 滞销库存来源分析（按采购类型）")
@@ -977,11 +1424,13 @@ stock_date_prev = pd.to_datetime(df_prev["时间"].iloc[0])
 
 
 # ===================== 2. 采购数据：只算库存日期之前 =====================
-def get_pur_before(df_pur_raw, date_limit):
+# 改造函数，新增shop_list入参，过滤采购表对应店铺
+def get_pur_before(df_pur_raw, date_limit, shop_list):
     pur_clean = df_pur_raw.copy()
     pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
+    # 新增：过滤当前权限/筛选的店铺
+    pur_clean = pur_clean[pur_clean["店铺"].isin(shop_list)]
 
-    # 只过滤采购日期明显异常的记录（比如超过1年的未来日期）
     date_upper = date_limit + pd.DateOffset(years=1)
     pur_before = pur_clean[
         (pur_clean["采购日期"] <= date_upper) &
@@ -1000,11 +1449,11 @@ def get_pur_before(df_pur_raw, date_limit):
     return msku_pur
 
 
-msku_pur_curr = get_pur_before(df_pur, stock_date)
-msku_pur_prev = get_pur_before(df_pur, stock_date_prev)
+msku_pur_curr = get_pur_before(df_pur, stock_date, active_shops)
+msku_pur_prev = get_pur_before(df_pur, stock_date_prev, active_shops)
 
-# ===================== 3. 【核心修复】计算全量年货前采购总库存（包含不滞销SKU） =====================
-# 逻辑：用当月全量库存表（不是只滞销表），计算所有SKU的年货前采购库存
+# ===================== 3. 数据整合（总库存 + FBA 双维度） =====================
+# 第一步：只聚合库存/成本类字段，不碰日均
 inv_full_all = df_curr.groupby("MSKU").agg(
     店铺=("店铺", "first"),
     品名=("品名", "first"),
@@ -1013,21 +1462,21 @@ inv_full_all = df_curr.groupby("MSKU").agg(
     FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
     本地库存=("本地库存", "sum"),
     总库存=("总库存", "sum"),
-    滞销总库存=("总滞销库存", "sum")
+    滞销总库存=("总滞销库存", "sum"),
+    FBA滞销数量_仅FBA=("FBA滞销数量_仅FBA", "sum")
 ).reset_index()
 
-# 全量表关联采购数据
+# 单独提取MSKU+四类日均，去重后合并进聚合表
+daily_info_curr = df_curr[["MSKU", "日均", "7天日均", "14天日均", "28天日均"]].drop_duplicates(subset="MSKU")
+inv_full_all = inv_full_all.merge(daily_info_curr, on="MSKU", how="left")
+
+# 关联采购数据
 df_merge_all = inv_full_all.merge(msku_pur_curr, on="MSKU", how="left").fillna(0)
-
-# 计算全量年货前采购总库存（所有SKU，包含不滞销的）
 df_merge_all["年货前采购总库存"] = (
-            df_merge_all["总库存"] - df_merge_all["年货采购"] - df_merge_all["年前采购"] - df_merge_all[
-        "年后采购"]).clip(lower=0)
+    df_merge_all["总库存"] - df_merge_all["年货采购"] - df_merge_all["年前采购"] - df_merge_all["年后采购"]
+).clip(lower=0)
 
-# 单独提取滞销SKU的表，用于后面的滞销分摊计算
-df_merge_curr = df_merge_all[df_merge_all["MSKU"].isin(df_unsale["MSKU"])].copy()
-
-# 上月数据同步修复
+# 上月全量数据（同步逻辑）
 inv_full_all_prev = df_prev.groupby("MSKU").agg(
     店铺=("店铺", "first"),
     品名=("品名", "first"),
@@ -1036,137 +1485,252 @@ inv_full_all_prev = df_prev.groupby("MSKU").agg(
     FBA_AWD_在途库存=("FBA+AWD+在途库存", "sum"),
     本地库存=("本地库存", "sum"),
     总库存=("总库存", "sum"),
-    滞销总库存=("总滞销库存", "sum")
+    滞销总库存=("总滞销库存", "sum"),
+    FBA滞销数量_仅FBA=("FBA滞销数量_仅FBA", "sum")
 ).reset_index()
+
+# 上月日均合并
+daily_info_prev = df_prev[["MSKU", "日均", "7天日均", "14天日均", "28天日均"]].drop_duplicates(subset="MSKU")
+inv_full_all_prev = inv_full_all_prev.merge(daily_info_prev, on="MSKU", how="left")
+
 df_merge_all_prev = inv_full_all_prev.merge(msku_pur_prev, on="MSKU", how="left").fillna(0)
 df_merge_all_prev["年货前采购总库存"] = (
-            df_merge_all_prev["总库存"] - df_merge_all_prev["年货采购"] - df_merge_all_prev["年前采购"] -
-            df_merge_all_prev["年后采购"]).clip(lower=0)
-df_merge_prev = df_merge_all_prev[df_merge_all_prev["MSKU"].isin(df_unsale_prev["MSKU"])].copy()
+    df_merge_all_prev["总库存"] - df_merge_all_prev["年货采购"] - df_merge_all_prev["年前采购"] - df_merge_all_prev["年后采购"]
+).clip(lower=0)
 
+# 用全量数据
+df_merge_curr = df_merge_all.copy()
+df_merge_prev = df_merge_all_prev.copy()
 
-# ===================== 4. 第一步：按年后→年前→年货→年货前 分摊滞销数量 =====================
-def alloc_qty_by_purchase(row):
-    unsale = row["滞销总库存"]
-    after = row["年后采购"]
-    before = row["年前采购"]
-    goods = row["年货采购"]
+# ===================== 4. 通用数量分摊函数（年后→年前→年货→年货前） =====================
+def alloc_qty_by_purchase(df_target, qty_col, suffix):
+    """总库存口径分摊，原有逻辑不变"""
+    def alloc_row(row):
+        unsale = row[qty_col]
+        after = row["年后采购"]
+        before = row["年前采购"]
+        goods = row["年货采购"]
 
-    # 年后
-    a = min(unsale, after)
-    unsale -= a
-    # 年前
-    b = min(unsale, before)
-    unsale -= b
-    # 年货
-    c = min(unsale, goods)
-    unsale -= c
-    # 年货前兜底
-    d = unsale
-    return pd.Series([d, c, b, a])
+        a = min(unsale, after)
+        unsale -= a
+        b = min(unsale, before)
+        unsale -= b
+        c = min(unsale, goods)
+        unsale -= c
+        d = unsale
+        return pd.Series([d, c, b, a])
 
+    col_list = [
+        f"年货前采购滞销数量{suffix}",
+        f"年货采购滞销数量{suffix}",
+        f"年前采购滞销数量{suffix}",
+        f"年后采购滞销数量{suffix}"
+    ]
+    df_target[col_list] = df_target.apply(alloc_row, axis=1)
+    return df_target
 
-# 当月4类滞销数量
-df_merge_curr[["年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量"]] = \
-    df_merge_curr.apply(alloc_qty_by_purchase, axis=1)
+# ===================== FBA分摊函数（修复稳定版，无KeyError、无重复计算） =====================
+def alloc_qty_fba_correct(df_target):
+    def alloc_row(row):
+        local_qty = float(row["本地库存"])
+        fba_total = float(row["FBA滞销数量_仅FBA"])
 
-# 上月4类滞销数量
-df_merge_prev[["年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量"]] = \
-    df_merge_prev.apply(alloc_qty_by_purchase, axis=1)
+        pur_after  = float(row["年后采购"])
+        pur_before = float(row["年前采购"])
+        pur_goods  = float(row["年货采购"])
+        pur_pre    = float(row["年货前采购总库存"])
 
+        # 第一步：本地库存 年后→年前→年货→年货前 扣减
+        remain_local = local_qty
+        deduct = min(remain_local, pur_after)
+        pur_after -= deduct
+        remain_local -= deduct
 
-# ===================== 5. 第二步：按【本地先扣、剩余走FBA】计算每类滞销金额 =====================
-def calc_amt_by_local_fba(row):
+        deduct = min(remain_local, pur_before)
+        pur_before -= deduct
+        remain_local -= deduct
+
+        deduct = min(remain_local, pur_goods)
+        pur_goods -= deduct
+        remain_local -= deduct
+
+        deduct = min(remain_local, pur_pre)
+        pur_pre -= deduct
+        remain_local -= deduct
+
+        # 第二步：剩余采购量分摊FBA滞销
+        remain_fba = fba_total
+        fba_after  = min(remain_fba, pur_after)
+        remain_fba -= fba_after
+
+        fba_before = min(remain_fba, pur_before)
+        remain_fba -= fba_before
+
+        fba_goods  = min(remain_fba, pur_goods)
+        remain_fba -= fba_goods
+
+        fba_pre    = remain_fba
+
+        # 返回顺序：年货前、年货、年前、年后
+        return pd.Series([fba_pre, fba_goods, fba_before, fba_after])
+
+    fba_cols = [
+        "年货前采购滞销数量_fba",
+        "年货采购滞销数量_fba",
+        "年前采购滞销数量_fba",
+        "年后采购滞销数量_fba"
+    ]
+    df_target[fba_cols] = df_target.apply(alloc_row, axis=1)
+    return df_target
+
+# ===================== 5. 金额计算函数（两套规则） =====================
+def calc_amt_total(row):
+    """总库存口径：本地=成本，FBA=成本+头程"""
     local_total = row["本地库存"]
-    fba_total = row["FBA_AWD_在途库存"]
     cost = row["采购成本"]
     freight = row["头程费用"]
-    # 四类滞销数量
-    qty_pre_year = row["年货前采购滞销数量"]
-    qty_goods = row["年货采购滞销数量"]
-    qty_before = row["年前采购滞销数量"]
-    qty_after = row["年后采购滞销数量"]
 
-    remain_local = local_total
+    qty_pre = row["年货前采购滞销数量_total"]
+    qty_goods = row["年货采购滞销数量_total"]
+    qty_before = row["年前采购滞销数量_total"]
+    qty_after = row["年后采购滞销数量_total"]
 
-    def calc_single_amt(qty):
-        nonlocal remain_local
+    def calc_single(qty, remain_local_ref):
         if qty <= 0:
             return 0
-        # 先走本地
-        use_local = min(qty, remain_local)
+        use_local = min(qty, remain_local_ref[0])
         use_fba = qty - use_local
-        remain_local -= use_local
-        amt = use_local * cost + use_fba * (cost + freight)
-        return round(amt, 2)
+        remain_local_ref[0] -= use_local
+        return round(use_local * cost + use_fba * (cost + freight), 2)
 
-    amt_after = calc_single_amt(qty_after)
-    amt_before = calc_single_amt(qty_before)
-    amt_goods = calc_single_amt(qty_goods)
-    amt_pre_year = calc_single_amt(qty_pre_year)
+    remain_local = [local_total]
+    amt_after = calc_single(qty_after, remain_local)
+    amt_before = calc_single(qty_before, remain_local)
+    amt_goods = calc_single(qty_goods, remain_local)
+    amt_pre = calc_single(qty_pre, remain_local)
 
-    return pd.Series([amt_pre_year, amt_goods, amt_before, amt_after])
+    return pd.Series([amt_pre, amt_goods, amt_before, amt_after])
 
+def calc_amt_fba(row):
+    """FBA口径：统一按 成本+头程 计价"""
+    cost = row["采购成本"]
+    freight = row["头程费用"]
 
-# 当月金额
-df_merge_curr[["年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"]] = \
-    df_merge_curr.apply(calc_amt_by_local_fba, axis=1)
+    qty_pre = row["年货前采购滞销数量_fba"]
+    qty_goods = row["年货采购滞销数量_fba"]
+    qty_before = row["年前采购滞销数量_fba"]
+    qty_after = row["年后采购滞销数量_fba"]
 
-# 上月金额
-df_merge_prev[["年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"]] = \
-    df_merge_prev.apply(calc_amt_by_local_fba, axis=1)
+    def calc_single(qty):
+        return round(qty * (cost + freight), 2) if qty > 0 else 0
 
+    return pd.Series([
+        calc_single(qty_pre),
+        calc_single(qty_goods),
+        calc_single(qty_before),
+        calc_single(qty_after)
+    ])
 
-# ===================== 6. 汇总当月/上月 数量&金额 =====================
-def sum_all_data(df):
+# ===================== 6. 【1】总库存维度 计算 =====================
+df_merge_curr = alloc_qty_by_purchase(df_merge_curr, qty_col="滞销总库存", suffix="_total")
+df_merge_prev = alloc_qty_by_purchase(df_merge_prev, qty_col="滞销总库存", suffix="_total")
+
+# 总库存金额
+amt_cols_total = [
+    "年货前采购滞销金额_total",
+    "年货采购滞销金额_total",
+    "年前采购滞销金额_total",
+    "年后采购滞销金额_total"
+]
+df_merge_curr[amt_cols_total] = df_merge_curr.apply(calc_amt_total, axis=1)
+df_merge_prev[amt_cols_total] = df_merge_prev.apply(calc_amt_total, axis=1)
+
+# ===================== 7. FBA维度 分摊（仅调用一次，禁止重复） =====================
+df_merge_curr = alloc_qty_fba_correct(df_merge_curr)
+df_merge_prev = alloc_qty_fba_correct(df_merge_prev)
+
+# ===================== 【校验代码】 =====================
+st.subheader("🔍 分摊后校验")
+required_cols = ["年货前采购滞销数量_fba", "年货采购滞销数量_fba", "年前采购滞销数量_fba", "年后采购滞销数量_fba"]
+missing_cols = [col for col in required_cols if col not in df_merge_curr.columns]
+if missing_cols:
+    st.error(f"错误：缺少字段 {missing_cols}")
+else:
+    df_merge_curr["FBA拆分后合计校验"] = (
+            df_merge_curr["年货前采购滞销数量_fba"]
+            + df_merge_curr["年货采购滞销数量_fba"]
+            + df_merge_curr["年前采购滞销数量_fba"]
+            + df_merge_curr["年后采购滞销数量_fba"]
+    )
+    st.write(f"原始FBA滞销总量：{df_merge_curr['FBA滞销数量_仅FBA'].sum():,.2f}")
+    st.write(f"四项拆分后总和：{df_merge_curr['FBA拆分后合计校验'].sum():,.2f}")
+    st.write(f"单条不匹配行数：{(df_merge_curr['FBA拆分后合计校验'] != df_merge_curr['FBA滞销数量_仅FBA']).sum()}")
+
+# ===================== 8. FBA金额计算 =====================
+amt_cols_fba = [
+    "年货前采购滞销金额_fba",
+    "年货采购滞销金额_fba",
+    "年前采购滞销金额_fba",
+    "年后采购滞销金额_fba"
+]
+df_merge_curr[amt_cols_fba] = df_merge_curr.apply(calc_amt_fba, axis=1)
+df_merge_prev[amt_cols_fba] = df_merge_prev.apply(calc_amt_fba, axis=1)
+
+# ===================== 9. 汇总函数 =====================
+def sum_data(df, suffix):
     return {
-        "pre_qty": int(df["年货前采购滞销数量"].sum()),
-        "goods_qty": int(df["年货采购滞销数量"].sum()),
-        "before_qty": int(df["年前采购滞销数量"].sum()),
-        "after_qty": int(df["年后采购滞销数量"].sum()),
-        "pre_amt": round(df["年货前采购滞销金额"].sum(), 2),
-        "goods_amt": round(df["年货采购滞销金额"].sum(), 2),
-        "before_amt": round(df["年前采购滞销金额"].sum(), 2),
-        "after_amt": round(df["年后采购滞销金额"].sum(), 2),
+        "pre_qty": int(df[f"年货前采购滞销数量{suffix}"].sum()),
+        "goods_qty": int(df[f"年货采购滞销数量{suffix}"].sum()),
+        "before_qty": int(df[f"年前采购滞销数量{suffix}"].sum()),
+        "after_qty": int(df[f"年后采购滞销数量{suffix}"].sum()),
+        "pre_amt": round(df[f"年货前采购滞销金额{suffix}"].sum(), 2),
+        "goods_amt": round(df[f"年货采购滞销金额{suffix}"].sum(), 2),
+        "before_amt": round(df[f"年前采购滞销金额{suffix}"].sum(), 2),
+        "after_amt": round(df[f"年后采购滞销金额{suffix}"].sum(), 2),
     }
 
+# 汇总数据
+curr_sum_total = sum_data(df_merge_curr, suffix="_total")
+prev_sum_total = sum_data(df_merge_prev, suffix="_total")
 
-curr_sum = sum_all_data(df_merge_curr)
-prev_sum = sum_all_data(df_merge_prev)
+curr_sum_fba = sum_data(df_merge_curr, suffix="_fba")
+prev_sum_fba = sum_data(df_merge_prev, suffix="_fba")
 
-# 【核心修复】全量年货前采购总库存 = 所有SKU（含不滞销）的年货前采购库存之和
+# 公共基础采购库存
 total_pre_all_stock = int(df_merge_all["年货前采购总库存"].sum())
-
-# 总滞销
-total_curr_qty = curr_sum["pre_qty"] + curr_sum["goods_qty"] + curr_sum["before_qty"] + curr_sum["after_qty"]
-total_prev_qty = prev_sum["pre_qty"] + prev_sum["goods_qty"] + prev_sum["before_qty"] + prev_sum["after_qty"]
-total_curr_amt = curr_sum["pre_amt"] + curr_sum["goods_amt"] + curr_sum["before_amt"] + curr_sum["after_amt"]
-total_prev_amt = prev_sum["pre_amt"] + prev_sum["goods_amt"] + prev_sum["before_amt"] + prev_sum["after_amt"]
-
-# 采购总量
 total_pur_year = msku_pur_curr["年货采购"].sum()
 total_pur_before = msku_pur_curr["年前采购"].sum()
 total_pur_after = msku_pur_curr["年后采购"].sum()
 
-
-# 占比
+# 占比通用函数
 def safe_pct(val, total):
-    return val / total * 100 if total else 0
+    return val / total * 100 if total != 0 else 0
 
+# -------- 总库存占比 --------
+total_curr_qty_total = curr_sum_total["pre_qty"] + curr_sum_total["goods_qty"] + curr_sum_total["before_qty"] + curr_sum_total["after_qty"]
+pct_pre_total = safe_pct(curr_sum_total["pre_qty"], total_curr_qty_total)
+pct_goods_total = safe_pct(curr_sum_total["goods_qty"], total_curr_qty_total)
+pct_before_total = safe_pct(curr_sum_total["before_qty"], total_curr_qty_total)
+pct_after_total = safe_pct(curr_sum_total["after_qty"], total_curr_qty_total)
 
-pct_pre = safe_pct(curr_sum["pre_qty"], total_curr_qty)
-pct_goods = safe_pct(curr_sum["goods_qty"], total_curr_qty)
-pct_before = safe_pct(curr_sum["before_qty"], total_curr_qty)
-pct_after = safe_pct(curr_sum["after_qty"], total_curr_qty)
+pct_of_pur_pre_total = safe_pct(curr_sum_total["pre_qty"], total_pre_all_stock)
+pct_of_pur_goods_total = safe_pct(curr_sum_total["goods_qty"], total_pur_year)
+pct_of_pur_before_total = safe_pct(curr_sum_total["before_qty"], total_pur_before)
+pct_of_pur_after_total = safe_pct(curr_sum_total["after_qty"], total_pur_after)
 
-# 滞销占采购量比例
-pct_of_pur_pre = safe_pct(curr_sum["pre_qty"], total_pre_all_stock)
-pct_of_pur_goods = safe_pct(curr_sum["goods_qty"], total_pur_year)
-pct_of_pur_before = safe_pct(curr_sum["before_qty"], total_pur_before)
-pct_of_pur_after = safe_pct(curr_sum["after_qty"], total_pur_after)
+# -------- FBA占比 --------
+total_curr_qty_fba = curr_sum_fba["pre_qty"] + curr_sum_fba["goods_qty"] + curr_sum_fba["before_qty"] + curr_sum_fba["after_qty"]
+pct_pre_fba = safe_pct(curr_sum_fba["pre_qty"], total_curr_qty_fba)
+pct_goods_fba = safe_pct(curr_sum_fba["goods_qty"], total_curr_qty_fba)
+pct_before_fba = safe_pct(curr_sum_fba["before_qty"], total_curr_qty_fba)
+pct_after_fba = safe_pct(curr_sum_fba["after_qty"], total_curr_qty_fba)
 
+pct_of_pur_pre_fba = safe_pct(curr_sum_fba["pre_qty"], total_pre_all_stock)
+pct_of_pur_goods_fba = safe_pct(curr_sum_fba["goods_qty"], total_pur_year)
+pct_of_pur_before_fba = safe_pct(curr_sum_fba["before_qty"], total_pur_before)
+pct_of_pur_after_fba = safe_pct(curr_sum_fba["after_qty"], total_pur_after)
 
-# ===================== 7. 环比格式化 =====================
+# ===================== 10. 环比格式化 =====================
 def fmt_num_curr(curr, prev):
     diff = curr - prev
     if diff > 0:
@@ -1175,7 +1739,6 @@ def fmt_num_curr(curr, prev):
         return f"{curr:,}", f'<span style="color:#388e3c">↓ {diff:,}</span>'
     else:
         return f"{curr:,}", '<span style="color:#666">持平</span>'
-
 
 def fmt_amt_curr(curr, prev):
     diff = curr - prev
@@ -1186,13 +1749,14 @@ def fmt_amt_curr(curr, prev):
     else:
         return f"{curr:,.2f}", '<span style="color:#666">持平</span>'
 
-
-# ===================== 8. 四张卡片 =====================
+# ===================== 11. 页面渲染 =====================
+# 第一组：总库存（本地+FBA）
+st.markdown("### 📊 维度一：总库存（本地 + FBA+AWD在途）滞销来源")
 c1, c2, c3, c4 = st.columns(4)
 
-# 1.年货前（已修复：总库存包含不滞销SKU）
-qty_str1, qty_fluc1 = fmt_num_curr(curr_sum["pre_qty"], prev_sum["pre_qty"])
-amt_str1, amt_fluc1 = fmt_amt_curr(curr_sum["pre_amt"], prev_sum["pre_amt"])
+# 年货前
+qty_str1, qty_fluc1 = fmt_num_curr(curr_sum_total["pre_qty"], prev_sum_total["pre_qty"])
+amt_str1, amt_fluc1 = fmt_amt_curr(curr_sum_total["pre_amt"], prev_sum_total["pre_amt"])
 with c1:
     st.markdown(f"""
     <div style="background:#f3f4f6; padding:20px; border-radius:12px; text-align:center;">
@@ -1200,14 +1764,14 @@ with c1:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str1} 件 {qty_fluc1}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str1} 元 {amt_fluc1}</div>
         <div style="font-size:14px;color:#666;">年货前采购总库存：{total_pre_all_stock:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_pre:.2f}%</div>
-        <div style="font-size:14px;color:#666;">滞销总占比：{pct_pre:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_pre_total:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_pre_total:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
-# 2.年货
-qty_str2, qty_fluc2 = fmt_num_curr(curr_sum["goods_qty"], prev_sum["goods_qty"])
-amt_str2, amt_fluc2 = fmt_amt_curr(curr_sum["goods_amt"], prev_sum["goods_amt"])
+# 年货
+qty_str2, qty_fluc2 = fmt_num_curr(curr_sum_total["goods_qty"], prev_sum_total["goods_qty"])
+amt_str2, amt_fluc2 = fmt_amt_curr(curr_sum_total["goods_amt"], prev_sum_total["goods_amt"])
 with c2:
     st.markdown(f"""
     <div style="background:#fff9e6; padding:20px; border-radius:12px; text-align:center;">
@@ -1215,14 +1779,14 @@ with c2:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str2} 件 {qty_fluc2}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str2} 元 {amt_fluc2}</div>
         <div style="font-size:14px;color:#666;">采购总量：{total_pur_year:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_goods:.2f}%</div>
-        <div style="font-size:14px;color:#666;">滞销总占比：{pct_goods:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_goods_total:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_goods_total:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
-# 3.年前
-qty_str3, qty_fluc3 = fmt_num_curr(curr_sum["before_qty"], prev_sum["before_qty"])
-amt_str3, amt_fluc3 = fmt_amt_curr(curr_sum["before_amt"], prev_sum["before_amt"])
+# 年前
+qty_str3, qty_fluc3 = fmt_num_curr(curr_sum_total["before_qty"], prev_sum_total["before_qty"])
+amt_str3, amt_fluc3 = fmt_amt_curr(curr_sum_total["before_amt"], prev_sum_total["before_amt"])
 with c3:
     st.markdown(f"""
     <div style="background:#ffebee; padding:20px; border-radius:12px; text-align:center;">
@@ -1230,14 +1794,14 @@ with c3:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str3} 件 {qty_fluc3}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str3} 元 {amt_fluc3}</div>
         <div style="font-size:14px;color:#666;">采购总量：{total_pur_before:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_before:.2f}%</div>
-        <div style="font-size:14px;color:#666;">滞销总占比：{pct_before:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_before_total:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_before_total:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
-# 4.年后
-qty_str4, qty_fluc4 = fmt_num_curr(curr_sum["after_qty"], prev_sum["after_qty"])
-amt_str4, amt_fluc4 = fmt_amt_curr(curr_sum["after_amt"], prev_sum["after_amt"])
+# 年后
+qty_str4, qty_fluc4 = fmt_num_curr(curr_sum_total["after_qty"], prev_sum_total["after_qty"])
+amt_str4, amt_fluc4 = fmt_amt_curr(curr_sum_total["after_amt"], prev_sum_total["after_amt"])
 with c4:
     st.markdown(f"""
     <div style="background:#e3f2fd; padding:20px; border-radius:12px; text-align:center;">
@@ -1245,1290 +1809,333 @@ with c4:
         <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_str4} 件 {qty_fluc4}</div>
         <div style="font-size:16px;margin:4px 0;">金额：{amt_str4} 元 {amt_fluc4}</div>
         <div style="font-size:14px;color:#666;">采购总量：{total_pur_after:,.0f} 件</div>
-        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_after:.2f}%</div>
-        <div style="font-size:14px;color:#666;">滞销总占比：{pct_after:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_after_total:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_after_total:.2f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+st.divider()
+
+# 第二组：FBA+AWD在途（仅海外库存）
+st.markdown("### 🚀 维度二：FBA+AWD+在途 滞销来源（剔除本地库存）")
+c5, c6, c7, c8 = st.columns(4)
+
+# 年货前
+qty_f1, fluc_f1 = fmt_num_curr(curr_sum_fba["pre_qty"], prev_sum_fba["pre_qty"])
+amt_f1, a_fluc_f1 = fmt_amt_curr(curr_sum_fba["pre_amt"], prev_sum_fba["pre_amt"])
+with c5:
+    st.markdown(f"""
+    <div style="background:#f3f4f6; padding:20px; border-radius:12px; text-align:center;">
+        <h4 style="margin:0;color:#444;">⏳ 年货前采购滞销</h4>
+        <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_f1} 件 {fluc_f1}</div>
+        <div style="font-size:16px;margin:4px 0;">金额：{amt_f1} 元 {a_fluc_f1}</div>
+        <div style="font-size:14px;color:#666;">年货前采购总库存：{total_pre_all_stock:,.0f} 件</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_pre_fba:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_pre_fba:.2f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# 年货
+qty_f2, fluc_f2 = fmt_num_curr(curr_sum_fba["goods_qty"], prev_sum_fba["goods_qty"])
+amt_f2, a_fluc_f2 = fmt_amt_curr(curr_sum_fba["goods_amt"], prev_sum_fba["goods_amt"])
+with c6:
+    st.markdown(f"""
+    <div style="background:#fff9e6; padding:20px; border-radius:12px; text-align:center;">
+        <h4 style="margin:0;color:#e65100;">🧧 年货采购滞销</h4>
+        <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_f2} 件 {fluc_f2}</div>
+        <div style="font-size:16px;margin:4px 0;">金额：{amt_f2} 元 {a_fluc_f2}</div>
+        <div style="font-size:14px;color:#666;">采购总量：{total_pur_year:,.0f} 件</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_goods_fba:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_goods_fba:.2f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# 年前
+qty_f3, fluc_f3 = fmt_num_curr(curr_sum_fba["before_qty"], prev_sum_fba["before_qty"])
+amt_f3, a_fluc_f3 = fmt_amt_curr(curr_sum_fba["before_amt"], prev_sum_fba["before_amt"])
+with c7:
+    st.markdown(f"""
+    <div style="background:#ffebee; padding:20px; border-radius:12px; text-align:center;">
+        <h4 style="margin:0;color:#c62828;">🧨 年前采购滞销</h4>
+        <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_f3} 件 {fluc_f3}</div>
+        <div style="font-size:16px;margin:4px 0;">金额：{amt_f3} 元 {a_fluc_f3}</div>
+        <div style="font-size:14px;color:#666;">采购总量：{total_pur_before:,.0f} 件</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_before_fba:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_before_fba:.2f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# 年后
+qty_f4, fluc_f4 = fmt_num_curr(curr_sum_fba["after_qty"], prev_sum_fba["after_qty"])
+amt_f4, a_fluc_f4 = fmt_amt_curr(curr_sum_fba["after_amt"], prev_sum_fba["after_amt"])
+with c8:
+    st.markdown(f"""
+    <div style="background:#e3f2fd; padding:20px; border-radius:12px; text-align:center;">
+        <h4 style="margin:0;color:#1565c0;">🧊 年后采购滞销</h4>
+        <div style="font-size:32px;font-weight:bold;margin:8px 0;">{qty_f4} 件 {fluc_f4}</div>
+        <div style="font-size:16px;margin:4px 0;">金额：{amt_f4} 元 {a_fluc_f4}</div>
+        <div style="font-size:14px;color:#666;">采购总量：{total_pur_after:,.0f} 件</div>
+        <div style="font-size:14px;color:#666;">滞销占采购量：{pct_of_pur_after_fba:.2f}%</div>
+        <div style="font-size:14px;color:#666;">滞销总占比：{pct_after_fba:.2f}%</div>
     </div>
     """, unsafe_allow_html=True)
 
 # ===================== 9. 明细表格 =====================
 with st.expander("📄 查看 MSKU 滞销来源明细（数量+金额+本地/FBA口径）"):
     show_cols = [
+        # 基础信息
         "MSKU", "店铺", "品名",
-        "总库存", "采购成本","头程费用","年货前采购总库存",
-        "本地库存", "FBA_AWD_在途库存", "滞销总库存",
+        "日均",
+        "7天日均",
+        "14天日均",
+        "28天日均",
+        # 库存基础数据
+        "总库存", "本地库存", "FBA_AWD_在途库存", "年货前采购总库存",
+        "采购成本", "头程费用",
+        # 原始采购量
         "年货采购", "年前采购", "年后采购",
-        "年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量",
-        "年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"
+        # ========== 总库存口径（_total） ==========
+        "滞销总库存",
+        "年货前采购滞销数量_total",
+        "年货采购滞销数量_total",
+        "年前采购滞销数量_total",
+        "年后采购滞销数量_total",
+        "年货前采购滞销金额_total",
+        "年货采购滞销金额_total",
+        "年前采购滞销金额_total",
+        "年后采购滞销金额_total",
+        # ========== FBA+AWD在途口径（_fba） ==========
+        "FBA滞销数量_仅FBA",
+        "年货前采购滞销数量_fba",
+        "年货采购滞销数量_fba",
+        "年前采购滞销数量_fba",
+        "年后采购滞销数量_fba",
+        "年货前采购滞销金额_fba",
+        "年货采购滞销金额_fba",
+        "年前采购滞销金额_fba",
+        "年后采购滞销金额_fba"
     ]
+
+    # 排序：优先按总滞销库存倒序
     st.dataframe(
         df_merge_curr[show_cols].sort_values("滞销总库存", ascending=False),
-        use_container_width=True, height=600
+        use_container_width=True,
+        height=600
     )
 
-# ===================== 【最终格式化版】一行8列 · 滞销结构分析（年份品/非年份品） =====================
-st.divider()
-st.subheader("🍰 滞销结构分析（年份品 / 非年份品）")
-
-# 1. 从 df_prod 匹配【是否年份】字段
-df_temp = df_merge_curr.merge(
-    df_prod[["MSKU", "是否年份"]],
-    on="MSKU",
-    how="left"
-).fillna("否")
-
-df_temp["商品类型"] = df_temp["是否年份"].apply(
-    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
-)
-
-# 上月数据同步打标签，用于环比计算
-df_temp_prev = df_merge_prev.merge(
-    df_prod[["MSKU", "是否年份"]],
-    on="MSKU",
-    how="left"
-).fillna("否")
-df_temp_prev["商品类型"] = df_temp_prev["是否年份"].apply(
-    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
-)
 
 
-# 2. 按4类滞销 + 商品类型 汇总（当月+上月）
-def get_type_summary(df_curr, df_prev, col_qty, col_amt):
-    # 当月汇总
-    sum_curr = df_curr.groupby("商品类型").agg(
-        滞销数量=(col_qty, "sum"),
-        滞销金额=(col_amt, "sum")
-    ).fillna(0)
-    # 上月汇总
-    sum_prev = df_prev.groupby("商品类型").agg(
-        滞销数量=(col_qty, "sum"),
-        滞销金额=(col_amt, "sum")
-    ).fillna(0)
-    # 全量合计
-    total_qty = sum_curr["滞销数量"].sum()
-    total_amt = sum_curr["滞销金额"].sum()
-    prev_total_qty = sum_prev["滞销数量"].sum()
-    prev_total_amt = sum_prev["滞销金额"].sum()
-    return sum_curr, sum_prev, total_qty, total_amt, prev_total_qty, prev_total_amt
-
-
-# 4类数据汇总
-sum_pre, sum_pre_prev, total_pre_qty, total_pre_amt, prev_pre_qty, prev_pre_amt = get_type_summary(
-    df_temp, df_temp_prev, "年货前采购滞销数量", "年货前采购滞销金额"
-)
-sum_goods, sum_goods_prev, total_goods_qty, total_goods_amt, prev_goods_qty, prev_goods_amt = get_type_summary(
-    df_temp, df_temp_prev, "年货采购滞销数量", "年货采购滞销金额"
-)
-sum_before, sum_before_prev, total_before_qty, total_before_amt, prev_before_qty, prev_before_amt = get_type_summary(
-    df_temp, df_temp_prev, "年前采购滞销数量", "年前采购滞销金额"
-)
-sum_after, sum_after_prev, total_after_qty, total_after_amt, prev_after_qty, prev_after_amt = get_type_summary(
-    df_temp, df_temp_prev, "年后采购滞销数量", "年后采购滞销金额"
-)
-
-# 3. 饼图绘图函数（适配一行8列的小尺寸）
+# ===================== 完整全套代码：HTML表格渲染彩色环比（无span明文） =====================
 import plotly.express as px
+import plotly.io as pio
+pio.templates.default = "plotly_white"
 
+# 1. 合并商品【是否年份】标识到当月/上月数据表
+df_merge_curr = df_merge_curr.merge(
+    df_curr[["MSKU", "是否年份"]].drop_duplicates("MSKU"),
+    on="MSKU", how="left"
+).fillna({"是否年份": "否"})
 
-def pie_chart(df, title):
-    labels = df.index.tolist()
-    colors = ["#ff9999", "#66b3ff"]
+df_merge_prev = df_merge_prev.merge(
+    df_prev[["MSKU", "是否年份"]].drop_duplicates("MSKU"),
+    on="MSKU", how="left"
+).fillna({"是否年份": "否"})
 
-    fig = px.pie(names=labels, values=df["滞销数量"],
-                 color_discrete_sequence=colors)
-    fig.update_traces(textposition="inside", textinfo="percent", showlegend=False)
-    fig.update_layout(
-        height=160,
-        margin=dict(l=5, r=5, t=30, b=5),
-        title=dict(text=title, font=dict(size=11)),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)"
-    )
-    return fig
-
-
-# 4. 【核心优化】格式化环比显示：保留整数+颜色区分
-def fmt_fluc(curr, prev, is_qty=True):
-    diff = int(round(curr - prev, 0))
-    if diff > 0:
-        color = "#d32f2f"  # 上升用红色
-        arrow = "↑ +"
-    elif diff < 0:
-        color = "#2e7d32"  # 下降用绿色
-        arrow = "↓ "
-    else:
-        color = "#666666"  # 持平用灰色
-        arrow = ""
-
-    # 上月数值保留整数
-    prev_fmt = f"{int(round(prev, 0)):,}"
-    # 环比差值带颜色
-    fluc_text = f'<span style="color:{color}">{arrow}{diff:,}</span>'
-    return fluc_text, prev_fmt
-
-
-# -------------------- 第一行：4个分类的优化版总结文字 --------------------
-c_text1, c_text2, c_text3, c_text4 = st.columns(4)
-
-# 1. 年货前
-with c_text1:
-    # 总数量
-    fluc_pre_qty, prev_pre_qty_fmt = fmt_fluc(total_pre_qty, prev_pre_qty)
-    # 年份品数量
-    fluc_pre_year_qty, prev_pre_year_qty_fmt = fmt_fluc(sum_pre.loc['年份品', '滞销数量'],
-                                                        sum_pre_prev.loc['年份品', '滞销数量'])
-    # 非年份品数量
-    fluc_pre_non_qty, prev_pre_non_qty_fmt = fmt_fluc(sum_pre.loc['非年份品', '滞销数量'],
-                                                      sum_pre_prev.loc['非年份品', '滞销数量'])
-    # 总金额
-    fluc_pre_amt, prev_pre_amt_fmt = fmt_fluc(total_pre_amt, prev_pre_amt)
-    # 年份品金额
-    fluc_pre_year_amt, prev_pre_year_amt_fmt = fmt_fluc(sum_pre.loc['年份品', '滞销金额'],
-                                                        sum_pre_prev.loc['年份品', '滞销金额'])
-    # 非年份品金额
-    fluc_pre_non_amt, prev_pre_non_amt_fmt = fmt_fluc(sum_pre.loc['非年份品', '滞销金额'],
-                                                      sum_pre_prev.loc['非年份品', '滞销金额'])
-
-    st.markdown(f"""
-    **⏳ 年货前采购**
-    - 滞销数量：**{int(round(total_pre_qty, 0)):,}件**（滞销总占比 {pct_pre:.2f}%），环比 {fluc_pre_qty}，上月：{prev_pre_qty_fmt}件
-      - 年份品：{int(round(sum_pre.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_pre.loc['年份品', '滞销数量'] / total_pre_qty * 100:.2f}%），环比 {fluc_pre_year_qty}，上月：{prev_pre_year_qty_fmt}件
-      - 非年份品：{int(round(sum_pre.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_pre.loc['非年份品', '滞销数量'] / total_pre_qty * 100:.2f}%），环比 {fluc_pre_non_qty}，上月：{prev_pre_non_qty_fmt}件
-    - 滞销金额：**{int(round(total_pre_amt, 0)):,}元**，环比 {fluc_pre_amt}，上月：{prev_pre_amt_fmt}元
-      - 年份品：{int(round(sum_pre.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_pre.loc['年份品', '滞销金额'] / total_pre_amt * 100:.2f}%），环比 {fluc_pre_year_amt}，上月：{prev_pre_year_amt_fmt}元
-      - 非年份品：{int(round(sum_pre.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_pre.loc['非年份品', '滞销金额'] / total_pre_amt * 100:.2f}%），环比 {fluc_pre_non_amt}，上月：{prev_pre_non_amt_fmt}元
-    """, unsafe_allow_html=True)
-
-# 2. 年货
-with c_text2:
-    # 总数量
-    fluc_goods_qty, prev_goods_qty_fmt = fmt_fluc(total_goods_qty, prev_goods_qty)
-    # 年份品数量
-    fluc_goods_year_qty, prev_goods_year_qty_fmt = fmt_fluc(sum_goods.loc['年份品', '滞销数量'],
-                                                            sum_goods_prev.loc['年份品', '滞销数量'])
-    # 非年份品数量
-    fluc_goods_non_qty, prev_goods_non_qty_fmt = fmt_fluc(sum_goods.loc['非年份品', '滞销数量'],
-                                                          sum_goods_prev.loc['非年份品', '滞销数量'])
-    # 总金额
-    fluc_goods_amt, prev_goods_amt_fmt = fmt_fluc(total_goods_amt, prev_goods_amt)
-    # 年份品金额
-    fluc_goods_year_amt, prev_goods_year_amt_fmt = fmt_fluc(sum_goods.loc['年份品', '滞销金额'],
-                                                            sum_goods_prev.loc['年份品', '滞销金额'])
-    # 非年份品金额
-    fluc_goods_non_amt, prev_goods_non_amt_fmt = fmt_fluc(sum_goods.loc['非年份品', '滞销金额'],
-                                                          sum_goods_prev.loc['非年份品', '滞销金额'])
-
-    st.markdown(f"""
-    **🧧 年货采购**
-    - 滞销数量：**{int(round(total_goods_qty, 0)):,}件**（滞销总占比 {pct_goods:.2f}%），环比 {fluc_goods_qty}，上月：{prev_goods_qty_fmt}件
-      - 年份品：{int(round(sum_goods.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_goods.loc['年份品', '滞销数量'] / total_goods_qty * 100:.2f}%），环比 {fluc_goods_year_qty}，上月：{prev_goods_year_qty_fmt}件
-      - 非年份品：{int(round(sum_goods.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_goods.loc['非年份品', '滞销数量'] / total_goods_qty * 100:.2f}%），环比 {fluc_goods_non_qty}，上月：{prev_goods_non_qty_fmt}件
-    - 滞销金额：**{int(round(total_goods_amt, 0)):,}元**，环比 {fluc_goods_amt}，上月：{prev_goods_amt_fmt}元
-      - 年份品：{int(round(sum_goods.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_goods.loc['年份品', '滞销金额'] / total_goods_amt * 100:.2f}%），环比 {fluc_goods_year_amt}，上月：{prev_goods_year_amt_fmt}元
-      - 非年份品：{int(round(sum_goods.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_goods.loc['非年份品', '滞销金额'] / total_goods_amt * 100:.2f}%），环比 {fluc_goods_non_amt}，上月：{prev_goods_non_amt_fmt}元
-    """, unsafe_allow_html=True)
-
-# 3. 年前
-with c_text3:
-    # 总数量
-    fluc_before_qty, prev_before_qty_fmt = fmt_fluc(total_before_qty, prev_before_qty)
-    # 年份品数量
-    fluc_before_year_qty, prev_before_year_qty_fmt = fmt_fluc(sum_before.loc['年份品', '滞销数量'],
-                                                              sum_before_prev.loc['年份品', '滞销数量'])
-    # 非年份品数量
-    fluc_before_non_qty, prev_before_non_qty_fmt = fmt_fluc(sum_before.loc['非年份品', '滞销数量'],
-                                                            sum_before_prev.loc['非年份品', '滞销数量'])
-    # 总金额
-    fluc_before_amt, prev_before_amt_fmt = fmt_fluc(total_before_amt, prev_before_amt)
-    # 年份品金额
-    fluc_before_year_amt, prev_before_year_amt_fmt = fmt_fluc(sum_before.loc['年份品', '滞销金额'],
-                                                              sum_before_prev.loc['年份品', '滞销金额'])
-    # 非年份品金额
-    fluc_before_non_amt, prev_before_non_amt_fmt = fmt_fluc(sum_before.loc['非年份品', '滞销金额'],
-                                                            sum_before_prev.loc['非年份品', '滞销金额'])
-
-    st.markdown(f"""
-    **🧨 年前采购**
-    - 滞销数量：**{int(round(total_before_qty, 0)):,}件**（滞销总占比 {pct_before:.2f}%），环比 {fluc_before_qty}，上月：{prev_before_qty_fmt}件
-      - 年份品：{int(round(sum_before.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_before.loc['年份品', '滞销数量'] / total_before_qty * 100:.2f}%），环比 {fluc_before_year_qty}，上月：{prev_before_year_qty_fmt}件
-      - 非年份品：{int(round(sum_before.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_before.loc['非年份品', '滞销数量'] / total_before_qty * 100:.2f}%），环比 {fluc_before_non_qty}，上月：{prev_before_non_qty_fmt}件
-    - 滞销金额：**{int(round(total_before_amt, 0)):,}元**，环比 {fluc_before_amt}，上月：{prev_before_amt_fmt}元
-      - 年份品：{int(round(sum_before.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_before.loc['年份品', '滞销金额'] / total_before_amt * 100:.2f}%），环比 {fluc_before_year_amt}，上月：{prev_before_year_amt_fmt}元
-      - 非年份品：{int(round(sum_before.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_before.loc['非年份品', '滞销金额'] / total_before_amt * 100:.2f}%），环比 {fluc_before_non_amt}，上月：{prev_before_non_amt_fmt}元
-    """, unsafe_allow_html=True)
-
-# 4. 年后
-with c_text4:
-    # 总数量
-    fluc_after_qty, prev_after_qty_fmt = fmt_fluc(total_after_qty, prev_after_qty)
-    # 年份品数量
-    fluc_after_year_qty, prev_after_year_qty_fmt = fmt_fluc(sum_after.loc['年份品', '滞销数量'],
-                                                            sum_after_prev.loc['年份品', '滞销数量'])
-    # 非年份品数量
-    fluc_after_non_qty, prev_after_non_qty_fmt = fmt_fluc(sum_after.loc['非年份品', '滞销数量'],
-                                                          sum_after_prev.loc['非年份品', '滞销数量'])
-    # 总金额
-    fluc_after_amt, prev_after_amt_fmt = fmt_fluc(total_after_amt, prev_after_amt)
-    # 年份品金额
-    fluc_after_year_amt, prev_after_year_amt_fmt = fmt_fluc(sum_after.loc['年份品', '滞销金额'],
-                                                            sum_after_prev.loc['年份品', '滞销金额'])
-    # 非年份品金额
-    fluc_after_non_amt, prev_after_non_amt_fmt = fmt_fluc(sum_after.loc['非年份品', '滞销金额'],
-                                                          sum_after_prev.loc['非年份品', '滞销金额'])
-
-    st.markdown(f"""
-    **🧊 年后采购**
-    - 滞销数量：**{int(round(total_after_qty, 0)):,}件**（滞销总占比 {pct_after:.2f}%），环比 {fluc_after_qty}，上月：{prev_after_qty_fmt}件
-      - 年份品：{int(round(sum_after.loc['年份品', '滞销数量'], 0)):,}件（占比 {sum_after.loc['年份品', '滞销数量'] / total_after_qty * 100:.2f}%），环比 {fluc_after_year_qty}，上月：{prev_after_year_qty_fmt}件
-      - 非年份品：{int(round(sum_after.loc['非年份品', '滞销数量'], 0)):,}件（占比 {sum_after.loc['非年份品', '滞销数量'] / total_after_qty * 100:.2f}%），环比 {fluc_after_non_qty}，上月：{prev_after_non_qty_fmt}件
-    - 滞销金额：**{int(round(total_after_amt, 0)):,}元**，环比 {fluc_after_amt}，上月：{prev_after_amt_fmt}元
-      - 年份品：{int(round(sum_after.loc['年份品', '滞销金额'], 0)):,}元（占比 {sum_after.loc['年份品', '滞销金额'] / total_after_amt * 100:.2f}%），环比 {fluc_after_year_amt}，上月：{prev_after_year_amt_fmt}元
-      - 非年份品：{int(round(sum_after.loc['非年份品', '滞销金额'], 0)):,}元（占比 {sum_after.loc['非年份品', '滞销金额'] / total_after_amt * 100:.2f}%），环比 {fluc_after_non_amt}，上月：{prev_after_non_amt_fmt}元
-    """, unsafe_allow_html=True)
-
-# -------------------- 第二行：一行8列饼图，和上面卡片完美对齐 --------------------
-c1, c2, c3, c4, c5, c6, c7, c8 = st.columns(8)
-
-# 年货前
-fig_pre_qty = pie_chart(sum_pre, "年货前\n数量占比")
-fig_pre_amt = pie_chart(sum_pre, "年货前\n金额占比")
-with c1: st.plotly_chart(fig_pre_qty, use_container_width=True)
-with c2: st.plotly_chart(fig_pre_amt, use_container_width=True)
-
-# 年货
-fig_goods_qty = pie_chart(sum_goods, "年货\n数量占比")
-fig_goods_amt = pie_chart(sum_goods, "年货\n金额占比")
-with c3: st.plotly_chart(fig_goods_qty, use_container_width=True)
-with c4: st.plotly_chart(fig_goods_amt, use_container_width=True)
-
-# 年前
-fig_before_qty = pie_chart(sum_before, "年前\n数量占比")
-fig_before_amt = pie_chart(sum_before, "年前\n金额占比")
-with c5: st.plotly_chart(fig_before_qty, use_container_width=True)
-with c6: st.plotly_chart(fig_before_amt, use_container_width=True)
-
-# 年后
-fig_after_qty = pie_chart(sum_after, "年后\n数量占比")
-fig_after_amt = pie_chart(sum_after, "年后\n金额占比")
-with c7: st.plotly_chart(fig_after_qty, use_container_width=True)
-with c8: st.plotly_chart(fig_after_amt, use_container_width=True)
-
-# ===================== 【最终版】年份品 / 非年份品 一行4列饼图 =====================
-# ===================== 【最终细化版】年份品 & 非年份品 · 滞销结构占比（含环比+细分总结） =====================
-st.divider()
-st.subheader("🍰 年份品 & 非年份品 · 滞销结构占比")
-
-# 1. 匹配年份品标签 + 上月数据
-df_temp = df_merge_curr.merge(
-    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
-).fillna("否")
-df_temp["商品类型"] = df_temp["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-
-df_temp_prev = df_merge_prev.merge(
-    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
-).fillna("否")
-df_temp_prev["商品类型"] = df_temp_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-
-# 2. 环比格式化函数（保留整数+颜色区分）
-def fmt_fluc(curr, prev):
-    curr_int = int(round(curr, 0))
-    prev_int = int(round(prev, 0))
-    diff = curr_int - prev_int
-    if diff > 0:
-        color = "#d32f2f"
-        arrow = "↑ +"
-    elif diff < 0:
-        color = "#2e7d32"
-        arrow = "↓ "
-    else:
-        color = "#666666"
-        arrow = ""
-    fluc_html = f'<span style="color:{color}">{arrow}{diff:,}</span>'
-    return curr_int, prev_int, fluc_html
-
-# 3. 按【商品类型 + 4类滞销】汇总（当月+上月）
-def get_full_summary(df_curr, df_prev, type_name):
-    curr = df_curr[df_curr["商品类型"] == type_name]
-    prev = df_prev[df_prev["商品类型"] == type_name]
-
-    # 数量数据
-    qty_pre_curr, qty_pre_prev, qty_pre_fluc = fmt_fluc(curr["年货前采购滞销数量"].sum(), prev["年货前采购滞销数量"].sum())
-    qty_goods_curr, qty_goods_prev, qty_goods_fluc = fmt_fluc(curr["年货采购滞销数量"].sum(), prev["年货采购滞销数量"].sum())
-    qty_before_curr, qty_before_prev, qty_before_fluc = fmt_fluc(curr["年前采购滞销数量"].sum(), prev["年前采购滞销数量"].sum())
-    qty_after_curr, qty_after_prev, qty_after_fluc = fmt_fluc(curr["年后采购滞销数量"].sum(), prev["年后采购滞销数量"].sum())
-    total_qty_curr = qty_pre_curr + qty_goods_curr + qty_before_curr + qty_after_curr
-    total_qty_prev = qty_pre_prev + qty_goods_prev + qty_before_prev + qty_after_prev
-    _, _, total_qty_fluc = fmt_fluc(total_qty_curr, total_qty_prev)
-
-    # 金额数据
-    amt_pre_curr, amt_pre_prev, amt_pre_fluc = fmt_fluc(curr["年货前采购滞销金额"].sum(), prev["年货前采购滞销金额"].sum())
-    amt_goods_curr, amt_goods_prev, amt_goods_fluc = fmt_fluc(curr["年货采购滞销金额"].sum(), prev["年货采购滞销金额"].sum())
-    amt_before_curr, amt_before_prev, amt_before_fluc = fmt_fluc(curr["年前采购滞销金额"].sum(), prev["年前采购滞销金额"].sum())
-    amt_after_curr, amt_after_prev, amt_after_fluc = fmt_fluc(curr["年后采购滞销金额"].sum(), prev["年后采购滞销金额"].sum())
-    total_amt_curr = amt_pre_curr + amt_goods_curr + amt_before_curr + amt_after_curr
-    total_amt_prev = amt_pre_prev + amt_goods_prev + amt_before_prev + amt_after_prev
-    _, _, total_amt_fluc = fmt_fluc(total_amt_curr, total_amt_prev)
-
-    return {
-        "labels": ["年货前", "年货", "年前", "年后"],
-        "qty": [qty_pre_curr, qty_goods_curr, qty_before_curr, qty_after_curr],
-        "amt": [amt_pre_curr, amt_goods_curr, amt_before_curr, amt_after_curr],
-        "total_qty_curr": total_qty_curr,
-        "total_qty_prev": total_qty_prev,
-        "total_qty_fluc": total_qty_fluc,
-        "total_amt_curr": total_amt_curr,
-        "total_amt_prev": total_amt_prev,
-        "total_amt_fluc": total_amt_fluc,
-        "detail_qty": [
-            (qty_pre_curr, qty_pre_prev, qty_pre_fluc, qty_pre_curr/total_qty_curr*100 if total_qty_curr else 0),
-            (qty_goods_curr, qty_goods_prev, qty_goods_fluc, qty_goods_curr/total_qty_curr*100 if total_qty_curr else 0),
-            (qty_before_curr, qty_before_prev, qty_before_fluc, qty_before_curr/total_qty_curr*100 if total_qty_curr else 0),
-            (qty_after_curr, qty_after_prev, qty_after_fluc, qty_after_curr/total_qty_curr*100 if total_qty_curr else 0)
-        ],
-        "detail_amt": [
-            (amt_pre_curr, amt_pre_prev, amt_pre_fluc, amt_pre_curr/total_amt_curr*100 if total_amt_curr else 0),
-            (amt_goods_curr, amt_goods_prev, amt_goods_fluc, amt_goods_curr/total_amt_curr*100 if total_amt_curr else 0),
-            (amt_before_curr, amt_before_prev, amt_before_fluc, amt_before_curr/total_amt_curr*100 if total_amt_curr else 0),
-            (amt_after_curr, amt_after_prev, amt_after_fluc, amt_after_curr/total_amt_curr*100 if total_amt_curr else 0)
-        ]
+# 2. 采购类型全局配置
+pur_config_list = [
+    {
+        "name_cn": "年货前采购",
+        "qty_total_col": "年货前采购滞销数量_total",
+        "amt_total_col": "年货前采购滞销金额_total",
+        "qty_fba_col": "年货前采购滞销数量_fba",
+        "amt_fba_col": "年货前采购滞销金额_fba",
+        "color": "#9ca3af"
+    },
+    {
+        "name_cn": "年货采购",
+        "qty_total_col": "年货采购滞销数量_total",
+        "amt_total_col": "年货采购滞销金额_total",
+        "qty_fba_col": "年货采购滞销数量_fba",
+        "amt_fba_col": "年货采购滞销金额_fba",
+        "color": "#f59e0b"
+    },
+    {
+        "name_cn": "年前采购",
+        "qty_total_col": "年前采购滞销数量_total",
+        "amt_total_col": "年前采购滞销金额_total",
+        "qty_fba_col": "年前采购滞销数量_fba",
+        "amt_fba_col": "年前采购滞销金额_fba",
+        "color": "#ef4444"
+    },
+    {
+        "name_cn": "年后采购",
+        "qty_total_col": "年后采购滞销数量_total",
+        "amt_total_col": "年后采购滞销金额_total",
+        "qty_fba_col": "年后采购滞销数量_fba",
+        "amt_fba_col": "年后采购滞销金额_fba",
+        "color": "#3b82f6"
     }
+]
 
-non_year = get_full_summary(df_temp, df_temp_prev, "非年份品")
-year = get_full_summary(df_temp, df_temp_prev, "年份品")
+# 3. 聚合函数
+def agg_single_pur(df_curr, df_prev, pur_cfg):
+    curr_agg = df_curr.groupby("是否年份").agg(
+        qty_total=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["qty_total_col"]].sum()),
+        amt_total=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["amt_total_col"]].sum()),
+        qty_fba=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["qty_fba_col"]].sum()),
+        amt_fba=("是否年份", lambda x: df_curr.loc[x.index, pur_cfg["amt_fba_col"]].sum())
+    ).reset_index()
+    prev_agg = df_prev.groupby("是否年份").agg(
+        qty_total_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["qty_total_col"]].sum()),
+        amt_total_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["amt_total_col"]].sum()),
+        qty_fba_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["qty_fba_col"]].sum()),
+        amt_fba_prev=("是否年份", lambda x: df_prev.loc[x.index, pur_cfg["amt_fba_col"]].sum())
+    ).reset_index()
+    merge_df = curr_agg.merge(prev_agg, on="是否年份", how="left").fillna(0)
+    merge_df["商品类型"] = merge_df["是否年份"].map({"是": "年份品", "否": "非年份品"})
+    return merge_df
 
-# 4. 饼图函数
-import plotly.express as px
-def pie(data, names, title):
-    fig = px.pie(values=data, names=names, color_discrete_sequence=["#ff9999","#66b3ff","#99ff99","#ffcc99"])
-    fig.update_traces(textposition="inside", textinfo="percent", showlegend=False)
-    fig.update_layout(height=220, margin=dict(l=10,r=10,t=30,b=10),
-                      title=dict(text=title, font=dict(size=13)))
+# 4. 饼图绘制函数
+def draw_single_pie(df_source, pur_name, chart_type, stock_type, color_year="#ef4444", color_non="#666666"):
+    val_col = f"{chart_type}_{stock_type}"
+    title_map = {
+        ("qty", "total"): f"{pur_name}｜总库存口径-滞销数量占比",
+        ("amt", "total"): f"{pur_name}｜总库存口径-滞销金额占比",
+        ("qty", "fba"): f"{pur_name}｜FBA+AWD口径-滞销数量占比",
+        ("amt", "fba"): f"{pur_name}｜FBA+AWD口径-滞销金额占比",
+    }
+    fig = px.pie(
+        df_source,
+        values=val_col,
+        names="商品类型",
+        title=title_map[(chart_type, stock_type)],
+        hole=0.3,
+        color_discrete_map={
+            "年份品": color_year,
+            "非年份品": "#6386e8"
+        }
+    )
+    fig.update_traces(texttemplate="%{percent:.2%}<br>%{value:,.0f}", textposition="inside")
+    fig.update_layout(height=360)
     return fig
 
-# -------------------- 一行4列布局 --------------------
-col1, col2, col3, col4 = st.columns(4)
-
-# 左1：非年份品 · 数量占比 + 详细总结
-with col1:
-    st.markdown(f"""
-    **🔹 非年份品 滞销数量**  
-    总计：{non_year['total_qty_curr']:,} 件，环比 {non_year['total_qty_fluc']}，上月：{non_year['total_qty_prev']:,} 件  
-    其中：  
-    - 年货前采购：{non_year['detail_qty'][0][0]:,} 件（占比 {non_year['detail_qty'][0][3]:.2f}%），环比 {non_year['detail_qty'][0][2]}，上月：{non_year['detail_qty'][0][1]:,} 件  
-    - 年货采购：{non_year['detail_qty'][1][0]:,} 件（占比 {non_year['detail_qty'][1][3]:.2f}%），环比 {non_year['detail_qty'][1][2]}，上月：{non_year['detail_qty'][1][1]:,} 件  
-    - 年前采购：{non_year['detail_qty'][2][0]:,} 件（占比 {non_year['detail_qty'][2][3]:.2f}%），环比 {non_year['detail_qty'][2][2]}，上月：{non_year['detail_qty'][2][1]:,} 件  
-    - 年后采购：{non_year['detail_qty'][3][0]:,} 件（占比 {non_year['detail_qty'][3][3]:.2f}%），环比 {non_year['detail_qty'][3][2]}，上月：{non_year['detail_qty'][3][1]:,} 件  
-    """, unsafe_allow_html=True)
-    st.plotly_chart(pie(non_year['qty'], non_year['labels'], "数量占比"), use_container_width=True)
-
-# 左2：非年份品 · 金额占比 + 详细总结
-with col2:
-    st.markdown(f"""
-    **🔹 非年份品 滞销金额**  
-    总计：{non_year['total_amt_curr']:,} 元，环比 {non_year['total_amt_fluc']}，上月：{non_year['total_amt_prev']:,} 元  
-    其中：  
-    - 年货前采购：{non_year['detail_amt'][0][0]:,} 元（占比 {non_year['detail_amt'][0][3]:.2f}%），环比 {non_year['detail_amt'][0][2]}，上月：{non_year['detail_amt'][0][1]:,} 元  
-    - 年货采购：{non_year['detail_amt'][1][0]:,} 元（占比 {non_year['detail_amt'][1][3]:.2f}%），环比 {non_year['detail_amt'][1][2]}，上月：{non_year['detail_amt'][1][1]:,} 元  
-    - 年前采购：{non_year['detail_amt'][2][0]:,} 元（占比 {non_year['detail_amt'][2][3]:.2f}%），环比 {non_year['detail_amt'][2][2]}，上月：{non_year['detail_amt'][2][1]:,} 元  
-    - 年后采购：{non_year['detail_amt'][3][0]:,} 元（占比 {non_year['detail_amt'][3][3]:.2f}%），环比 {non_year['detail_amt'][3][2]}，上月：{non_year['detail_amt'][3][1]:,} 元  
-    """, unsafe_allow_html=True)
-    st.plotly_chart(pie(non_year['amt'], non_year['labels'], "金额占比"), use_container_width=True)
-
-# 右1：年份品 · 数量占比 + 详细总结
-with col3:
-    st.markdown(f"""
-    **🔸 年份品 滞销数量**  
-    总计：{year['total_qty_curr']:,} 件，环比 {year['total_qty_fluc']}，上月：{year['total_qty_prev']:,} 件  
-    其中：  
-    - 年货前采购滞销数量：{year['detail_qty'][0][0]:,} 件（占比 {year['detail_qty'][0][3]:.2f}%），环比 {year['detail_qty'][0][2]}，上月：{year['detail_qty'][0][1]:,} 件  
-    - 年货采购滞销数量：{year['detail_qty'][1][0]:,} 件（占比 {year['detail_qty'][1][3]:.2f}%），环比 {year['detail_qty'][1][2]}，上月：{year['detail_qty'][1][1]:,} 件  
-    - 年前采购滞销数量：{year['detail_qty'][2][0]:,} 件（占比 {year['detail_qty'][2][3]:.2f}%），环比 {year['detail_qty'][2][2]}，上月：{year['detail_qty'][2][1]:,} 件  
-    - 年后采购滞销数量：{year['detail_qty'][3][0]:,} 件（占比 {year['detail_qty'][3][3]:.2f}%），环比 {year['detail_qty'][3][2]}，上月：{year['detail_qty'][3][1]:,} 件  
-    """, unsafe_allow_html=True)
-    st.plotly_chart(pie(year['qty'], year['labels'], "数量占比"), use_container_width=True)
-
-# 右2：年份品 · 金额占比 + 详细总结
-with col4:
-    st.markdown(f"""
-    **🔸 年份品 滞销金额**  
-    总计：{year['total_amt_curr']:,} 元，环比 {year['total_amt_fluc']}，上月：{year['total_amt_prev']:,} 元  
-    其中：  
-    - 年货前采购滞销金额：{year['detail_amt'][0][0]:,} 元（占比 {year['detail_amt'][0][3]:.2f}%），环比 {year['detail_amt'][0][2]}，上月：{year['detail_amt'][0][1]:,} 元  
-    - 年货采购滞销金额：{year['detail_amt'][1][0]:,} 元（占比 {year['detail_amt'][1][3]:.2f}%），环比 {year['detail_amt'][1][2]}，上月：{year['detail_amt'][1][1]:,} 元  
-    - 年前采购滞销金额：{year['detail_amt'][2][0]:,} 元（占比 {year['detail_amt'][2][3]:.2f}%），环比 {year['detail_amt'][2][2]}，上月：{year['detail_amt'][2][1]:,} 元  
-    - 年后采购滞销金额：{year['detail_amt'][3][0]:,} 元（占比 {year['detail_amt'][3][3]:.2f}%），环比 {year['detail_amt'][3][2]}，上月：{year['detail_amt'][3][1]:,} 元  
-    """, unsafe_allow_html=True)
-    st.plotly_chart(pie(year['amt'], year['labels'], "金额占比"), use_container_width=True)
-
-# ===================== 年货前采购滞销 - 按店铺拆分 =====================
-st.divider()
-st.subheader("🧧 年货前采购滞销 - 按店铺拆分分析")
-
-df_shop_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_shop_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-
-df_shop_curr = df_shop_curr[df_shop_curr["年货前采购滞销数量"] > 0].copy()
-df_shop_prev = df_shop_prev[df_shop_prev["年货前采购滞销数量"] > 0].copy()
-
-shop_total_curr = df_shop_curr.groupby("店铺").agg(总数量=("年货前采购滞销数量", "sum"),
-                                                   总金额=("年货前采购滞销金额", "sum")).reset_index()
-shop_total_prev = df_shop_prev.groupby("店铺").agg(总数量_上月=("年货前采购滞销数量", "sum"),
-                                                   总金额_上月=("年货前采购滞销金额", "sum")).reset_index()
-shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(数量=("年货前采购滞销数量", "sum"),
-                                                                金额=("年货前采购滞销金额", "sum")).reset_index()
-shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(数量_上月=("年货前采购滞销数量", "sum"),
-                                                                金额_上月=("年货前采购滞销金额", "sum")).reset_index()
-
-shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
-shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
-
-total_qty = shop_all["总数量"].sum()
-total_amt = shop_all["总金额"].sum()
-
-
-def fmt_fluc(curr, prev):
-    curr_int = int(round(curr, 0))
-    prev_int = int(round(prev, 0))
+# ========== HTML彩色格式化函数：红涨#d32f2f 绿跌#388e3c 持平无颜色 ==========
+def fmt_qty_html(curr, prev):
+    curr_int = int(curr)
+    prev_int = int(prev)
     diff = curr_int - prev_int
     if diff > 0:
-        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
+        return f"{curr_int:,} <span style='color:#d32f2f'>↑+{diff:,}</span>"
     elif diff < 0:
-        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
+        return f"{curr_int:,} <span style='color:#388e3c'>↓{diff:,}</span>"
     else:
-        return '<span style="color:#666">持平</span>', curr_int, prev_int
+        return f"{curr_int:,} 持平"
 
-
-import plotly.express as px
-
-shops = shop_all["店铺"].unique().tolist()
-for idx in range(0, len(shops), 5):
-    batch = shops[idx:idx + 5]
-    cols = st.columns(len(batch))
-    for i, shop in enumerate(batch):
-        d = shop_all[shop_all["店铺"] == shop].iloc[0]
-        t = shop_type_all[shop_type_all["店铺"] == shop]
-
-        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
-        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
-        qpct = q / total_qty * 100 if total_qty else 0
-        apct = a / total_amt * 100 if total_amt else 0
-
-        y = t[t["商品类型"] == "年份品"]
-        yq = int(y["数量"].iloc[0]) if not y.empty else 0
-        ya = int(y["金额"].iloc[0]) if not y.empty else 0
-        yqp = int(y["数量_上月"].iloc[0]) if not y.empty else 0
-        yap = int(y["金额_上月"].iloc[0]) if not y.empty else 0
-        yqf, _, _ = fmt_fluc(yq, yqp)
-        yaf, _, _ = fmt_fluc(ya, yap)
-        yqpct = yq / q * 100 if q else 0
-        yapct = ya / a * 100 if a else 0
-
-        n = t[t["商品类型"] == "非年份品"]
-        nq = int(n["数量"].iloc[0]) if not n.empty else 0
-        na = int(n["金额"].iloc[0]) if not n.empty else 0
-        nqp = int(n["数量_上月"].iloc[0]) if not n.empty else 0
-        nap = int(n["金额_上月"].iloc[0]) if not n.empty else 0
-        nqf, _, _ = fmt_fluc(nq, nqp)
-        naf, _, _ = fmt_fluc(na, nap)
-        nqpct = nq / q * 100 if q else 0
-        napct = na / a * 100 if a else 0
-
-        with cols[i]:
-            st.markdown(f"""
-**🏪 {shop}**
-滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
-<small style="color:#888;">
-其中：
-年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
-非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
-</small>
-
-滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
-<small style="color:#888;">
-其中：
-年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
-非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
-</small>
-""", unsafe_allow_html=True)
-
-st.divider()
-c1, c2 = st.columns(2)
-with c1:
-    fig = px.pie(shop_all, names="店铺", values="总数量", title="年货前滞销数量-店铺占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-with c2:
-    fig = px.pie(shop_all, names="店铺", values="总金额", title="年货前滞销金额-店铺占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-
-# ===================== 年货采购滞销 - 按店铺拆分 =====================
-st.divider()
-st.subheader("🧨 年货采购滞销 - 按店铺拆分分析")
-
-df_shop_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_shop_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-
-df_shop_curr = df_shop_curr[df_shop_curr["年货采购滞销数量"] > 0].copy()
-df_shop_prev = df_shop_prev[df_shop_prev["年货采购滞销数量"] > 0].copy()
-
-shop_total_curr = df_shop_curr.groupby("店铺").agg(总数量=("年货采购滞销数量", "sum"),
-                                                   总金额=("年货采购滞销金额", "sum")).reset_index()
-shop_total_prev = df_shop_prev.groupby("店铺").agg(总数量_上月=("年货采购滞销数量", "sum"),
-                                                   总金额_上月=("年货采购滞销金额", "sum")).reset_index()
-shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(数量=("年货采购滞销数量", "sum"),
-                                                                金额=("年货采购滞销金额", "sum")).reset_index()
-shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(数量_上月=("年货采购滞销数量", "sum"),
-                                                                金额_上月=("年货采购滞销金额", "sum")).reset_index()
-
-shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
-shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
-
-total_qty = shop_all["总数量"].sum()
-total_amt = shop_all["总金额"].sum()
-
-
-def fmt_fluc(curr, prev):
-    curr_int = int(round(curr, 0))
-    prev_int = int(round(prev, 0))
-    diff = curr_int - prev_int
+def fmt_amt_html(curr, prev):
+    curr_2 = round(curr, 2)
+    prev_2 = round(prev, 2)
+    diff = curr_2 - prev_2
     if diff > 0:
-        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
+        return f"{curr_2:,.2f} <span style='color:#d32f2f'>↑+{diff:,.2f}</span>"
     elif diff < 0:
-        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
+        return f"{curr_2:,.2f} <span style='color:#388e3c'>↓{diff:,.2f}</span>"
     else:
-        return '<span style="color:#666">持平</span>', curr_int, prev_int
+        return f"{curr_2:,.2f} 持平"
 
-
-import plotly.express as px
-
-shops = shop_all["店铺"].unique().tolist()
-for idx in range(0, len(shops), 5):
-    batch = shops[idx:idx + 5]
-    cols = st.columns(len(batch))
-    for i, shop in enumerate(batch):
-        d = shop_all[shop_all["店铺"] == shop].iloc[0]
-        t = shop_type_all[shop_type_all["店铺"] == shop]
-
-        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
-        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
-        qpct = q / total_qty * 100 if total_qty else 0
-        apct = a / total_amt * 100 if total_amt else 0
-
-        y = t[t["商品类型"] == "年份品"]
-        yq = int(y["数量"].iloc[0]) if not y.empty else 0
-        ya = int(y["金额"].iloc[0]) if not y.empty else 0
-        yqp = int(y["数量_上月"].iloc[0]) if not y.empty else 0
-        yap = int(y["金额_上月"].iloc[0]) if not y.empty else 0
-        yqf, _, _ = fmt_fluc(yq, yqp)
-        yaf, _, _ = fmt_fluc(ya, yap)
-        yqpct = yq / q * 100 if q else 0
-        yapct = ya / a * 100 if a else 0
-
-        n = t[t["商品类型"] == "非年份品"]
-        nq = int(n["数量"].iloc[0]) if not n.empty else 0
-        na = int(n["金额"].iloc[0]) if not n.empty else 0
-        nqp = int(n["数量_上月"].iloc[0]) if not n.empty else 0
-        nap = int(n["金额_上月"].iloc[0]) if not n.empty else 0
-        nqf, _, _ = fmt_fluc(nq, nqp)
-        naf, _, _ = fmt_fluc(na, nap)
-        nqpct = nq / q * 100 if q else 0
-        napct = na / a * 100 if a else 0
-
-        with cols[i]:
-            st.markdown(f"""
-**🏪 {shop}**
-滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
-<small style="color:#888;">
-其中：
-年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
-非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
-</small>
-
-滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
-<small style="color:#888;">
-其中：
-年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
-非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
-</small>
-""", unsafe_allow_html=True)
-
+# ===================== 页面渲染循环（HTML表格，正常渲染颜色） =====================
 st.divider()
-c1, c2 = st.columns(2)
-with c1:
-    fig = px.pie(shop_all, names="店铺", values="总数量", title="年货滞销数量-店铺占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-with c2:
-    fig = px.pie(shop_all, names="店铺", values="总金额", title="年货滞销金额-店铺占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-
-
-
-
-
-# ===================== 年前采购滞销 - 按店铺拆分（你要的最终文字版） =====================
-st.divider()
-st.subheader("🧨 年前采购滞销 - 按店铺拆分分析")
-
-# 1. 数据准备（含年份品标签）
-df_shop_curr = df_merge_curr.merge(
-    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
-).fillna("否")
-df_shop_prev = df_merge_prev.merge(
-    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
-).fillna("否")
-
-df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(
-    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
-)
-df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(
-    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
-)
-
-# 只筛选年前采购滞销>0的行
-df_shop_curr = df_shop_curr[df_shop_curr["年前采购滞销数量"] > 0].copy()
-df_shop_prev = df_shop_prev[df_shop_prev["年前采购滞销数量"] > 0].copy()
-
-# 2. 按店铺聚合【整体】数据
-shop_total_curr = df_shop_curr.groupby("店铺").agg(
-    总数量=("年前采购滞销数量", "sum"),
-    总金额=("年前采购滞销金额", "sum")
-).reset_index()
-
-shop_total_prev = df_shop_prev.groupby("店铺").agg(
-    总数量_上月=("年前采购滞销数量", "sum"),
-    总金额_上月=("年前采购滞销金额", "sum")
-).reset_index()
-
-# 3. 按店铺+商品类型聚合【年份/非年份】数据
-shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(
-    数量=("年前采购滞销数量", "sum"),
-    金额=("年前采购滞销金额", "sum")
-).reset_index()
-
-shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(
-    数量_上月=("年前采购滞销数量", "sum"),
-    金额_上月=("年前采购滞销金额", "sum")
-).reset_index()
-
-# 合并所有数据
-shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
-shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
-
-# 整体合计（按店铺维度）
-total_qty = shop_all["总数量"].sum()
-total_amt = shop_all["总金额"].sum()
-
-
-# 环比格式化函数（红升绿降）
-def fmt_fluc(curr, prev):
-    curr_int = int(round(curr, 0))
-    prev_int = int(round(prev, 0))
-    diff = curr_int - prev_int
-    if diff > 0:
-        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
-    elif diff < 0:
-        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
-    else:
-        return '<span style="color:#666">持平</span>', curr_int, prev_int
-
-
-# 4. 一行五列自适应布局
-import plotly.express as px
-
-shops = shop_all["店铺"].unique().tolist()
-
-# 分批显示：每5个店铺一行
-for idx in range(0, len(shops), 5):
-    batch = shops[idx:idx + 5]
-    cols = st.columns(len(batch))
-    for i, shop in enumerate(batch):
-        shop_data = shop_all[shop_all["店铺"] == shop].iloc[0]
-        shop_type_data = shop_type_all[shop_type_all["店铺"] == shop]
-
-        # 整体数据
-        qty_fluc, qty, qty_prev = fmt_fluc(shop_data["总数量"], shop_data["总数量_上月"])
-        amt_fluc, amt, amt_prev = fmt_fluc(shop_data["总金额"], shop_data["总金额_上月"])
-        qty_pct = (qty / total_qty * 100) if total_qty else 0
-        amt_pct = (amt / total_amt * 100) if total_amt else 0
-
-        # 年份品
-        year_data = shop_type_data[shop_type_data["商品类型"] == "年份品"]
-        year_qty = int(year_data["数量"].iloc[0]) if not year_data.empty else 0
-        year_amt = int(year_data["金额"].iloc[0]) if not year_data.empty else 0
-        year_qty_prev = int(year_data["数量_上月"].iloc[0]) if not year_data.empty else 0
-        year_amt_prev = int(year_data["金额_上月"].iloc[0]) if not year_data.empty else 0
-        year_qty_pct = (year_qty / qty * 100) if qty else 0
-        year_amt_pct = (year_amt / amt * 100) if amt else 0
-        year_qty_fluc, _, _ = fmt_fluc(year_qty, year_qty_prev)
-        year_amt_fluc, _, _ = fmt_fluc(year_amt, year_amt_prev)
-
-        # 非年份品
-        non_year_data = shop_type_data[shop_type_data["商品类型"] == "非年份品"]
-        non_year_qty = int(non_year_data["数量"].iloc[0]) if not non_year_data.empty else 0
-        non_year_amt = int(non_year_data["金额"].iloc[0]) if not non_year_data.empty else 0
-        non_year_qty_prev = int(non_year_data["数量_上月"].iloc[0]) if not non_year_data.empty else 0
-        non_year_amt_prev = int(non_year_data["金额_上月"].iloc[0]) if not non_year_data.empty else 0
-        non_year_qty_pct = (non_year_qty / qty * 100) if qty else 0
-        non_year_amt_pct = (non_year_amt / amt * 100) if amt else 0
-        non_year_qty_fluc, _, _ = fmt_fluc(non_year_qty, non_year_qty_prev)
-        non_year_amt_fluc, _, _ = fmt_fluc(non_year_amt, non_year_amt_prev)
-
-        # ===================== 你要的最终格式 =====================
-        with cols[i]:
-            st.markdown(f"""
-**🏪 {shop}**
-滞销数量：{qty:,} 件（{qty_pct:.1f}%），环比 {qty_fluc}，上月：{qty_prev:,} 件
-<small style="color:#888;">
-其中：
-年份品数量：{year_qty:,}（{year_qty_pct:.2f}%），环比 {year_qty_fluc}，上月：{year_qty_prev:,} 件
-非年份品数量：{non_year_qty:,}（{non_year_qty_pct:.2f}%），环比 {non_year_qty_fluc}，上月：{non_year_qty_prev:,} 件
-</small>
-
-滞销金额：{amt:,} 元（{amt_pct:.1f}%），环比 {amt_fluc}，上月：{amt_prev:,} 元
-<small style="color:#888;">
-其中：
-年份品金额：{year_amt:,}（{year_amt_pct:.2f}%），环比 {year_amt_fluc}，上月：{year_amt_prev:,} 元
-非年份品金额：{non_year_amt:,}（{non_year_amt_pct:.2f}%），环比 {non_year_amt_fluc}，上月：{non_year_amt_prev:,} 元
-</small>
-            """, unsafe_allow_html=True)
-
-# 5. 饼图区域
-st.divider()
-c_pie1, c_pie2 = st.columns(2)
-with c_pie1:
-    fig_qty = px.pie(shop_all, names="店铺", values="总数量", title="年前采购滞销数量 - 店铺占比")
-    fig_qty.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig_qty, use_container_width=True)
-
-with c_pie2:
-    fig_amt = px.pie(shop_all, names="店铺", values="总金额", title="年前采购滞销金额 - 店铺占比")
-    fig_amt.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig_amt, use_container_width=True)
-
-# ===================== 年后采购滞销 - 按店铺拆分 =====================
-st.divider()
-st.subheader("🧧 年后采购滞销 - 按店铺拆分分析")
-
-df_shop_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_shop_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-
-df_shop_curr = df_shop_curr[df_shop_curr["年后采购滞销数量"] > 0].copy()
-df_shop_prev = df_shop_prev[df_shop_prev["年后采购滞销数量"] > 0].copy()
-
-shop_total_curr = df_shop_curr.groupby("店铺").agg(总数量=("年后采购滞销数量", "sum"),
-                                                   总金额=("年后采购滞销金额", "sum")).reset_index()
-shop_total_prev = df_shop_prev.groupby("店铺").agg(总数量_上月=("年后采购滞销数量", "sum"),
-                                                   总金额_上月=("年后采购滞销金额", "sum")).reset_index()
-shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(数量=("年后采购滞销数量", "sum"),
-                                                                金额=("年后采购滞销金额", "sum")).reset_index()
-shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(数量_上月=("年后采购滞销数量", "sum"),
-                                                                金额_上月=("年后采购滞销金额", "sum")).reset_index()
-
-shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
-shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
-
-total_qty = shop_all["总数量"].sum()
-total_amt = shop_all["总金额"].sum()
-
-
-def fmt_fluc(curr, prev):
-    curr_int = int(round(curr, 0))
-    prev_int = int(round(prev, 0))
-    diff = curr_int - prev_int
-    if diff > 0:
-        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
-    elif diff < 0:
-        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
-    else:
-        return '<span style="color:#666">持平</span>', curr_int, prev_int
-
-
-import plotly.express as px
-
-shops = shop_all["店铺"].unique().tolist()
-for idx in range(0, len(shops), 5):
-    batch = shops[idx:idx + 5]
-    cols = st.columns(len(batch))
-    for i, shop in enumerate(batch):
-        d = shop_all[shop_all["店铺"] == shop].iloc[0]
-        t = shop_type_all[shop_type_all["店铺"] == shop]
-
-        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
-        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
-        qpct = q / total_qty * 100 if total_qty else 0
-        apct = a / total_amt * 100 if total_amt else 0
-
-        y = t[t["商品类型"] == "年份品"]
-        yq = int(y["数量"].iloc[0]) if not y.empty else 0
-        ya = int(y["金额"].iloc[0]) if not y.empty else 0
-        yqp = int(y["数量_上月"].iloc[0]) if not y.empty else 0
-        yap = int(y["金额_上月"].iloc[0]) if not y.empty else 0
-        yqf, _, _ = fmt_fluc(yq, yqp)
-        yaf, _, _ = fmt_fluc(ya, yap)
-        yqpct = yq / q * 100 if q else 0
-        yapct = ya / a * 100 if a else 0
-
-        n = t[t["商品类型"] == "非年份品"]
-        nq = int(n["数量"].iloc[0]) if not n.empty else 0
-        na = int(n["金额"].iloc[0]) if not n.empty else 0
-        nqp = int(n["数量_上月"].iloc[0]) if not n.empty else 0
-        nap = int(n["金额_上月"].iloc[0]) if not n.empty else 0
-        nqf, _, _ = fmt_fluc(nq, nqp)
-        naf, _, _ = fmt_fluc(na, nap)
-        nqpct = nq / q * 100 if q else 0
-        napct = na / a * 100 if a else 0
-
-        with cols[i]:
-            st.markdown(f"""
-**🏪 {shop}**
-滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
-<small style="color:#888;">
-其中：
-年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
-非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
-</small>
-
-滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
-<small style="color:#888;">
-其中：
-年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
-非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
-</small>
-""", unsafe_allow_html=True)
-
-st.divider()
-c1, c2 = st.columns(2)
-with c1:
-    fig = px.pie(shop_all, names="店铺", values="总数量", title="年后滞销数量-店铺占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-with c2:
-    fig = px.pie(shop_all, names="店铺", values="总金额", title="年后滞销金额-店铺占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-
-# ===================== 全店铺总滞销汇总（按店铺 · 文字+双饼图） =====================
-st.divider()
-st.subheader("📊 全店铺总滞销汇总分析")
-
-# 1. 合并年份品标签（用你现有的字段）
-df_shop_curr = df_merge_curr.merge(
-    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
-).fillna("否")
-df_shop_prev = df_merge_prev.merge(
-    df_prod[["MSKU", "是否年份"]], on="MSKU", how="left"
-).fillna("否")
-
-df_shop_curr["商品类型"] = df_shop_curr["是否年份"].apply(
-    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
-)
-df_shop_prev["商品类型"] = df_shop_prev["是否年份"].apply(
-    lambda x: "年份品" if str(x).strip() == "是" else "非年份品"
-)
-
-# 2. 计算【总滞销数量/金额】（你真正存在的字段求和）
-df_shop_curr["总滞销数量"] = (
-    df_shop_curr["年前采购滞销数量"] +
-    df_shop_curr["年货前采购滞销数量"] +
-    df_shop_curr["年货采购滞销数量"] +
-    df_shop_curr["年后采购滞销数量"]
-)
-df_shop_curr["总滞销金额"] = (
-    df_shop_curr["年前采购滞销金额"] +
-    df_shop_curr["年货前采购滞销金额"] +
-    df_shop_curr["年货采购滞销金额"] +
-    df_shop_curr["年后采购滞销金额"]
-)
-
-df_shop_prev["总滞销数量"] = (
-    df_shop_prev["年前采购滞销数量"] +
-    df_shop_prev["年货前采购滞销数量"] +
-    df_shop_prev["年货采购滞销数量"] +
-    df_shop_prev["年后采购滞销数量"]
-)
-df_shop_prev["总滞销金额"] = (
-    df_shop_prev["年前采购滞销金额"] +
-    df_shop_prev["年货前采购滞销金额"] +
-    df_shop_prev["年货采购滞销金额"] +
-    df_shop_prev["年后采购滞销金额"]
-)
-
-# 只保留有滞销的行
-df_shop_curr = df_shop_curr[df_shop_curr["总滞销数量"] > 0].copy()
-df_shop_prev = df_shop_prev[df_shop_prev["总滞销数量"] > 0].copy()
-
-# 3. 按店铺聚合
-shop_total_curr = df_shop_curr.groupby("店铺").agg(
-    总数量=("总滞销数量", "sum"),
-    总金额=("总滞销金额", "sum")
-).reset_index()
-
-shop_total_prev = df_shop_prev.groupby("店铺").agg(
-    总数量_上月=("总滞销数量", "sum"),
-    总金额_上月=("总滞销金额", "sum")
-).reset_index()
-
-# 4. 按店铺+类型聚合
-shop_type_curr = df_shop_curr.groupby(["店铺", "商品类型"]).agg(
-    数量=("总滞销数量", "sum"),
-    金额=("总滞销金额", "sum")
-).reset_index()
-
-shop_type_prev = df_shop_prev.groupby(["店铺", "商品类型"]).agg(
-    数量_上月=("总滞销数量", "sum"),
-    金额_上月=("总滞销金额", "sum")
-).reset_index()
-
-# 合并
-shop_all = shop_total_curr.merge(shop_total_prev, on="店铺", how="left").fillna(0)
-shop_type_all = shop_type_curr.merge(shop_type_prev, on=["店铺", "商品类型"], how="left").fillna(0)
-
-total_qty = shop_all["总数量"].sum()
-total_amt = shop_all["总金额"].sum()
-
-# 环比函数
-def fmt_fluc(curr, prev):
-    curr_int = int(round(curr, 0))
-    prev_int = int(round(prev, 0))
-    diff = curr_int - prev_int
-    if diff > 0:
-        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr_int, prev_int
-    elif diff < 0:
-        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr_int, prev_int
-    else:
-        return '<span style="color:#666">持平</span>', curr_int, prev_int
-
-# 5. 一行五列文字总结
-import plotly.express as px
-shops = shop_all["店铺"].unique().tolist()
-
-for idx in range(0, len(shops), 5):
-    batch = shops[idx:idx+5]
-    cols = st.columns(len(batch))
-    for i, shop in enumerate(batch):
-        d = shop_all[shop_all["店铺"] == shop].iloc[0]
-        t = shop_type_all[shop_type_all["店铺"] == shop]
-
-        qf, q, qp = fmt_fluc(d["总数量"], d["总数量_上月"])
-        af, a, ap = fmt_fluc(d["总金额"], d["总金额_上月"])
-        qpct = q / total_qty * 100 if total_qty else 0
-        apct = a / total_amt * 100 if total_amt else 0
-
-        # 年份品
-        year_data = t[t["商品类型"] == "年份品"]
-        yq = int(year_data["数量"].iloc[0]) if not year_data.empty else 0
-        ya = int(year_data["金额"].iloc[0]) if not year_data.empty else 0
-        yqp = int(year_data["数量_上月"].iloc[0]) if not year_data.empty else 0
-        yap = int(year_data["金额_上月"].iloc[0]) if not year_data.empty else 0
-        yqf, _, _ = fmt_fluc(yq, yqp)
-        yaf, _, _ = fmt_fluc(ya, yap)
-        yqpct = yq / q * 100 if q else 0
-        yapct = ya / a * 100 if a else 0
-
-        # 非年份品
-        non_year_data = t[t["商品类型"] == "非年份品"]
-        nq = int(non_year_data["数量"].iloc[0]) if not non_year_data.empty else 0
-        na = int(non_year_data["金额"].iloc[0]) if not non_year_data.empty else 0
-        nqp = int(non_year_data["数量_上月"].iloc[0]) if not non_year_data.empty else 0
-        nap = int(non_year_data["金额_上月"].iloc[0]) if not non_year_data.empty else 0
-        nqf, _, _ = fmt_fluc(nq, nqp)
-        naf, _, _ = fmt_fluc(na, nap)
-        nqpct = nq / q * 100 if q else 0
-        napct = na / a * 100 if a else 0
-
-        with cols[i]:
-            st.markdown(f"""
-**🏪 {shop}**
-滞销数量：{q:,} 件（{qpct:.1f}%），环比 {qf}，上月：{qp:,} 件
-<small style="color:#888;">
-其中：
-年份品数量：{yq:,}（{yqpct:.2f}%），环比 {yqf}，上月：{yqp:,} 件
-非年份品数量：{nq:,}（{nqpct:.2f}%），环比 {nqf}，上月：{nqp:,} 件
-</small>
-
-滞销金额：{a:,} 元（{apct:.1f}%），环比 {af}，上月：{ap:,} 元
-<small style="color:#888;">
-其中：
-年份品金额：{ya:,}（{yapct:.2f}%），环比 {yaf}，上月：{yap:,} 元
-非年份品金额：{na:,}（{napct:.2f}%），环比 {naf}，上月：{nap:,} 元
-</small>
-""", unsafe_allow_html=True)
-
-# 6. 下方一行两列饼图
-st.divider()
-c1, c2 = st.columns(2)
-with c1:
-    fig = px.pie(shop_all, names="店铺", values="总数量", title="店铺总滞销数量占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-with c2:
-    fig = px.pie(shop_all, names="店铺", values="总金额", title="店铺总滞销金额占比")
-    fig.update_traces(textinfo="label+percent", textposition="inside")
-    st.plotly_chart(fig, use_container_width=True)
-
-# ===================== 【最终版·金额数量整数版】各店铺四类采购滞销分析（一行四列文字+采购类型饼图） =====================
-st.divider()
-st.subheader("🏪 各店铺四类采购滞销明细分析")
-
-# 1. 数据准备
-df_curr = df_merge_curr.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-df_prev = df_merge_prev.merge(df_prod[["MSKU", "是否年份"]], on="MSKU", how="left").fillna("否")
-
-df_curr["商品类型"] = df_curr["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-df_prev["商品类型"] = df_prev["是否年份"].apply(lambda x: "年份品" if str(x).strip() == "是" else "非年份品")
-
-
-# 2. 环比格式化函数（红升绿降，全部取整）
-def fmt_fluc(curr, prev):
-    curr = int(round(curr, 0))
-    prev = int(round(prev, 0))
-    diff = curr - prev
-    if diff > 0:
-        return f'<span style="color:#d32f2f">↑ +{diff:,}</span>', curr, prev
-    elif diff < 0:
-        return f'<span style="color:#2e7d32">↓ {diff:,}</span>', curr, prev
-    else:
-        return '<span style="color:#666">持平</span>', curr, prev
-
-
-# 3. 遍历所有店铺
-import plotly.express as px
-
-shops = sorted(df_curr["店铺"].unique())
-
-# 四类采购配置
-report_config = [
-    ("年前采购滞销", "年前采购滞销数量", "年前采购滞销金额"),
-    ("年货前采购滞销", "年货前采购滞销数量", "年货前采购滞销金额"),
-    ("年货采购滞销", "年货采购滞销数量", "年货采购滞销金额"),
-    ("年后采购滞销", "年后采购滞销数量", "年后采购滞销金额"),
-]
-
-for shop in shops:
-    st.markdown("---")
-    st.markdown(f"### 🏪 {shop}")
-
-    curr_shop = df_curr[df_curr["店铺"] == shop].copy()
-    prev_shop = df_prev[df_prev["店铺"] == shop].copy()
-
-    # 先计算该店铺四类采购的总滞销数量/金额（用于饼图）
-    pie_data = pd.DataFrame({
-        "采购类型": ["年前采购", "年货前采购", "年货采购", "年后采购"],
-        "数量": [
-            int(round(curr_shop["年前采购滞销数量"].sum(), 0)),
-            int(round(curr_shop["年货前采购滞销数量"].sum(), 0)),
-            int(round(curr_shop["年货采购滞销数量"].sum(), 0)),
-            int(round(curr_shop["年后采购滞销数量"].sum(), 0))
+st.header("📦 分采购类型滞销细分（双口径 × 年份品/非年份品）")
+
+for pur in pur_config_list:
+    st.subheader(f"===== {pur['name_cn']} 滞销拆解 =====")
+    agg_df = agg_single_pur(df_merge_curr, df_merge_prev, pur)
+    row_year = agg_df[agg_df["商品类型"] == "年份品"].iloc[0]
+    row_non = agg_df[agg_df["商品类型"] == "非年份品"].iloc[0]
+
+    # 合计值
+    total_qty_t = row_non["qty_total"] + row_year["qty_total"]
+    total_qty_t_prev = row_non["qty_total_prev"] + row_year["qty_total_prev"]
+    total_amt_t = row_non["amt_total"] + row_year["amt_total"]
+    total_amt_t_prev = row_non["amt_total_prev"] + row_year["amt_total_prev"]
+
+    total_qty_f = row_non["qty_fba"] + row_year["qty_fba"]
+    total_qty_f_prev = row_non["qty_fba_prev"] + row_year["qty_fba_prev"]
+    total_amt_f = row_non["amt_fba"] + row_year["amt_fba"]
+    total_amt_f_prev = row_non["amt_fba_prev"] + row_year["amt_fba_prev"]
+
+    # 组装每一行单元格内容
+    rows_data = [
+        [
+            "滞销总数量",
+            fmt_qty_html(total_qty_t, total_qty_t_prev),
+            fmt_qty_html(total_qty_f, total_qty_f_prev)
         ],
-        "金额": [
-            int(round(curr_shop["年前采购滞销金额"].sum(), 0)),
-            int(round(curr_shop["年货前采购滞销金额"].sum(), 0)),
-            int(round(curr_shop["年货采购滞销金额"].sum(), 0)),
-            int(round(curr_shop["年后采购滞销金额"].sum(), 0))
+        [
+            "年份品滞销数量（占比）",
+            f"{fmt_qty_html(row_year['qty_total'], row_year['qty_total_prev'])} 占比{safe_pct(row_year['qty_total'], total_qty_t):.2f}%",
+            f"{fmt_qty_html(row_year['qty_fba'], row_year['qty_fba_prev'])} 占比{safe_pct(row_year['qty_fba'], total_qty_f):.2f}%"
+        ],
+        [
+            "非年份品滞销数量（占比）",
+            f"{fmt_qty_html(row_non['qty_total'], row_non['qty_total_prev'])} 占比{safe_pct(row_non['qty_total'], total_qty_t):.2f}%",
+            f"{fmt_qty_html(row_non['qty_fba'], row_non['qty_fba_prev'])} 占比{safe_pct(row_non['qty_fba'], total_qty_f):.2f}%"
+        ],
+        [
+            "滞销总金额",
+            fmt_amt_html(total_amt_t, total_amt_t_prev),
+            fmt_amt_html(total_amt_f, total_amt_f_prev)
+        ],
+        [
+            "年份品滞销金额（占比）",
+            f"{fmt_amt_html(row_year['amt_total'], row_year['amt_total_prev'])} 占比{safe_pct(row_year['amt_total'], total_amt_t):.2f}%",
+            f"{fmt_amt_html(row_year['amt_fba'], row_year['amt_fba_prev'])} 占比{safe_pct(row_year['amt_fba'], total_amt_f):.2f}%"
+        ],
+        [
+            "非年份品滞销金额（占比）",
+            f"{fmt_amt_html(row_non['amt_total'], row_non['amt_total_prev'])} 占比{safe_pct(row_non['amt_total'], total_amt_t):.2f}%",
+            f"{fmt_amt_html(row_non['amt_fba'], row_non['amt_fba_prev'])} 占比{safe_pct(row_non['amt_fba'], total_amt_f):.2f}%"
         ]
-    })
-    pie_data = pie_data[pie_data["数量"] > 0]
+    ]
 
-    # 一行四列展示四类采购文字总结
-    cols = st.columns(4)
-    for i, (title, q_col, a_col) in enumerate(report_config):
-        with cols[i]:
-            # 当月总数（取整）
-            q_total = int(round(curr_shop[q_col].sum(), 0))
-            a_total = int(round(curr_shop[a_col].sum(), 0))
+    # 拼接完整HTML表格字符串
+    html_table = f"""
+##### {pur['name_cn']} 滞销明细汇总（双口径横向对比）
+<table width="100%" border="1" cellpadding="8" cellspacing="0">
+<thead>
+<tr style="background:#f5f5f5">
+<th align="left">指标名称</th>
+<th align="left">总库存口径</th>
+<th align="left">FBA+AWD+在途口径</th>
+</tr>
+</thead>
+<tbody>
+"""
+    for r in rows_data:
+        html_table += f"""
+<tr>
+<td>{r[0]}</td>
+<td>{r[1]}</td>
+<td>{r[2]}</td>
+</tr>
+"""
+    html_table += "</tbody></table>"
 
-            # 上月总数（取整）
-            q_prev_total = int(round(prev_shop[q_col].sum(), 0)) if not prev_shop.empty else 0
-            a_prev_total = int(round(prev_shop[a_col].sum(), 0)) if not prev_shop.empty else 0
-
-            # 环比
-            q_str, q, qp = fmt_fluc(q_total, q_prev_total)
-            a_str, a, ap = fmt_fluc(a_total, a_prev_total)
-
-            # 年份品 / 非年份品（取整）
-            year_curr = curr_shop[curr_shop["商品类型"] == "年份品"]
-            non_curr = curr_shop[curr_shop["商品类型"] == "非年份品"]
-
-            y_q = int(round(year_curr[q_col].sum(), 0))
-            y_a = int(round(year_curr[a_col].sum(), 0))
-            n_q = int(round(non_curr[q_col].sum(), 0))
-            n_a = int(round(non_curr[a_col].sum(), 0))
-
-            year_prev = prev_shop[prev_shop["商品类型"] == "年份品"] if not prev_shop.empty else []
-            non_prev = prev_shop[prev_shop["商品类型"] == "非年份品"] if not prev_shop.empty else []
-
-            y_qp = int(round(year_prev[q_col].sum(), 0)) if len(year_prev) > 0 else 0
-            y_ap = int(round(year_prev[a_col].sum(), 0)) if len(year_prev) > 0 else 0
-            n_qp = int(round(non_prev[q_col].sum(), 0)) if len(non_prev) > 0 else 0
-            n_ap = int(round(non_prev[a_col].sum(), 0)) if len(non_prev) > 0 else 0
-
-            yq_str, _, _ = fmt_fluc(y_q, y_qp)
-            ya_str, _, _ = fmt_fluc(y_a, y_ap)
-            nq_str, _, _ = fmt_fluc(n_q, n_qp)
-            na_str, _, _ = fmt_fluc(n_a, n_ap)
-
-            yq_pct = (y_q / q * 100) if q != 0 else 0
-            ya_pct = (y_a / a * 100) if a != 0 else 0
-            nq_pct = (n_q / q * 100) if q != 0 else 0
-            na_pct = (n_a / a * 100) if a != 0 else 0
-
-            # 渲染文字（全部取整）
-            st.markdown(f"""
-**📌 {title}**
-滞销数量：{q:,} 件，环比 {q_str}，上月：{qp:,} 件
-<small style="color:#888;">
-其中：
-年份品：{y_q:,}（{yq_pct:.2f}%），环比 {yq_str}
-非年份品：{n_q:,}（{nq_pct:.2f}%），环比 {nq_str}
-</small>
-
-滞销金额：{a:,} 元，环比 {a_str}，上月：{ap:,} 元
-<small style="color:#888;">
-其中：
-年份品：{y_a:,}（{ya_pct:.2f}%），环比 {ya_str}
-非年份品：{n_a:,}（{na_pct:.2f}%），环比 {na_str}
-</small>
-            """, unsafe_allow_html=True)
-
-    # 该店铺的饼图：按采购类型划分（一行两列）
+    # 使用markdown渲染HTML，支持颜色
+    st.markdown(html_table, unsafe_allow_html=True)
     st.divider()
-    st.markdown("#### 📊 该店铺滞销按采购类型占比")
-    c1, c2 = st.columns(2)
-    with c1:
-        fig1 = px.pie(pie_data, names="采购类型", values="数量", title=f"{shop} - 滞销数量按采购类型占比")
-        fig1.update_traces(textinfo="percent+label", textposition="inside")
+
+    # 一行四列饼图不变
+    c_pie1, c_pie2, c_pie3, c_pie4 = st.columns(4)
+    with c_pie1:
+        fig1 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="total", color_year=pur["color"])
         st.plotly_chart(fig1, use_container_width=True)
-    with c2:
-        fig2 = px.pie(pie_data, names="采购类型", values="金额", title=f"{shop} - 滞销金额按采购类型占比")
-        fig2.update_traces(textinfo="percent+label", textposition="inside")
+    with c_pie2:
+        fig2 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="total", color_year=pur["color"])
         st.plotly_chart(fig2, use_container_width=True)
-
-st.markdown("---")
-
-# ======================================
-# ======================================
-# 📋 全量库存&滞销明细总表（照搬你的官方计算逻辑 · 100%正确）
-# ======================================
-st.divider()
-st.subheader("📋 全量库存&滞销明细总表（所有月份 · 不受筛选器控制）")
-
-# 1. 全量原始数据
-df_final = df_merge.copy()
-
-# 2. 【照搬你的逻辑】获取采购数据
-def get_pur_before_all(df_pur_raw):
-    pur_clean = df_pur_raw.copy()
-    pur_clean["采购日期"] = pd.to_datetime(pur_clean["采购日期"], errors="coerce")
-    msku_pur = pur_clean.pivot_table(
-        index="MSKU", columns="采购类型", values="采购量", aggfunc="sum"
-    ).fillna(0).reset_index()
-    for c in ["年前采购", "年后采购", "年货采购"]:
-        if c not in msku_pur.columns:
-            msku_pur[c] = 0
-    return msku_pur
-
-msku_pur_all = get_pur_before_all(df_pur)
-df_final = df_final.merge(msku_pur_all, on="MSKU", how="left").fillna(0)
-
-# 3. 【照搬你的逻辑】年货前采购总库存
-df_final["年货前采购总库存"] = (
-    df_final["总库存"] - df_final["年货采购"] - df_final["年前采购"] - df_final["年后采购"]
-).clip(lower=0)
-
-# 4. 【照搬你的逻辑】分摊滞销数量（顺序：年后→年前→年货→年货前）
-def alloc_qty_by_purchase(row):
-    unsale = row["总滞销库存"]
-    after = row["年后采购"]
-    before = row["年前采购"]
-    goods = row["年货采购"]
-
-    a = min(unsale, after)
-    unsale -= a
-    b = min(unsale, before)
-    unsale -= b
-    c = min(unsale, goods)
-    unsale -= c
-    d = unsale
-    return pd.Series([d, c, b, a])
-
-df_final[["年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量"]] = \
-    df_final.apply(alloc_qty_by_purchase, axis=1)
-
-# 5. 【照搬你的逻辑】计算滞销金额（本地优先）
-def calc_amt_by_local_fba(row):
-    local_total = row["本地库存"]
-    fba_total = row["FBA+AWD+在途库存"]
-    cost = row["采购成本"]
-    freight = row["头程费用"]
-
-    q_pre = row["年货前采购滞销数量"]
-    q_goods = row["年货采购滞销数量"]
-    q_before = row["年前采购滞销数量"]
-    q_after = row["年后采购滞销数量"]
-
-    remain_local = local_total
-
-    def calc(qty):
-        nonlocal remain_local
-        if qty <= 0:
-            return 0
-        use_l = min(qty, remain_local)
-        use_f = qty - use_l
-        remain_local -= use_l
-        return round(use_l * cost + use_f * (cost + freight), 2)
-
-    return pd.Series([
-        calc(q_pre), calc(q_goods), calc(q_before), calc(q_after)
-    ])
-
-df_final[["年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"]] = \
-    df_final.apply(calc_amt_by_local_fba, axis=1)
-
-# 6. 【你要求的所有列，一个不差】
-target_cols = [
-    "时间", "店铺", "MSKU", "品名", "开售时间", "是否年份",
-    "采购成本", "头程费用", "日均", "FBA+AWD+在途库存", "本地库存", "总库存",
-    "周转天数", "预计总库存用完时间", "滞销风险等级",
-    "FBA+AWD+在途滞销数量", "总滞销库存", "本地滞销数量",
-    "FBA金额", "本地金额", "总库存金额",
-    "FBA滞销金额", "本地滞销金额", "总滞销金额",
-    "年货前采购总库存", "年货采购", "年前采购", "年后采购",
-    "年货前采购滞销数量", "年货采购滞销数量", "年前采购滞销数量", "年后采购滞销数量",
-    "年货前采购滞销金额", "年货采购滞销金额", "年前采购滞销金额", "年后采购滞销金额"
-]
-
-# 7. 格式整理
-df_final = df_final.reindex(columns=target_cols, fill_value=0)
-df_final["时间"] = pd.to_datetime(df_final["时间"]).dt.strftime("%Y-%m-%d")
-df_final["预计总库存用完时间"] = pd.to_datetime(df_final["预计总库存用完时间"], errors="coerce").dt.strftime("%Y-%m-%d")
-
-# 数字转整数
-num_cols = [c for c in target_cols if c not in ["时间","店铺","MSKU","品名","开售时间","是否年份","预计总库存用完时间","滞销风险等级"]]
-for c in num_cols:
-    df_final[c] = df_final[c].fillna(0).astype(float).round(0).astype(int)
-
-# 8. 展示
-st.dataframe(df_final, use_container_width=True, height=600, hide_index=True)
-
-# 9. 下载Excel
-import io
-buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-    df_final.to_excel(writer, index=False)
-buffer.seek(0)
-
-st.download_button(
-    "📥 下载全量明细总表",
-    data=buffer,
-    file_name="全量库存滞销明细总表.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
-
+    with c_pie3:
+        fig3 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="fba", color_year=pur["color"])
+        st.plotly_chart(fig3, use_container_width=True)
+    with c_pie4:
+        fig4 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="fba", color_year=pur["color"])
+        st.plotly_chart(fig4, use_container_width=True)
+    st.divider()

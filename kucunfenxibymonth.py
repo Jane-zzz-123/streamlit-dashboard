@@ -13,29 +13,29 @@ import plotly.express as px
 USER_AUTH = {
     # 超级管理员（可查看全部店铺）
     "admin": {
-        "pwd": "admin1234",
+        "pwd": "@admin1234",
         "shops": ["全部"]
     },
     # 运营1：仅负责 店铺01、店铺02
     "黄怡": {
         "pwd": "syc-huangyi123",
-        "shops": ["思业成-US"]
+        "shops": ["思业成-US","创奇-US黄怡D"]
     },
-    "黄怡-定行": {
-        "pwd": "dx-HHHyi123",
-        "shops": ["定行-US"]
+    "镱娜": {
+        "pwd": "dx-yyyna123",
+        "shops": ["定行-US","创奇-US镱娜H"]
     },
     "小娇": {
         "pwd": "pt and ys-xiaojiao",
-        "shops": ["拼途-US","艺胜-US"]
+        "shops": ["拼途-US","艺胜-US","创奇-US小娇C"]
     },
     "楷纯": {
         "pwd": "zy and cr-kaichun",
-        "shops": ["争艳-US","辰瑞-US"]
+        "shops": ["争艳-US","辰瑞-US","创奇-US楷纯E"]
     },
     "淑谊": {
         "pwd": "sx and jy-shuyi",
-        "shops": ["势兴-US","进益-US"]
+        "shops": ["势兴-US","进益-US","创奇-US淑谊F"]
     },
     "佰英": {
         "pwd": "cq-baiying123",
@@ -43,7 +43,11 @@ USER_AUTH = {
     },
     "李珊": {
         "pwd": "dm-lishan123",
-        "shops": ["大卖-US"]
+        "shops": ["大卖-US","创奇-US李珊G"]
+    },
+    "雨宜": {
+        "pwd": "cq-uuuyi123",
+        "shops": ["创奇-US"]
     },
 }
 

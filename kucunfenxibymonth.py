@@ -47,7 +47,7 @@ USER_AUTH = {
     },
     "雨宜": {
         "pwd": "cq-uuuyi123",
-        "shops": ["创奇-US"]
+        "shops": ["创奇-US雨宜B"]
     },
 }
 

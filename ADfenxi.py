@@ -348,8 +348,27 @@ show_month_cols = [
 ]
 # 按年月倒序，最新月份排在最上方
 df_all_month_table = df_all_month_table.sort_values("年月", ascending=False).reset_index(drop=True)
-st.dataframe(df_all_month_table[show_month_cols], use_container_width=True, height=320)
-st.caption("表格按月份倒序排列，顶部为最新月份，可横向滑动查看全部广告指标历史数据")
+df_table_show = df_all_month_table[show_month_cols].copy()
+
+# ---------------------- 格式化配置 ----------------------
+# 所有需要百分比展示的列
+percent_cols = [
+    "TACOS广告花费占比", "ACOS", "CTR", "CVR广告转化率",
+    "ASoAS广告销售依赖度", "SP广告花费占比", "SB广告花费占比", "SBV广告花费占比"
+]
+# 金额、单价、ROAS 保留两位小数
+float_2_cols = ["广告花费", "销售额", "广告销售额", "CPC", "ROAS"]
+# 展示、点击 整数，无小数
+int_cols = ["展示", "点击"]
+
+# 表格样式渲染
+styled_table = df_table_show.style\
+    .format(formatter="{:.2%}", subset=percent_cols)\
+    .format(formatter="{:.2f}", subset=float_2_cols)\
+    .format(formatter="{:.0f}", subset=int_cols)
+
+st.dataframe(styled_table, use_container_width=True, height=320)
+st.caption("表格按月份倒序排列，顶部为最新月份；比率类字段以百分比展示，金额/单价保留两位小数，展示点击为整数，可横向滑动查看全部广告指标历史数据")
 
 # ===================== 新增：TACOS走势与归因分析 =====================
 st.markdown(f"## 📈 二、{select_shop}店铺 TACOS走势与上涨归因分析")

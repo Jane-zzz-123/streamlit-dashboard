@@ -617,52 +617,271 @@ with chan_col2:
     )
     st.plotly_chart(fig_channel_tacos, use_container_width=True)
 
-# ---------------------- 渠道自动归因分析文本（三列一行排版） ----------------------
-st.subheader("🔍 分渠道TACOS上涨归因补充")
-if len(df_channel) >= 2:
-    curr = df_channel.iloc[-1]
-    prev = df_channel.iloc[-2]
-    curr_month_name = curr["年月中文"]
+# ===================== 新增：四、广告底层投放效率深度拆解 =====================
+st.markdown("## 📉 四、广告底层投放效率（CPC/CTR/CVR/整体ACOS）根源分析")
+df_eff = df_all_month_table.sort_values("年月", ascending=True).reset_index(drop=True)
+df_eff["年月中文"] = df_eff["年月"].apply(lambda x: f"{x.split('-')[0]}年{int(x.split('-')[1])}月")
 
-    # 渠道花费环比
-    sp_spend_change = (curr["SP广告费"] - prev["SP广告费"]) / prev["SP广告费"] if prev["SP广告费"] != 0 else 0
-    sb_spend_change = (curr["SB广告费"] - prev["SB广告费"]) / prev["SB广告费"] if prev["SB广告费"] != 0 else 0
-    sbv_spend_change = (curr["SBV广告费"] - prev["SBV广告费"]) / prev["SBV广告费"] if prev["SBV广告费"] != 0 else 0
+# 预先计算四大核心效率指标（兜底除0防报错）
+# CTR 点击率 = 点击 / 展示
+df_eff["CTR"] = np.where(df_eff["展示"] == 0, 0, df_eff["点击"] / df_eff["展示"])
+# CPC 单次点击成本 = 广告花费 / 点击
+df_eff["CPC"] = np.where(df_eff["点击"] == 0, 0, df_eff["广告花费"] / df_eff["点击"])
+# CVR 广告转化率 = 广告订单量 / 点击
+df_eff["CVR"] = np.where(df_eff["点击"] == 0, 0, df_eff["广告订单量"] / df_eff["点击"])
+# ACOS 整体广告投产 = 广告花费 / 广告销售额
+df_eff["整体ACOS"] = np.where(df_eff["广告销售额"] == 0, 0, df_eff["广告花费"] / df_eff["广告销售额"])
 
-    # TACOS变动差值
-    sp_tacos_diff = curr["SP_TACOS"] - prev["SP_TACOS"]
-    sb_tacos_diff = curr["SB_TACOS"] - prev["SB_TACOS"]
-    sbv_tacos_diff = curr["SBV_TACOS"] - prev["SBV_TACOS"]
+# 布局：上下两组图表，第一行双列，第二行单列全宽
+eff_row1_col1, eff_row1_col2 = st.columns([1, 1])
 
-    # 渠道ACOS
-    curr_sp_acos = curr["SP_ACOS"]
-    curr_sb_acos = curr["SB_ACOS"]
-    curr_sbv_acos = curr["SBV_ACOS"]
+# 左图1：CPC & CTR 双折线（流量成本+点击精准度）
+with eff_row1_col1:
+    fig_cost_click = go.Figure()
+    # CPC 折线
+    fig_cost_click.add_trace(go.Scatter(
+        x=df_eff["年月中文"],
+        y=df_eff["CPC"],
+        name="CPC单次点击成本($)",
+        mode="lines+markers",
+        line=dict(color="#E45756", width=3),
+        hovertemplate="%{x}<br>CPC：$%{y:.2f}<extra></extra>"
+    ))
+    # CTR 次坐标轴
+    fig_cost_click.add_trace(go.Scatter(
+        x=df_eff["年月中文"],
+        y=df_eff["CTR"],
+        name="CTR点击率",
+        mode="lines+markers",
+        line=dict(color="#4C78A8", width=3),
+        yaxis="y2",
+        hovertemplate="%{x}<br>CTR：%{y:.2%}<extra></extra>"
+    ))
+    fig_cost_click.update_layout(
+        title="CPC单次点击成本 & CTR点击率走势",
+        yaxis=dict(title="CPC ($)", side="left"),
+        yaxis2=dict(title="CTR 占比", side="right", overlaying="y", tickformat=".1%"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=400,
+        margin=dict(l=10, r=10, t=45, b=10),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_cost_click, use_container_width=True)
 
-    st.markdown(f"### {curr_month_name} 分渠道变动明细")
-    # 三列一行并排展示
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("#### 一、渠道花费环比变化")
+# 右图2：CVR转化率 & 整体ACOS双折线（转化&广告投产）
+with eff_row1_col2:
+    fig_conv_acos = go.Figure()
+    # CVR 转化率
+    fig_conv_acos.add_trace(go.Scatter(
+        x=df_eff["年月中文"],
+        y=df_eff["CVR"],
+        name="CVR广告转化率",
+        mode="lines+markers",
+        line=dict(color="#59A14F", width=3),
+        hovertemplate="%{x}<br>CVR：%{y:.2%}<extra></extra>"
+    ))
+    # ACOS 次坐标轴
+    fig_conv_acos.add_trace(go.Scatter(
+        x=df_eff["年月中文"],
+        y=df_eff["整体ACOS"],
+        name="店铺整体ACOS",
+        mode="lines+markers",
+        line=dict(color="#F58518", width=3),
+        yaxis="y2",
+        hovertemplate="%{x}<br>ACOS：%{y:.2%}<extra></extra>"
+    ))
+    fig_conv_acos.update_layout(
+        title="CVR广告转化率 & 整体ACOS走势",
+        yaxis=dict(title="CVR 转化率", side="left", tickformat=".1%"),
+        yaxis2=dict(title="ACOS广告成本占比", side="right", overlaying="y", tickformat=".1%"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=400,
+        margin=dict(l=10, r=10, t=45, b=10),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_conv_acos, use_container_width=True)
+
+# 下方：自动底层效率归因文本
+st.subheader("🔍 底层投放效率自动归因分析")
+if len(df_eff) >= 2:
+    curr_eff = df_eff.iloc[-1]
+    prev_eff = df_eff.iloc[-2]
+    curr_month = curr_eff["年月中文"]
+
+    # 环比差值计算
+    cpc_diff = curr_eff["CPC"] - prev_eff["CPC"]
+    ctr_diff = curr_eff["CTR"] - prev_eff["CTR"]
+    cvr_diff = curr_eff["CVR"] - prev_eff["CVR"]
+    acos_diff = curr_eff["整体ACOS"] - prev_eff["整体ACOS"]
+
+    # 三列并排展示核心指标环比
+    eff_col1, eff_col2, eff_col3 = st.columns(3)
+    with eff_col1:
+        st.markdown("#### 流量成本指标")
         st.markdown(f"""
-        - SP搜索广告：环比 {sp_spend_change:+.1%}
-        - SB品牌广告：环比 {sb_spend_change:+.1%}
-        - SBV视频广告：环比 {sbv_spend_change:+.1%}
-        """)
-    with col2:
-        st.markdown("#### 二、渠道TACOS环比波动")
+- CPC环比变动：${cpc_diff:+.2f}
+- 当月CPC：${curr_eff["CPC"]:.2f}
+- CTR环比变动：{ctr_diff:+.2%}
+- 当月CTR：{curr_eff["CTR"]:.2%}
+""")
+    with eff_col2:
+        st.markdown("#### 转化效率指标")
         st.markdown(f"""
-        - SP-TACOS 变动：{sp_tacos_diff:+.2%}
-        - SB-TACOS 变动：{sb_tacos_diff:+.2%}
-        - SBV-TACOS 变动：{sbv_tacos_diff:+.2%}
-        """)
-    with col3:
-        st.markdown("#### 三、渠道自身ACOS")
+- CVR环比变动：{cvr_diff:+.2%}
+- 当月CVR：{curr_eff["CVR"]:.2%}
+""")
+    with eff_col3:
+        st.markdown("#### 广告投产指标")
         st.markdown(f"""
-        - SP广告ACOS：{curr_sp_acos:.2%}
-        - SB广告ACOS：{curr_sb_acos:.2%}
-        - SBV广告ACOS：{curr_sbv_acos:.2%}
-        """)
+- ACOS环比变动：{acos_diff:+.2%}
+- 当月整体ACOS：{curr_eff["整体ACOS"]:.2%}
+""")
+
+    # 根源逻辑判断文本
+    st.markdown(f"""
+### {curr_month} 广告低效根源定位逻辑
+1. **CPC上涨 + CTR下滑**：关键词竞价抬高，广告素材/标题相关性变差，曝光多、有效点击变少，流量成本被动抬高；
+2. **CPC平稳但CVR大幅下跌**：Listing转化能力变差（评分、价格、竞品冲击），点击无法成交，直接拉高ACOS；
+3. **CTR稳定、CPC上涨、CVR无改善**：市场竞价内卷，同类关键词出价整体抬升，投放成本持续上行；
+4. **ACOS同步走高组合判断**：
+   - 仅CPC上涨：成本端拖累投产；
+   - 仅CVR下滑：转化端拖累投产；
+   - CPC上涨+CVR下滑：双重打击，是ACOS恶化最严重的组合，也是TACOS同步走高核心内因；
+5. CTR持续走低：需优化关键词匹配方式、广告图文素材，提升流量精准度；
+6. CVR持续走低：优先检查商品售价、评价、A+页面、优惠券活动等落地页转化要素。
+""")
 else:
-    st.info("渠道对比至少需要2个月数据，当前数据不足无法环比拆解。")
+    st.info("效率环比对比至少需要2个月历史数据，当前数据不足无法拆解底层变动。")
+
+st.divider()
+
+# ===================== 新增：四、新品/老品分层投放分析 + 高花费单品明细表 =====================
+st.markdown("## 🧩 五、新品老品分层投放拆解（定位拖垮TACOS的商品层级）")
+
+# 1、筛选当前店铺全量明细，按年月+产品类型聚合分层数据
+df_shop_raw = df_raw[df_raw["店铺"] == select_shop].copy()
+# 按月+产品类型聚合
+df_type_group = df_shop_raw.groupby(["年月", "产品类型"]).agg({
+    "SP广告费":"sum",
+    "SB广告费":"sum",
+    "SBV广告费":"sum",
+    "广告花费":"sum",
+    "广告销售额":"sum",
+    "销售额":"sum",
+    "广告订单量":"sum",
+    "订单量":"sum",
+    "展示":"sum",
+    "点击":"sum"
+}).reset_index()
+
+# 生成中文年月、衍生分层指标
+df_type_group["年月中文"] = df_type_group["年月"].apply(lambda x: f"{x.split('-')[0]}年{int(x.split('-')[1])}月")
+# 分层TACOS、分层ACOS
+df_type_group["分层TACOS"] = np.where(df_type_group["销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["销售额"])
+df_type_group["分层ACOS"] = np.where(df_type_group["广告销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["广告销售额"])
+
+# ---------------------- 分层指标总览卡片（当前选中月份） ----------------------
+st.subheader(f"📌 {select_month} 新品/老品当月投放快照")
+df_curr_type = df_type_group[df_type_group["年月"] == select_month]
+type_cols = st.columns(3)
+type_list = ["新品(上架≤60天)", "老品(上架>60天)", "未知上架时间"]
+
+for idx, tp in enumerate(type_list):
+    with type_cols[idx]:
+        data = df_curr_type[df_curr_type["产品类型"] == tp]
+        if data.empty:
+            spend = sales = ad_sales = tacos = acos = 0
+        else:
+            spend = data["广告花费"].iloc[0]
+            sales = data["销售额"].iloc[0]
+            ad_sales = data["广告销售额"].iloc[0]
+            tacos = data["分层TACOS"].iloc[0]
+            acos = data["分层ACOS"].iloc[0]
+        st.metric(f"{tp}", value=f"广告花费 ${spend:,.0f}")
+        st.caption(f"分层TACOS:{tacos:.2%} | 分层ACOS:{acos:.2%}")
+        st.caption(f"分层总销售额:${sales:,.0f} 广告销售额:${ad_sales:,.0f}")
+
+# ---------------------- 分层趋势图：一行双图 ----------------------
+st.subheader("📈 新品/老品月度花费 & 分层TACOS走势")
+df_type_sort = df_type_group.sort_values("年月", ascending=True)
+t1, t2 = st.columns([1.2, 1])
+
+# 左图：新品老品广告花费堆叠柱状
+with t1:
+    fig_type_spend = go.Figure()
+    for tp in type_list:
+        sub = df_type_sort[df_type_sort["产品类型"] == tp]
+        fig_type_spend.add_trace(go.Bar(
+            x=sub["年月中文"],
+            y=sub["广告花费"],
+            name=tp,
+            hovertemplate="%{x}<br>花费:$%{y:,.2f}<extra></extra>"
+        ))
+    fig_type_spend.update_layout(
+        title="各商品层级月度广告花费",
+        barmode="stack",
+        height=400,
+        yaxis_title="广告花费($)",
+        legend=dict(orientation="h", y=1.02, x=0),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_type_spend, use_container_width=True)
+
+# 右图：新品老品分层TACOS折线对比
+with t2:
+    fig_type_tacos = go.Figure()
+    for tp in type_list:
+        sub = df_type_sort[df_type_sort["产品类型"] == tp]
+        fig_type_tacos.add_trace(go.Scatter(
+            x=sub["年月中文"],
+            y=sub["分层TACOS"],
+            name=f"{tp} TACOS",
+            mode="lines+markers",
+            hovertemplate="%{x}<br>TACOS:%{y:.2%}<extra></extra>"
+        ))
+    fig_type_tacos.update_layout(
+        title="各商品层级分层TACOS走势",
+        height=400,
+        yaxis_title="分层TACOS",
+        yaxis_tickformat=".1%",
+        legend=dict(orientation="h", y=1.02, x=0),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_type_tacos, use_container_width=True)
+
+# ---------------------- 分层归因分析文本 ----------------------
+st.subheader("🔍 新品老品分层TACOS上涨定位逻辑")
+st.markdown("""
+1. **新品TACOS显著高于老品**
+新品上架周期短、自然权重低，依赖广告拉流量，ACOS普遍偏高；当月大幅加投新品会直接拉高店铺整体TACOS。
+2. **老品TACOS持续上行**
+老品自然排名下滑、流量萎缩，只能靠广告维持单量；销售额下滑但广告预算没同步缩减，分母收缩推高TACOS。
+3. **新品花费占比逐月提升**
+投放重心倾斜新品，新品投产差，是店铺整体广告成本抬升的核心商品端原因。
+4. 优化区分：
+- 新品：控制新品竞价预算，搭配优惠券降低ACOS，缩短亏损投放周期；
+- 老品：优化自然流量、提升关键词自然排名，减少广告兜底投放。
+""")
+
+st.divider()
+
+# ---------------------- 单品维度：当月广告花费TOP20明细表格 ----------------------
+st.subheader(f"📋 {select_month} 单品广告花费TOP20明细表（定位低效ASIN）")
+# 筛选当前月份单品明细
+df_single_item = df_shop_raw[df_shop_raw["年月"] == select_month].copy()
+# 计算单品ACOS、单品TACOS
+df_single_item["单品ACOS"] = np.where(df_single_item["广告销售额"]==0, 0, df_single_item["广告花费"] / df_single_item["广告销售额"])
+df_single_item["单品TACOS"] = np.where(df_single_item["销售额"]==0, 0, df_single_item["广告花费"] / df_single_item["销售额"])
+# 按广告花费倒序取前20
+df_top_item = df_single_item.sort_values("广告花费", ascending=False).head(20)
+
+# 展示字段（按需增减）
+item_show_cols = [
+    "产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
+    "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"
+]
+st.dataframe(df_top_item[item_show_cols], use_container_width=True, height=350)
+st.caption("按广告花费从高到低排序，重点关注「花费高+单品ACOS远高于均值」的低效单品，优先削减预算")
+
+st.divider()
 

@@ -32,6 +32,7 @@ def load_raw_data():
     df["年月"] = df["时间"].dt.to_period("M").astype(str)
 
     # 基础数值列转为浮点，防止计算报错
+    # 修正后代码
     num_cols = [
         "展示", "点击", "广告花费", "SP广告费", "SB广告费", "SBV广告费",
         "广告销售额", "SP广告销售额", "SB广告销售额", "SBV广告销售额",
@@ -39,7 +40,8 @@ def load_raw_data():
         "销量", "销售额", "订单量"
     ]
     for col in num_cols:
-        df[col] = pd.to_numeric(df[col], errors=0)
+        # errors='coerce'：无法转数字的内容强制变成NaN，后续填充0
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     return df
 
 

@@ -617,7 +617,7 @@ with chan_col2:
     )
     st.plotly_chart(fig_channel_tacos, use_container_width=True)
 
-# ---------------------- 渠道自动归因分析文本 ----------------------
+# ---------------------- 渠道自动归因分析文本（三列一行排版） ----------------------
 st.subheader("🔍 分渠道TACOS上涨归因补充")
 if len(df_channel) >= 2:
     curr = df_channel.iloc[-1]
@@ -639,33 +639,30 @@ if len(df_channel) >= 2:
     curr_sb_acos = curr["SB_ACOS"]
     curr_sbv_acos = curr["SBV_ACOS"]
 
-    channel_text = f"""
-### {curr_month_name} 分渠道变动明细
-#### 一、各渠道广告花费环比变化
-- SP搜索广告：环比 {sp_spend_change:+.1%}
-- SB品牌广告：环比 {sb_spend_change:+.1%}
-- SBV视频展示广告：环比 {sbv_spend_change:+.1%}
-
-#### 二、各渠道独立TACOS环比波动（正数=拖累整体TACOS上涨）
-- SP-TACOS 变动：{sp_tacos_diff:+.2%}
-- SB-TACOS 变动：{sb_tacos_diff:+.2%}
-- SBV-TACOS 变动：{sbv_tacos_diff:+.2%}
-
-#### 三、当月各渠道自身ACOS（渠道花费÷渠道广告销售额）
-- SP广告ACOS：{curr_sp_acos:.2%}
-- SB广告ACOS：{curr_sb_acos:.2%}
-- SBV广告ACOS：{curr_sbv_acos:.2%}
-
-#### 渠道问题定位逻辑：
-1. SP渠道TACOS大幅上行：核心搜索广告CPC上涨、转化下滑，优先优化关键词与否定词；
-2. SB渠道TACOS上行：品牌广告放量，侧重曝光、直接成交偏少；
-3. SBV渠道TACOS上行：泛流量展示广告增加，流量精准度低；
-4. 判定主拖累渠道：花费占比高 + 渠道TACOS持续高于店铺整体TACOS；
-5. ACOS辅助判断：渠道ACOS越高，代表该渠道投放本身转化效率越差。
-"""
-    st.markdown(channel_text)
+    st.markdown(f"### {curr_month_name} 分渠道变动明细")
+    # 三列一行并排展示
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown("#### 一、渠道花费环比变化")
+        st.markdown(f"""
+        - SP搜索广告：环比 {sp_spend_change:+.1%}
+        - SB品牌广告：环比 {sb_spend_change:+.1%}
+        - SBV视频广告：环比 {sbv_spend_change:+.1%}
+        """)
+    with col2:
+        st.markdown("#### 二、渠道TACOS环比波动")
+        st.markdown(f"""
+        - SP-TACOS 变动：{sp_tacos_diff:+.2%}
+        - SB-TACOS 变动：{sb_tacos_diff:+.2%}
+        - SBV-TACOS 变动：{sbv_tacos_diff:+.2%}
+        """)
+    with col3:
+        st.markdown("#### 三、渠道自身ACOS")
+        st.markdown(f"""
+        - SP广告ACOS：{curr_sp_acos:.2%}
+        - SB广告ACOS：{curr_sb_acos:.2%}
+        - SBV广告ACOS：{curr_sbv_acos:.2%}
+        """)
 else:
     st.info("渠道对比至少需要2个月数据，当前数据不足无法环比拆解。")
-
-st.divider()
 

@@ -43,8 +43,13 @@ def load_raw_data():
     df["上架间隔天数"] = (df["年月日期"] - df["开售时间"]).dt.days
 
     def tag_product_type(days):
-        if pd.isna(days) or days <= 0:
-            return "未知上架时间"
+        # 1. 缺失开售时间，无法判定生命周期
+        if pd.isna(days):
+            return "缺失开售时间"
+        # 2. 年月日期早于开售时间：未开售/预售商品
+        elif days <= 0:
+            return "未开售预售品"
+        # 3. 正常上架商品分层
         elif days <= 60:
             return "新品(上架≤60天)"
         else:
@@ -736,26 +741,12 @@ if len(df_eff) >= 2:
 - ACOS环比变动：{acos_diff:+.2%}
 - 当月整体ACOS：{curr_eff["整体ACOS"]:.2%}
 """)
-
-    # 根源逻辑判断文本
-    st.markdown(f"""
-### {curr_month} 广告低效根源定位逻辑
-1. **CPC上涨 + CTR下滑**：关键词竞价抬高，广告素材/标题相关性变差，曝光多、有效点击变少，流量成本被动抬高；
-2. **CPC平稳但CVR大幅下跌**：Listing转化能力变差（评分、价格、竞品冲击），点击无法成交，直接拉高ACOS；
-3. **CTR稳定、CPC上涨、CVR无改善**：市场竞价内卷，同类关键词出价整体抬升，投放成本持续上行；
-4. **ACOS同步走高组合判断**：
-   - 仅CPC上涨：成本端拖累投产；
-   - 仅CVR下滑：转化端拖累投产；
-   - CPC上涨+CVR下滑：双重打击，是ACOS恶化最严重的组合，也是TACOS同步走高核心内因；
-5. CTR持续走低：需优化关键词匹配方式、广告图文素材，提升流量精准度；
-6. CVR持续走低：优先检查商品售价、评价、A+页面、优惠券活动等落地页转化要素。
-""")
 else:
     st.info("效率环比对比至少需要2个月历史数据，当前数据不足无法拆解底层变动。")
 
 st.divider()
 
-# ===================== 新增：四、新品/老品分层投放分析 + 高花费单品明细表 =====================
+# ===================== 新增：五、新品/老品分层投放分析 + 高花费单品明细表（已拆分4类商品标签） =====================
 st.markdown("## 🧩 五、新品老品分层投放拆解（定位拖垮TACOS的商品层级）")
 
 # 1、筛选当前店铺全量明细，按年月+产品类型聚合分层数据
@@ -780,11 +771,12 @@ df_type_group["年月中文"] = df_type_group["年月"].apply(lambda x: f"{x.spl
 df_type_group["分层TACOS"] = np.where(df_type_group["销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["销售额"])
 df_type_group["分层ACOS"] = np.where(df_type_group["广告销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["广告销售额"])
 
-# ---------------------- 分层指标总览卡片（当前选中月份） ----------------------
-st.subheader(f"📌 {select_month} 新品/老品当月投放快照")
+# ---------------------- 分层指标总览卡片（当前选中月份，4列一行） ----------------------
+st.subheader(f"📌 {select_month} 商品分层当月投放快照")
 df_curr_type = df_type_group[df_type_group["年月"] == select_month]
-type_cols = st.columns(3)
-type_list = ["新品(上架≤60天)", "老品(上架>60天)", "未知上架时间"]
+# 更新4类分层列表
+type_list = ["缺失开售时间", "未开售预售品", "新品(上架≤60天)", "老品(上架>60天)"]
+type_cols = st.columns(4)
 
 for idx, tp in enumerate(type_list):
     with type_cols[idx]:
@@ -802,23 +794,30 @@ for idx, tp in enumerate(type_list):
         st.caption(f"分层总销售额:${sales:,.0f} 广告销售额:${ad_sales:,.0f}")
 
 # ---------------------- 分层趋势图：一行双图 ----------------------
-st.subheader("📈 新品/老品月度花费 & 分层TACOS走势")
+st.subheader("📈 各分层月度花费 & 分层TACOS走势")
 df_type_sort = df_type_group.sort_values("年月", ascending=True)
 t1, t2 = st.columns([1.2, 1])
 
-# 左图：新品老品广告花费堆叠柱状
+# 左图：四层商品广告花费堆叠柱状
 with t1:
     fig_type_spend = go.Figure()
+    color_map = {
+        "缺失开售时间": "#9467bd",
+        "未开售预售品": "#d62728",
+        "新品(上架≤60天)": "#ff7f0e",
+        "老品(上架>60天)": "#2ca02c"
+    }
     for tp in type_list:
         sub = df_type_sort[df_type_sort["产品类型"] == tp]
         fig_type_spend.add_trace(go.Bar(
             x=sub["年月中文"],
             y=sub["广告花费"],
             name=tp,
+            marker_color=color_map[tp],
             hovertemplate="%{x}<br>花费:$%{y:,.2f}<extra></extra>"
         ))
     fig_type_spend.update_layout(
-        title="各商品层级月度广告花费",
+        title="各商品分层月度广告花费堆叠",
         barmode="stack",
         height=400,
         yaxis_title="广告花费($)",
@@ -827,7 +826,7 @@ with t1:
     )
     st.plotly_chart(fig_type_spend, use_container_width=True)
 
-# 右图：新品老品分层TACOS折线对比
+# 右图：四层商品分层TACOS折线对比
 with t2:
     fig_type_tacos = go.Figure()
     for tp in type_list:
@@ -837,10 +836,12 @@ with t2:
             y=sub["分层TACOS"],
             name=f"{tp} TACOS",
             mode="lines+markers",
+            line=dict(color=color_map[tp], width=2),
+            marker=dict(size=6),
             hovertemplate="%{x}<br>TACOS:%{y:.2%}<extra></extra>"
         ))
     fig_type_tacos.update_layout(
-        title="各商品层级分层TACOS走势",
+        title="各商品分层TACOS走势对比",
         height=400,
         yaxis_title="分层TACOS",
         yaxis_tickformat=".1%",
@@ -849,18 +850,30 @@ with t2:
     )
     st.plotly_chart(fig_type_tacos, use_container_width=True)
 
-# ---------------------- 分层归因分析文本 ----------------------
-st.subheader("🔍 新品老品分层TACOS上涨定位逻辑")
+# ---------------------- 分层归因分析文本（更新4类商品解读） ----------------------
+st.subheader("🔍 分层TACOS上涨定位逻辑 & 运营区分")
 st.markdown("""
+### 四类商品业务定义
+1. **未开售预售品**：年月统计日期早于商品开售时间，属于预热投放，无稳定成交，ACOS天然极高，仅适合小额曝光蓄水，不纳入新品投产考核；
+2. **新品(上架≤60天)**：正常在售、上架0-60天商品，自然权重低，依赖广告起量，是广告成本主要波动来源；
+3. **老品(上架>60天)**：成熟稳定款，自然流量充足，分层TACOS最低，店铺营收基本盘；
+4. **缺失开售时间**：商品基础数据缺失，无法判定生命周期，建议补全开售时间后重新分层分析。
+
+### TACOS上涨分层判断
 1. **新品TACOS显著高于老品**
 新品上架周期短、自然权重低，依赖广告拉流量，ACOS普遍偏高；当月大幅加投新品会直接拉高店铺整体TACOS。
 2. **老品TACOS持续上行**
 老品自然排名下滑、流量萎缩，只能靠广告维持单量；销售额下滑但广告预算没同步缩减，分母收缩推高TACOS。
-3. **新品花费占比逐月提升**
+3. **未开售预售品TACOS常年高位**
+仅做预热蓄水，转化差属于正常现象，无需按新品标准优化，严控投放预算即可。
+4. **新品花费占比逐月提升**
 投放重心倾斜新品，新品投产差，是店铺整体广告成本抬升的核心商品端原因。
-4. 优化区分：
+
+### 分层优化方向
+- 未开售预售品：仅小额预热，正式上架前1-2周再逐步放量；
 - 新品：控制新品竞价预算，搭配优惠券降低ACOS，缩短亏损投放周期；
-- 老品：优化自然流量、提升关键词自然排名，减少广告兜底投放。
+- 老品：优化自然流量、提升关键词自然排名，减少广告兜底投放；
+- 缺失开售时间SKU：完善商品基础信息，保证分层数据准确。
 """)
 
 st.divider()
@@ -881,7 +894,7 @@ item_show_cols = [
     "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"
 ]
 st.dataframe(df_top_item[item_show_cols], use_container_width=True, height=350)
-st.caption("按广告花费从高到低排序，重点关注「花费高+单品ACOS远高于均值」的低效单品，优先削减预算")
+st.caption("按广告花费从高到低排序，重点关注「花费高+单品ACOS远高于均值」的低效单品；未开售预售品仅做预热，不建议大额投放")
 
 st.divider()
 

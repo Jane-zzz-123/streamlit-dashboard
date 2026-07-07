@@ -511,31 +511,41 @@ df_channel["年月中文"] = df_channel["年月"].apply(lambda x: f"{x.split('-'
 chan_col1, chan_col2 = st.columns([1.2, 1])
 
 # 左图：SP/SB/SBV月度花费堆叠柱状图
+# 左图：SP/SB/SBV月度花费堆叠柱状图（新增占比悬浮提示）
 with chan_col1:
+    # 先计算每月总花费，用于算占比
+    df_channel["总广告花费"] = df_channel["SP广告费"] + df_channel["SB广告费"] + df_channel["SBV广告费"]
+    df_channel["SP占比"] = (df_channel["SP广告费"] / df_channel["总广告花费"]).apply(lambda x: f"{x:.1%}")
+    df_channel["SB占比"] = (df_channel["SB广告费"] / df_channel["总广告花费"]).apply(lambda x: f"{x:.1%}")
+    df_channel["SBV占比"] = (df_channel["SBV广告费"] / df_channel["总广告花费"]).apply(lambda x: f"{x:.1%}")
+
     fig_spend_stack = go.Figure()
     fig_spend_stack.add_trace(go.Bar(
         x=df_channel["年月中文"],
         y=df_channel["SP广告费"],
         name="SP搜索广告",
         marker_color="#E45756",
-        hovertemplate="%{x}<br>SP花费：$%{y:,.2f}<extra></extra>"
+        hovertemplate="%{x}<br>SP花费：$%{y:,.2f}<br>当月广告占比：%{customdata}<extra></extra>",
+        customdata=df_channel["SP占比"]
     ))
     fig_spend_stack.add_trace(go.Bar(
         x=df_channel["年月中文"],
         y=df_channel["SB广告费"],
         name="SB品牌广告",
         marker_color="#4C78A8",
-        hovertemplate="%{x}<br>SB花费：$%{y:,.2f}<extra></extra>"
+        hovertemplate="%{x}<br>SB花费：$%{y:,.2f}<br>当月广告占比：%{customdata}<extra></extra>",
+        customdata=df_channel["SB占比"]
     ))
     fig_spend_stack.add_trace(go.Bar(
         x=df_channel["年月中文"],
         y=df_channel["SBV广告费"],
         name="SBV视频展示广告",
         marker_color="#59A14F",
-        hovertemplate="%{x}<br>SBV花费：$%{y:,.2f}<extra></extra>"
+        hovertemplate="%{x}<br>SBV花费：$%{y:,.2f}<br>当月广告占比：%{customdata}<extra></extra>",
+        customdata=df_channel["SBV占比"]
     ))
     fig_spend_stack.update_layout(
-        title="各渠道月度广告花费堆叠",
+        title="各渠道月度广告花费堆叠（hover查看渠道当月花费占比）",
         barmode="stack",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         yaxis_title="广告花费 ($)",

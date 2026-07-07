@@ -828,12 +828,12 @@ with t2:
 
 st.divider()
 
-# ---------------------- 单品维度：当月全部单品明细表（TACOS高于店铺均值标红） ----------------------
+# ---------------------- 单品维度：当月全部单品明细表（TACOS高于店铺均值标红 + 金额保留两位小数） ----------------------
 st.subheader(f"📋 {select_month} 全单品广告花费明细表（单品TACOS高于店铺整体TACOS标红）")
 # 筛选当前月份单品明细
 df_single_item = df_shop_raw[df_shop_raw["年月"] == select_month].copy()
 
-# ========= 计算店铺当月整体TACOS（对比基准） =========
+# 计算店铺当月整体TACOS（对比基准）
 df_month_total = df_shop_raw[df_shop_raw["年月"] == select_month].agg({
     "广告花费":"sum",
     "销售额":"sum"
@@ -853,7 +853,7 @@ df_all_item = df_single_item.sort_values("广告花费", ascending=False)
 
 # 展示字段
 item_show_cols = [
-    "产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
+    "MSKU","品名","产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"
 ]
 df_table = df_all_item[item_show_cols].copy()
@@ -868,9 +868,12 @@ def highlight_high_tacos(val):
         color = "black"
     return f"color: {color}"
 
-# 表格渲染+样式
-styled_df = df_table.style.applymap(highlight_high_tacos, subset=["单品TACOS"])
+# 表格渲染：1. TACOS列标红  2. 金额列统一保留2位小数
+styled_df = df_table.style\
+    .applymap(highlight_high_tacos, subset=["单品TACOS"])\
+    .format(formatter="{:.2f}", subset=["广告花费", "广告销售额", "销售额"])
+
 st.dataframe(styled_df, use_container_width=True, height=400)
 
-st.caption(f"本月店铺整体TACOS：{shop_total_tacos:.2%}；红色=单品TACOS高于店铺平均水平，低效投放SKU")
+st.caption(f"本月店铺整体TACOS：{shop_total_tacos:.2%}；红色=单品TACOS高于店铺平均水平，低效投放SKU；广告花费/广告销售额/销售额均保留两位小数")
 st.divider()

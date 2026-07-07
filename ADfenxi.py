@@ -728,8 +728,7 @@ else:
 
 st.divider()
 
-# ===================== 新增：五、新品/老品分层投放分析 + 高花费单品明细表（已拆分4类商品标签） =====================
-# ===================== 新增：五、新品/老品分层投放分析 + 高花费单品明细表（适配源数据三类：新品/老品/新品未出单） =====================
+# ===================== 新增：五、新品/老品分层投放分析 + 高花费单品明细表（无当月快照卡片，仅全月趋势） =====================
 st.markdown("## 🧩 五、新品老品分层投放拆解（定位拖垮TACOS的商品层级）")
 
 # 1、筛选当前店铺全量明细，按年月+产品类型聚合分层数据
@@ -754,30 +753,8 @@ df_type_group["年月中文"] = df_type_group["年月"].apply(lambda x: f"{x.spl
 df_type_group["分层TACOS"] = np.where(df_type_group["销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["销售额"])
 df_type_group["分层ACOS"] = np.where(df_type_group["广告销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["广告销售额"])
 
-# ---------------------- 分层指标总览卡片（当前选中月份，3列一行） ----------------------
-st.subheader(f"📌 {select_month} 商品分层当月投放快照")
-df_curr_type = df_type_group[df_type_group["年月"] == select_month]
-# 适配你源数据三类标签
-type_list = ["新品", "老品", "新品未出单"]
-type_cols = st.columns(3)
-
-for idx, tp in enumerate(type_list):
-    with type_cols[idx]:
-        data = df_curr_type[df_curr_type["产品类型"] == tp]
-        if data.empty:
-            spend = sales = ad_sales = tacos = acos = 0
-        else:
-            spend = data["广告花费"].iloc[0]
-            sales = data["销售额"].iloc[0]
-            ad_sales = data["广告销售额"].iloc[0]
-            tacos = data["分层TACOS"].iloc[0]
-            acos = data["分层ACOS"].iloc[0]
-        st.metric(f"{tp}", value=f"广告花费 ${spend:,.0f}")
-        st.caption(f"分层TACOS:{tacos:.2%} | 分层ACOS:{acos:.2%}")
-        st.caption(f"分层总销售额:${sales:,.0f} 广告销售额:${ad_sales:,.0f}")
-
-# ---------------------- 分层趋势图：一行双图 ----------------------
-st.subheader("📈 各分层月度花费 & 分层TACOS走势")
+# ---------------------- 分层趋势图：一行双图（直接展示所有月份三类数据） ----------------------
+st.subheader("📈 各分层月度花费 & 分层TACOS全周期走势")
 df_type_sort = df_type_group.sort_values("年月", ascending=True)
 t1, t2 = st.columns([1.2, 1])
 
@@ -790,6 +767,7 @@ with t1:
         "老品": "#2ca02c",
         "新品未出单": "#d62728"
     }
+    type_list = ["新品", "老品", "新品未出单"]
     for tp in type_list:
         sub = df_type_sort[df_type_sort["产品类型"] == tp]
         fig_type_spend.add_trace(go.Bar(
@@ -797,12 +775,12 @@ with t1:
             y=sub["广告花费"],
             name=tp,
             marker_color=color_map[tp],
-            hovertemplate="%{x}<br>花费:$%{y:,.2f}<extra></extra>"
+            hovertemplate="%{x}<br>分层：%{name}<br>当月花费:$%{y:,.2f}<extra></extra>"
         ))
     fig_type_spend.update_layout(
         title="各商品分层月度广告花费堆叠",
         barmode="stack",
-        height=400,
+        height=420,
         yaxis_title="广告花费($)",
         legend=dict(orientation="h", y=1.02, x=0),
         hovermode="x unified"
@@ -821,11 +799,11 @@ with t2:
             mode="lines+markers",
             line=dict(color=color_map[tp], width=2),
             marker=dict(size=6),
-            hovertemplate="%{x}<br>TACOS:%{y:.2%}<extra></extra>"
+            hovertemplate="%{x}<br>分层：%{name}<br>TACOS:%{y:.2%}<extra></extra>"
         ))
     fig_type_tacos.update_layout(
         title="各商品分层TACOS走势对比",
-        height=400,
+        height=420,
         yaxis_title="分层TACOS",
         yaxis_tickformat=".1%",
         legend=dict(orientation="h", y=1.02, x=0),
@@ -857,7 +835,7 @@ st.markdown("""
 
 st.divider()
 
-# ---------------------- 单品维度：当月广告花费TOP20明细表格 ----------------------
+# ---------------------- 单品维度：当月广告花费TOP20明细表 ----------------------
 st.subheader(f"📋 {select_month} 单品广告花费TOP20明细表（定位低效ASIN）")
 # 筛选当前月份单品明细
 df_single_item = df_shop_raw[df_shop_raw["年月"] == select_month].copy()
@@ -867,7 +845,7 @@ df_single_item["单品TACOS"] = np.where(df_single_item["销售额"]==0, 0, df_s
 # 按广告花费倒序取前20
 df_top_item = df_single_item.sort_values("广告花费", ascending=False).head(20)
 
-# 展示字段（按需增减）
+# 展示字段
 item_show_cols = [
     "产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"

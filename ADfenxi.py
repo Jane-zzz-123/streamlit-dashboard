@@ -357,3 +357,145 @@ show_month_cols = [
 df_all_month_table = df_all_month_table.sort_values("年月", ascending=False).reset_index(drop=True)
 st.dataframe(df_all_month_table[show_month_cols], use_container_width=True, height=320)
 st.caption("表格按月份倒序排列，顶部为最新月份，可横向滑动查看全部广告指标历史数据")
+
+# ===================== 新增：TACOS走势与归因分析 =====================
+st.markdown(f"## 📈 二、{select_shop}店铺 TACOS走势与上涨归因分析")
+
+# 复用全月数据并按时间正序排列（画图用）
+df_trend = df_all_month_table.sort_values("年月", ascending=True).reset_index(drop=True)
+# 生成中文年月格式：2026年6月
+df_trend["年月中文"] = df_trend["年月"].apply(lambda x: f"{x.split('-')[0]}年{int(x.split('-')[1])}月")
+
+# 同一行两列布局
+trend_col1, trend_col2 = st.columns([1.3, 1])
+
+# 左图：销售额柱形 + 广告花费折线 组合图（双Y轴）
+with trend_col1:
+    fig_combo = go.Figure()
+    # 柱形：全店总销售额
+    fig_combo.add_trace(go.Bar(
+        x=df_trend["年月中文"],
+        y=df_trend["销售额"],
+        name="全店总销售额",
+        yaxis="y",
+        marker_color="#4C78A8",
+        opacity=0.7,
+        hovertemplate="%{x}<br>全店销售额：$%{y:,.2f}<extra></extra>"
+    ))
+    # 折线：广告花费
+    fig_combo.add_trace(go.Scatter(
+        x=df_trend["年月中文"],
+        y=df_trend["广告花费"],
+        name="广告总花费",
+        yaxis="y2",
+        mode="lines+markers",
+        line=dict(color="#E45756", width=3),
+        marker=dict(size=8),
+        hovertemplate="%{x}<br>广告花费：$%{y:,.2f}<extra></extra>"
+    ))
+    fig_combo.update_layout(
+        title="销售额（柱形）vs 广告花费（折线）",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        yaxis=dict(title="全店总销售额 ($)", side="left"),
+        yaxis2=dict(title="广告总花费 ($)", side="right", overlaying="y"),
+        hovermode="x unified",
+        height=420,
+        margin=dict(l=10, r=10, t=50, b=10)
+    )
+    st.plotly_chart(fig_combo, use_container_width=True)
+
+# 右图：TACOS 折线图
+with trend_col2:
+    fig_tacos = go.Figure()
+    fig_tacos.add_trace(go.Scatter(
+        x=df_trend["年月中文"],
+        y=df_trend["TACOS广告花费占比"],
+        name="TACOS",
+        mode="lines+markers+text",
+        line=dict(color="#F58518", width=3),
+        marker=dict(size=9),
+        text=[f"{v:.1%}" for v in df_trend["TACOS广告花费占比"]],
+        textposition="top center",
+        hovertemplate="%{x}<br>TACOS：%{y:.2%}<extra></extra>"
+    ))
+    fig_tacos.update_layout(
+        title="TACOS 月度走势",
+        yaxis=dict(title="TACOS（广告花费/总销售额）", tickformat=".1%"),
+        height=420,
+        margin=dict(l=10, r=10, t=50, b=10),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_tacos, use_container_width=True)
+
+# ---- 自动生成归因分析文本 ----
+# 取最新月与上月对比
+latest_idx = df_trend.index[-1]
+curr_tacos_val = df_trend["TACOS广告花费占比"].iloc[latest_idx]
+curr_spend_val = df_trend["广告花费"].iloc[latest_idx]
+curr_sales_val = df_trend["销售额"].iloc[latest_idx]
+
+if latest_idx >= 1:
+    prev_tacos_val = df_trend["TACOS广告花费占比"].iloc[latest_idx - 1]
+    prev_spend_val = df_trend["广告花费"].iloc[latest_idx - 1]
+    prev_sales_val = df_trend["销售额"].iloc[latest_idx - 1]
+    tacos_change = curr_tacos_val - prev_tacos_val
+    spend_pct = (curr_spend_val - prev_spend_val) / prev_spend_val if prev_spend_val != 0 else 0
+    sales_pct = (curr_sales_val - prev_sales_val) / prev_sales_val if prev_sales_val != 0 else 0
+
+    # 判断归因方向
+    if tacos_change > 0:
+        direction = "上涨"
+        direction_color = "🔴"
+    elif tacos_change < 0:
+        direction = "下降"
+        direction_color = "🟢"
+    else:
+        direction = "持平"
+        direction_color = "⚪"
+
+    # 拆解原因
+    reason_list = []
+    if spend_pct > 0 and sales_pct <= 0:
+        reason_list.append(f"广告花费环比**上升 {spend_pct:.1%}**，而全店销售额反而**下降 {sales_pct:.1%}**，一增一减共同推高TACOS")
+    elif spend_pct > sales_pct and sales_pct > 0:
+        reason_list.append(f"广告花费增速（{spend_pct:.1%}）**快于**销售额增速（{sales_pct:.1%}），投入扩张但营收未同步跟上")
+    elif spend_pct >= 0 and sales_pct < 0:
+        reason_list.append(f"销售额环比下滑 {sales_pct:.1%}，分母收缩导致TACOS被动抬升")
+    elif spend_pct < 0 and sales_pct < 0 and abs(sales_pct) > abs(spend_pct):
+        reason_list.append(f"广告花费虽下降 {abs(spend_pct):.1%}，但销售额下滑更快（{abs(sales_pct):.1%}），整体TACOS仍走高")
+    else:
+        reason_list.append("广告花费与销售额变动幅度接近，TACOS基本稳定")
+
+    # 补充建议
+    suggestions = []
+    if tacos_change > 0.02:  # 上涨超2个百分点
+        suggestions.append("建议排查广告投放效率：检查ACOS是否同步恶化，重点优化高花费低产出的SP广告活动")
+        suggestions.append("关注自然流量与自然单占比：若ASoAS同步上升，说明店铺对广告依赖度在增加，需布局自然流量")
+    elif tacos_change < -0.01:
+        suggestions.append("TACOS改善明显，可评估是否有进一步加预算扩大规模的空间")
+    suggestions.append("可结合SP/SB/SBV分渠道花费占比，定位是哪类广告拉动了整体花费上涨")
+
+    analysis_text = f"""
+### {direction_color} {select_month} TACOS {direction}归因分析
+
+**核心数据对比（环比上月）：**
+- TACOS：{prev_tacos_val:.2%} → {curr_tacos_val:.2%}，**{direction} {abs(tacos_change):.2%}**
+- 广告花费：${prev_spend_val:,.2f} → ${curr_spend_val:,.2f}，环比 {spend_pct:+.1%}
+- 全店销售额：${prev_sales_val:,.2f} → ${curr_sales_val:,.2f}，环比 {sales_pct:+.1%}
+
+**主要原因判断：**
+"""
+    for i, r in enumerate(reason_list, 1):
+        analysis_text += f"{i}. {r}\n"
+
+    analysis_text += "\n**优化建议：**\n"
+    for i, s in enumerate(suggestions, 1):
+        analysis_text += f"{i}. {s}\n"
+
+    st.markdown(analysis_text)
+else:
+    st.info("仅有单月数据，暂无法进行环比归因分析，请等待更多月份数据积累。")
+
+st.divider()
+
+

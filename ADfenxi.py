@@ -828,19 +828,49 @@ with t2:
 
 st.divider()
 
-# ---------------------- 单品维度：当月广告花费TOP20明细表 ----------------------
-st.subheader(f"📋 {select_month} 单品广告花费TOP20明细表（定位低效ASIN）")
+# ---------------------- 单品维度：当月全部单品明细表（TACOS高于店铺均值标红） ----------------------
+st.subheader(f"📋 {select_month} 全单品广告花费明细表（单品TACOS高于店铺整体TACOS标红）")
+# 筛选当前月份单品明细
 df_single_item = df_shop_raw[df_shop_raw["年月"] == select_month].copy()
-# 单品指标计算
-df_single_item["单品ACOS"] = df_single_item.apply(lambda r: r["广告花费"]/r["广告销售额"] if r["广告销售额"] !=0 else None, axis=1)
-df_single_item["单品TACOS"] = df_single_item.apply(lambda r: r["广告花费"]/r["销售额"] if r["销售额"] !=0 else None, axis=1)
 
-df_top_item = df_single_item.sort_values("广告花费", ascending=False).head(20)
+# ========= 计算店铺当月整体TACOS（对比基准） =========
+df_month_total = df_shop_raw[df_shop_raw["年月"] == select_month].agg({
+    "广告花费":"sum",
+    "销售额":"sum"
+})
+shop_total_tacos = df_month_total["广告花费"] / df_month_total["销售额"] if df_month_total["销售额"] != 0 else 0
+
+# 计算单品ACOS、单品TACOS
+df_single_item["单品ACOS"] = df_single_item.apply(
+    lambda r: r["广告花费"]/r["广告销售额"] if r["广告销售额"] !=0 else None, axis=1
+)
+df_single_item["单品TACOS"] = df_single_item.apply(
+    lambda r: r["广告花费"]/r["销售额"] if r["销售额"] !=0 else None, axis=1
+)
+
+# 按广告花费倒序（全部数据，不再取前20）
+df_all_item = df_single_item.sort_values("广告花费", ascending=False)
+
+# 展示字段
 item_show_cols = [
-    "MSKU","品名","产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
+    "产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"
 ]
-st.dataframe(df_top_item[item_show_cols], use_container_width=True, height=350)
-st.caption("按广告花费从高到低排序；重点关注「新品未出单」高花费SKU，无成交纯消耗广告费，优先削减预算")
+df_table = df_all_item[item_show_cols].copy()
 
+# 条件标红函数：单品TACOS > 店铺整体TACOS 文字红色
+def highlight_high_tacos(val):
+    if pd.isna(val):
+        return ""
+    if val > shop_total_tacos:
+        color = "red"
+    else:
+        color = "black"
+    return f"color: {color}"
+
+# 表格渲染+样式
+styled_df = df_table.style.applymap(highlight_high_tacos, subset=["单品TACOS"])
+st.dataframe(styled_df, use_container_width=True, height=400)
+
+st.caption(f"本月店铺整体TACOS：{shop_total_tacos:.2%}；红色=单品TACOS高于店铺平均水平，低效投放SKU")
 st.divider()

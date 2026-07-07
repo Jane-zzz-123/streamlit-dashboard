@@ -498,4 +498,170 @@ else:
 
 st.divider()
 
+# ===================== 新增：渠道拆分 SP/SB/SBV 深度拆解（适配你字段） =====================
+st.markdown("## 📊 三、分广告渠道(SP/SB/SBV)TACOS&ACOS拆解分析")
+# 复用按月汇总数据集，时间正序绘图
+df_channel = df_all_month_table.sort_values("年月", ascending=True).reset_index(drop=True)
+df_channel["年月中文"] = df_channel["年月"].apply(lambda x: f"{x.split('-')[0]}年{int(x.split('-')[1])}月")
+
+# 双列布局：左=渠道花费堆叠柱状，右=分渠道TACOS折线
+chan_col1, chan_col2 = st.columns([1.2, 1])
+
+# 左图：SP/SB/SBV月度花费堆叠柱状图
+with chan_col1:
+    fig_spend_stack = go.Figure()
+    fig_spend_stack.add_trace(go.Bar(
+        x=df_channel["年月中文"],
+        y=df_channel["SP广告费"],
+        name="SP搜索广告",
+        marker_color="#E45756",
+        hovertemplate="%{x}<br>SP花费：$%{y:,.2f}<extra></extra>"
+    ))
+    fig_spend_stack.add_trace(go.Bar(
+        x=df_channel["年月中文"],
+        y=df_channel["SB广告费"],
+        name="SB品牌广告",
+        marker_color="#4C78A8",
+        hovertemplate="%{x}<br>SB花费：$%{y:,.2f}<extra></extra>"
+    ))
+    fig_spend_stack.add_trace(go.Bar(
+        x=df_channel["年月中文"],
+        y=df_channel["SBV广告费"],
+        name="SBV视频展示广告",
+        marker_color="#59A14F",
+        hovertemplate="%{x}<br>SBV花费：$%{y:,.2f}<extra></extra>"
+    ))
+    fig_spend_stack.update_layout(
+        title="各渠道月度广告花费堆叠",
+        barmode="stack",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        yaxis_title="广告花费 ($)",
+        height=420,
+        margin=dict(l=10, r=10, t=50, b=10),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_spend_stack, use_container_width=True)
+
+# 计算指标：渠道TACOS、渠道ACOS（适配你的字段）
+# 渠道TACOS = 渠道广告费 / 全店总销售额
+df_channel["SP_TACOS"] = np.where(df_channel["销售额"] == 0, 0, df_channel["SP广告费"] / df_channel["销售额"])
+df_channel["SB_TACOS"] = np.where(df_channel["销售额"] == 0, 0, df_channel["SB广告费"] / df_channel["销售额"])
+df_channel["SBV_TACOS"] = np.where(df_channel["销售额"] == 0, 0, df_channel["SBV广告费"] / df_channel["销售额"])
+
+# 渠道ACOS = 渠道广告费 / 渠道自身广告销售额（广告内部投产成本）
+df_channel["SP_ACOS"] = np.where(df_channel["SP广告销售额"] == 0, 0, df_channel["SP广告费"] / df_channel["SP广告销售额"])
+df_channel["SB_ACOS"] = np.where(df_channel["SB广告销售额"] == 0, 0, df_channel["SB广告费"] / df_channel["SB广告销售额"])
+df_channel["SBV_ACOS"] = np.where(df_channel["SBV广告销售额"] == 0, 0, df_channel["SBV广告费"] / df_channel["SBV广告销售额"])
+
+# 右图：分渠道独立TACOS折线对比
+with chan_col2:
+    fig_channel_tacos = go.Figure()
+    # 整体总TACOS基准虚线
+    fig_channel_tacos.add_trace(go.Scatter(
+        x=df_channel["年月中文"],
+        y=df_channel["TACOS广告花费占比"],
+        name="整体总TACOS",
+        mode="lines+markers",
+        line=dict(color="#F58518", width=4, dash="dash"),
+        marker=dict(size=7),
+        hovertemplate="%{x}<br>整体TACOS：%{y:.2%}<extra></extra>"
+    ))
+    # SP渠道TACOS
+    fig_channel_tacos.add_trace(go.Scatter(
+        x=df_channel["年月中文"],
+        y=df_channel["SP_TACOS"],
+        name="SP渠道TACOS",
+        mode="lines+markers",
+        line=dict(color="#E45756", width=2),
+        marker=dict(size=6),
+        hovertemplate="%{x}<br>SP-TACOS：%{y:.2%}<extra></extra>"
+    ))
+    # SB渠道TACOS
+    fig_channel_tacos.add_trace(go.Scatter(
+        x=df_channel["年月中文"],
+        y=df_channel["SB_TACOS"],
+        name="SB渠道TACOS",
+        mode="lines+markers",
+        line=dict(color="#4C78A8", width=2),
+        marker=dict(size=6),
+        hovertemplate="%{x}<br>SB-TACOS：%{y:.2%}<extra></extra>"
+    ))
+    # SBV渠道TACOS
+    fig_channel_tacos.add_trace(go.Scatter(
+        x=df_channel["年月中文"],
+        y=df_channel["SBV_TACOS"],
+        name="SBV渠道TACOS",
+        mode="lines+markers",
+        line=dict(color="#59A14F", width=2),
+        marker=dict(size=6),
+        hovertemplate="%{x}<br>SBV-TACOS：%{y:.2%}<extra></extra>"
+    ))
+    fig_channel_tacos.update_layout(
+        title="分渠道TACOS vs 店铺整体TACOS",
+        yaxis_title="TACOS占比",
+        yaxis_tickformat=".1%",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=420,
+        margin=dict(l=10, r=10, t=50, b=10),
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_channel_tacos, use_container_width=True)
+
+# ---------------------- 渠道自动归因分析文本 ----------------------
+st.subheader("🔍 分渠道TACOS上涨归因补充")
+if len(df_channel) >= 2:
+    # 取最新月 & 上月数据
+    curr = df_channel.iloc[-1]
+    prev = df_channel.iloc[-2]
+    curr_month_name = curr["年月中文"]
+
+    # 各渠道广告费环比
+    sp_spend_change = (curr["SP广告费"] - prev["SP广告费"]) / prev["SP广告费"] if prev["SP广告费"] != 0 else 0
+    sb_spend_change = (curr["SB广告费"] - prev["SB广告费"]) / prev["SB广告费"] if prev["SB广告费"] != 0 else 0
+    sbv_spend_change = (curr["SBV广告费"] - prev["SBV广告费"]) / prev["SBV广告费"] if prev["SBV广告费"] != 0 else 0
+
+    # 渠道TACOS变动差值
+    sp_tacos_diff = curr["SP_TACOS"] - prev["SP_TACOS"]
+    sb_tacos_diff = curr["SB_TACOS"] - prev["SB_TACOS"]
+    sbv_tacos_diff = curr["SBV_TACOS"] - prev["SBV_TACOS"]
+
+    # 渠道自身ACOS（投放内部转化成本）
+    curr_sp_acos = curr["SP_ACOS"]
+    curr_sb_acos = curr["SB_ACOS"]
+    curr_sbv_acos = curr["SBV_ACOS"]
+
+    channel_text = f"""
+### {curr_month_name} 分渠道变动明细
+#### 一、各渠道广告花费环比变化
+- SP搜索广告：环比 {sp_spend_change:+.1%}
+- SB品牌广告：环比 {sb_spend_change:+.1%}
+- SBV视频展示广告：环比 {sbv_spend_change:+.1%}
+
+#### 二、各渠道独立TACOS环比波动（正数=拖累整体TACOS上涨）
+- SP-TACOS 变动：{sp_tacos_diff:+.2%}
+- SB-TACOS 变动：{sb_tacos_diff:+.2%}
+- SBV-TACOS 变动：{sbv_tacos_diff:+.2%}
+
+#### 三、当月各渠道自身ACOS（渠道花费/渠道广告销售额）
+- SP广告ACOS：{curr_sp_acos:.2%}
+- SB广告ACOS：{curr_sb_acos:.2%}
+- SBV广告ACOS：{curr_sbv_acos:.2%}
+
+#### 渠道问题定位逻辑：
+1. **SP渠道TACOS大幅上行**
+核心搜索广告投产变差，关键词CPC上涨、转化下滑，是拉高整体TACOS最常见原因，优先优化自动/手动关键词、否定无效词。
+2. **SB渠道TACOS上行**
+品牌广告预算扩张，品牌广告侧重曝光蓄水，直接成交少；ACOS通常偏高，短期推高店铺整体TACOS。
+3. **SBV渠道TACOS上行**
+展示型泛流量投放增加，流量精准度低、转化率差，大量预算消耗但广告销售额增量有限。
+4. 判断核心拖累渠道：
+若某渠道花费占比高 + 该渠道TACOS持续高于店铺整体TACOS → 该渠道就是当月TACOS上涨主因。
+5. ACOS辅助验证：
+渠道ACOS越高，代表该渠道投放本身转化效率越差，是成本抬升的内部根源。
+"""
+    st.markdown(channel_text)
+else:
+    st.info("渠道对比至少需要2个月数据，当前数据不足无法环比拆解。")
+
+st.divider()
 

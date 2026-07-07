@@ -120,6 +120,14 @@ df_month_single["TACOS广告花费占比"] = np.where(df_month_single["销售额
 df_month_single["ASoAS广告销售依赖度"] = np.where(df_month_single["销售额"] == 0, 0,
                                                   df_month_single["广告销售额"] / df_month_single["销售额"])
 
+# ========== 修复缺失：补充SP/SB/SBV占比字段，解决KeyError ==========
+df_month_single["SP广告花费占比"] = np.where(df_month_single["广告花费"] == 0, 0,
+                                             df_month_single["SP广告费"] / df_month_single["广告花费"])
+df_month_single["SB广告花费占比"] = np.where(df_month_single["广告花费"] == 0, 0,
+                                             df_month_single["SB广告费"] / df_month_single["广告花费"])
+df_month_single["SBV广告花费占比"] = np.where(df_month_single["广告花费"] == 0, 0,
+                                              df_month_single["SBV广告费"] / df_month_single["广告花费"])
+
 # 提取当月汇总数值（卡片专用）
 total_ad_spend = df_month_single["广告花费"].iloc[0]
 total_all_sales = df_month_single["销售额"].iloc[0]
@@ -176,7 +184,7 @@ st.info(f"""
 4. 当月单次点击成本CPC ${avg_cpc:.2f}，广告曝光点击率CTR {avg_ctr:.2%}，点击下单转化率 {avg_cvr:.2%}
 """)
 
-# 当月完整明细表格（仅展示当前选中月份所有品类/MSKU原始汇总）
+# 当月完整明细表格（修复字段缺失，不再报KeyError）
 st.subheader(f"📋 {select_month} 当月完整指标明细表")
 show_month_cols = [
     "年月", "展示", "点击", "广告花费", "销售额", "广告销售额",

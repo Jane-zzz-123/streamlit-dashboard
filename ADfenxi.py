@@ -768,6 +768,7 @@ st.subheader("📈 各分层月度花费 & 分层TACOS全周期走势")
 t1, t2 = st.columns([1.2, 1])
 
 # 左图：三层商品广告花费堆叠柱状
+# 左图：三层商品广告花费堆叠柱状
 with t1:
     fig_type_spend = go.Figure()
     # 【重点修改】key和Excel完整标签一字不差
@@ -781,6 +782,20 @@ with t1:
         "老品 (开售天数大于60天)",
         "新品未出单"
     ]
+
+    # 1. 先计算每个月份店铺整体总额，用来算占比
+    df_month_total_all = df_type_group.groupby("年月").agg(
+        当月总广告花费=("广告花费", "sum"),
+        当月总销售额=("销售额", "sum")
+    ).reset_index()
+    # 关联回分层表
+    df_type_join = df_type_group.merge(df_month_total_all, on="年月", how="left")
+    # 计算分层占比
+    df_type_join["花费占比"] = df_type_join["广告花费"] / df_type_join["当月总广告花费"]
+    df_type_join["销售额占比"] = df_type_join["销售额"] / df_type_join["当月总销售额"]
+
+    df_type_sort = df_type_join.sort_values("年月", ascending=True)
+
     for tp in type_list:
         sub = df_type_sort[df_type_sort["产品类型"] == tp]
         fig_type_spend.add_trace(go.Bar(
@@ -788,8 +803,15 @@ with t1:
             y=sub["广告花费"],
             name=tp,
             marker_color=color_map[tp],
-            customdata=sub[["销售额","广告销售额","分层TACOS"]].values,
-            hovertemplate="%{x}<br>分层：%{name}<br>广告花费:$%{y:,.2f}<br>总销售额:$%{customdata[0]:,.2f}<br>广告销售额:$%{customdata[1]:,.2f}<br>分层TACOS:%{customdata[2]:.2%}<extra></extra>"
+            customdata=sub[
+                ["销售额","广告销售额","分层TACOS",
+                 "花费占比","销售额占比","当月总广告花费","当月总销售额"]
+            ].values,
+            hovertemplate="""%{x}<br>分层：%{name}
+广告花费:$%{y:,.2f}（占当月店铺总广告花费 %{customdata[3]:.2%}）
+总销售额:$%{customdata[0]:,.2f}（占当月店铺总销售额 %{customdata[4]:.2%}）
+广告销售额:$%{customdata[1]:,.2f}
+分层TACOS:%{customdata[2]:.2%}<extra></extra>"""
         ))
     fig_type_spend.update_layout(
         title="各商品分层月度广告花费堆叠",

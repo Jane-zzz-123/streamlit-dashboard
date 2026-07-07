@@ -38,6 +38,9 @@ def load_raw_data():
 
     # 上架时间转换
     df["开售时间"] = pd.to_datetime(df["开售时间"], errors="coerce")
+    # 校验产品类型是否存在，不存在抛提示
+    if "产品类型" not in df.columns:
+        st.error("❌ 远程Excel未包含【产品类型】字段，请先上传更新后的文件到GitHub！")
     return df
 
 

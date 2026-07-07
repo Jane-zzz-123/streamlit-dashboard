@@ -982,124 +982,123 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 新增：单品广告花费四梯队浪费分析（含对比柱状图 · 修复报错版） =====================
-st.subheader("📈 单品广告花费梯队分层 · 浪费定位分析")
+# ===================== 新增：二八价值分层浪费定位分析（销售额二八维度，兼顾投入产出） =====================
+st.subheader("📈 二八价值分层 · 投放浪费定位分析（按销售额贡献分层）")
 
-# 只取当月有花费的有效数据
 df_sku_analyze = df_all_item.copy()
+# 过滤无销售额无花费纯测试款
+df_valid = df_sku_analyze[(df_sku_analyze["广告花费"] > 0) | (df_sku_analyze["销售额"] > 0)].copy()
 
-# 1. 拆分零花费SKU、有花费SKU
-df_zero_spend = df_sku_analyze[df_sku_analyze["广告花费"] == 0]
-df_spend_valid = df_sku_analyze[df_sku_analyze["广告花费"] > 0]
-
-# 初始化空梯队列表防止报错
-df_spend_valid["花费梯队"] = ""
-if len(df_spend_valid) > 0:
-    q20 = df_spend_valid["广告花费"].quantile(0.2)
-    q50 = df_spend_valid["广告花费"].quantile(0.5)
-
-    def get_spend_level(price):
-        if price >= q20:
-            return "头部高花费SKU(前20%主力投放)"
-        elif price >= q50:
-            return "中等花费SKU"
+# 1、按销售额二八分层：前20%为核心贡献SKU
+if len(df_valid) > 0:
+    sales_q80 = df_valid["销售额"].quantile(0.8)
+    def get_value_tier(sales_val):
+        if sales_val >= sales_q80:
+            return "核心贡献SKU（销售额前20%，承载80%营收）"
         else:
-            return "小额测试SKU"
+            return "长尾SKU（剩余80%，少量营收）"
+    df_valid["价值分层"] = df_valid["销售额"].apply(get_value_tier)
+else:
+    df_valid["价值分层"] = ""
 
-    df_spend_valid["花费梯队"] = df_spend_valid["广告花费"].apply(get_spend_level)
-
-# 给零花费单独打标
-df_zero_spend["花费梯队"] = "零花费SKU(自然出单款)"
-
-# 合并四梯队
-df_level_all = pd.concat([df_spend_valid, df_zero_spend], ignore_index=True)
-
-# 统计各梯队：总数、超标数、超标率
-level_list = [
-    "头部高花费SKU(前20%主力投放)",
-    "中等花费SKU",
-    "小额测试SKU",
-    "零花费SKU(自然出单款)"
+# 2、分层统计指标
+tier_list = [
+    "核心贡献SKU（销售额前20%，承载80%营收）",
+    "长尾SKU（剩余80%，少量营收）"
 ]
+tier_result = []
+shop_total_tacos_val = shop_total_tacos
 
-level_result = []
-for level in level_list:
-    df_l = df_level_all[df_level_all["花费梯队"] == level]
-    total = len(df_l)
-    over = 0
-    if total > 0:
-        # 筛选有TACOS且超标的行
-        over = len(df_l[(df_l["单品TACOS"].notna()) & (df_l["单品TACOS"] > shop_total_tacos)])
-    rate = over / total if total > 0 else 0
+for tier in tier_list:
+    df_t = df_valid[df_valid["价值分层"] == tier]
+    total_sku = len(df_t)
+    total_ad_spend = df_t["广告花费"].sum()
+    total_sales = df_t["销售额"].sum()
+    # TACOS超标数量
+    over_tacos_cnt = len(df_t[(df_t["单品TACOS"].notna()) & (df_t["单品TACOS"] > shop_total_tacos_val)])
+    over_ratio = over_tacos_cnt / total_sku if total_sku > 0 else 0
+    # 分层花费占店铺总花费
+    tier_spend_ratio = total_ad_spend / df_valid["广告花费"].sum() if df_valid["广告花费"].sum() > 0 else 0
+    # 分层销售额占店铺总销售额
+    tier_sales_ratio = total_sales / df_valid["销售额"].sum() if df_valid["销售额"].sum() > 0 else 0
 
-    level_result.append({
-        "花费梯队": level,
-        "SKU总数": total,
-        "TACOS超标SKU数": over,
-        "超标占比": rate
+    tier_result.append({
+        "价值分层": tier,
+        "SKU总数": total_sku,
+        "分层总广告花费": total_ad_spend,
+        "分层总销售额": total_sales,
+        "广告花费占店铺比例": tier_spend_ratio,
+        "销售额占店铺比例": tier_sales_ratio,
+        "TACOS超标SKU数量": over_tacos_cnt,
+        "超标SKU占比": over_ratio
     })
 
-df_level_res = pd.DataFrame(level_result)
+df_tier_res = pd.DataFrame(tier_result)
 
-# 左右分栏：左表格，右柱状对比图
-col_table, col_chart = st.columns([0.45, 0.55])
+# 左右布局：表格 + 超标占比柱状图
+col_table, col_chart = st.columns([0.5, 0.5])
 with col_table:
-    styled_level = df_level_res.style\
-        .format(formatter="{:.2%}", subset=["超标占比"])\
-        .format(formatter="{:.0f}", subset=["SKU总数","TACOS超标SKU数"])
-    st.dataframe(styled_level, use_container_width=True, height=220)
+    styled_tier = df_tier_res.style\
+        .format("{:.2f}", subset=["分层总广告花费","分层总销售额"])\
+        .format("{:.2%}", subset=["广告花费占店铺比例","销售额占店铺比例","超标SKU占比"])\
+        .format("{:.0f}", subset=["SKU总数","TACOS超标SKU数量"])
+    st.dataframe(styled_tier, use_container_width=True, height=200)
 
 with col_chart:
     import plotly.express as px
-    # 只绘制有SKU的梯队，零花费无TACOS对比意义过滤掉
-    df_plot = df_level_res[df_level_res["SKU总数"] > 0].copy()
+    df_plot = df_tier_res[df_tier_res["SKU总数"]>0].copy()
     if len(df_plot) > 0:
-        fig_level = px.bar(
+        fig_tier = px.bar(
             df_plot,
-            x="花费梯队",
-            y="超标占比",
-            text="超标占比",
-            title="各花费梯队TACOS超标占比对比",
-            color="超标占比",
+            x="价值分层",
+            y="超标SKU占比",
+            text="超标SKU占比",
+            title="核心SKU vs 长尾SKU TACOS超标占比对比",
+            color="超标SKU占比",
             color_continuous_scale=["#2ca02c", "#ff7f0e", "#d62728"]
         )
-        fig_level.update_traces(texttemplate="%{text:.2%}", textposition="outside")
-        fig_level.update_layout(yaxis_tickformat=".1%", yaxis_title="TACOS超标占比", height=300)
-        st.plotly_chart(fig_level, use_container_width=True)
+        fig_tier.update_traces(texttemplate="%{text:.2%}", textposition="outside")
+        fig_tier.update_layout(yaxis_tickformat=".1%", yaxis_title="TACOS超标占比", height=300)
+        st.plotly_chart(fig_tier, use_container_width=True)
     else:
-        st.info("本月无有效广告投放SKU，暂无对比图表数据")
+        st.info("本月无有效投放SKU，暂无分层对比数据")
 
-# ========== 自动生成梯队浪费分析结论 ==========
-st.markdown("### 💡 梯队投放浪费诊断")
-df_valid_level = df_level_res[df_level_res["SKU总数"] > 0]
-if len(df_valid_level) == 0:
-    st.warning("本月无任何广告投放SKU，无需成本优化")
+# 自动二八分层诊断解读
+st.markdown("### 💡 二八投放结构诊断（营收维度）")
+df_tier_valid = df_tier_res[df_tier_res["SKU总数"]>0]
+if len(df_tier_valid) == 0:
+    st.warning("本月无有效广告投放数据")
 else:
-    max_over_row = df_valid_level.sort_values("超标占比",ascending=False).iloc[0]
-    # 提取头部梯队超标率
-    top_row = df_level_res[df_level_res["花费梯队"].str.contains("头部")]
-    top_over_rate = top_row["超标占比"].values[0] if len(top_row) > 0 else 0
-    # 提取小额梯队超标率
-    low_row = df_level_res[df_level_res["花费梯队"].str.contains("小额")]
-    low_over_rate = low_row["超标占比"].values[0] if len(low_row) > 0 else 0
+    core_data = df_tier_res[df_tier_res["价值分层"].str.contains("核心贡献")].iloc[0]
+    long_data = df_tier_res[df_tier_res["价值分层"].str.contains("长尾")].iloc[0]
 
-    if max_over_row["花费梯队"] == "头部高花费SKU(前20%主力投放)":
-        conclusion = f"""
-✅ **核心问题：浪费集中在【头部主力SKU】**
-本月店铺高花费主力SKU超标占比高达**{top_over_rate:.2%}**，大额投放主力款普遍亏损，是拉高店铺整体TACOS的核心来源。
-👉 优化动作：削减低效ASIN广告预算、否定无效关键词、优化Listing转化率、下调竞价。
-"""
-    elif max_over_row["花费梯队"] == "小额测试SKU":
-        conclusion = f"""
-✅ **核心问题：浪费集中在【小额测款SKU】**
-主力头部SKU投放质量可控，但小额测试款大面积亏损，超标占比{low_over_rate:.2%}，测试流量无效消耗严重。
-👉 优化动作：关停长期无转化测试广告、清理低潜力新品测款。
+    text_lines = []
+    text_lines.append(f"店铺整体基准TACOS：**{shop_total_tacos_val:.2%}**")
+    text_lines.append(f"""
+1. 核心贡献SKU（销售额前20%）：
+    - SKU数量：{core_data["SKU总数"]}个，花费占全店{core_data["广告花费占店铺比例"]:.2%}，贡献全店{core_data["销售额占店铺比例"]:.2%}营收
+    - TACOS超标占比：{core_data["超标SKU占比"]:.2%}
+""")
+    text_lines.append(f"""
+2. 长尾SKU（剩余80%商品）：
+    - SKU数量：{long_data["SKU总数"]}个，花费占全店{long_data["广告花费占店铺比例"]:.2%}，仅贡献全店{long_data["销售额占店铺比例"]:.2%}营收
+    - TACOS超标占比：{long_data["超标SKU占比"]:.2%}
+""")
+
+    # 风险判断逻辑
+    if long_data["超标SKU占比"] > core_data["超标SKU占比"]:
+        risk_text = f"""
+✅ **核心浪费风险：长尾SKU大面积亏损**
+长尾商品超标占比{long_data["超标SKU占比"]:.2%}，远高于核心爆款层，大量预算消耗在低产出商品，不影响主力营收，可直接批量缩预算/关停。
+👉 优化优先级：优先清理长尾超标SKU。
 """
     else:
-        conclusion = """
-✅ **本月投放结构相对健康**
-各花费梯队亏损SKU占比均衡，无集中大额浪费，整体投放成本可控。
+        risk_text = f"""
+⚠️ **核心浪费风险：主力爆款层亏损严重**
+店铺营收支柱（核心SKU）超标占比{core_data["超标SKU占比"]:.2%}，主力投放普遍拉高TACOS，不可一刀切关停，需精细化优化转化、否定无效词、小幅下调竞价。
+👉 优化优先级：逐个优化头部爆款广告结构，谨慎削减预算。
 """
-    st.markdown(conclusion)
+    text_lines.append(risk_text)
+    st.markdown("\n".join(text_lines))
 
 

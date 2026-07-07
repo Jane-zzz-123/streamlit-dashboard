@@ -989,7 +989,7 @@ st.subheader("📈 单品广告花费梯队分层 · 浪费定位分析")
 df_sku_analyze = df_all_item.copy()
 
 # 1. 拆分零花费SKU、有花费SKU
-df_zero_spend = df_sku_analyze[df_sku_analyze[df_sku_analyze["广告花费"] == 0]
+df_zero_spend = df_sku_analyze[df_sku_analyze[df_sku_analyze["广告花费"] == 0]]
 df_spend_valid = df_sku_analyze[df_sku_analyze["广告花费"] > 0]
 
 # 2. 按广告花费分3个梯度（20% / 50% 分位数）
@@ -1098,6 +1098,6 @@ if len(df_valid_level) > 0:
 各花费梯队亏损SKU占比均衡，无集中大额浪费，整体投放成本可控。
 """
     st.markdown(conclusion)
-
+st.divider()
 
 

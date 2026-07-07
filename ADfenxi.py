@@ -80,38 +80,41 @@ with st.expander("📖 全部指标释义 & 计算公式（点击展开查看）
 1. **当月总广告花费**
     - 含义：当月SP+SB+SBV全部广告扣费总和
     - 公式：广告花费 = SP广告费 + SB广告费 + SBV广告费
-2. **当月全店总销售额**
+2. **当月广告销售额**
+    - 含义：当月所有广告渠道点击成交的订单总金额（仅广告单营收）
+    - 公式：广告销售额 = SP广告销售额 + SB广告销售额 + SBV广告销售额
+3. **当月全店总销售额**
     - 含义：店铺当月所有订单（广告单+自然单）总成交金额
     - 公式：全店销售额 = 全部订单对应销售额总和
-3. **当月广告订单总数**
+4. **当月广告订单总数**
     - 含义：当月通过广告点击成交的订单数量
     - 公式：广告订单数 = 所有广告渠道订单数量求和
-4. **当月全店总订单**
+5. **当月全店总订单**
     - 含义：店铺当月全部成交订单（广告+自然流量）
     - 公式：总订单 = 广告订单 + 自然流量订单
 
 ### 二、广告成本核心指标
-5. **TACOS 广告花费占比**
+6. **TACOS 广告花费占比**
     - 含义：广告花费占全店总销售额的比例，衡量整体广告投入力度
     - 公式：TACOS = 当月广告花费 ÷ 当月全店总销售额
-6. **ACOS 广告销售成本**
+7. **ACOS 广告销售成本**
     - 含义：广告花费占广告自身销售额的比例，广告投放内部转化成本
     - 公式：ACOS = 当月广告花费 ÷ 当月广告销售额
-7. **ROAS 广告投产比**
+8. **ROAS 广告投产比**
     - 含义：每1美金广告花费带来多少广告销售额，反向ACOS
     - 公式：ROAS = 当月广告销售额 ÷ 当月广告花费
-8. **ASoAS 广告销售依赖度**
+9. **ASoAS 广告销售依赖度**
     - 含义：广告成交销售额占店铺全店总销售额的比重，店铺流量依赖度
     - 公式：ASoAS = 当月广告销售额 ÷ 当月全店总销售额
 
 ### 三、流量效率指标
-9. **CPC 单次点击成本**
+10. **CPC 单次点击成本**
     - 含义：广告平均单次点击扣费
     - 公式：CPC = 当月广告总花费 ÷ 当月广告总点击量
-10. **CTR 点击率**
+11. **CTR 点击率**
     - 含义：广告曝光后产生点击的比例，主图/标题吸引力
     - 公式：CTR = 当月广告点击量 ÷ 当月广告曝光（展示）量
-11. **CVR 广告转化率**
+12. **CVR 广告转化率**
     - 含义：广告点击后下单成交比例，落地页/价格/评价转化能力
     - 公式：CVR = 当月广告订单数 ÷ 当月广告点击量
 
@@ -167,9 +170,10 @@ df_month_single["SB广告花费占比"] = np.where(df_month_single["广告花费
 df_month_single["SBV广告花费占比"] = np.where(df_month_single["广告花费"] == 0, 0,
                                               df_month_single["SBV广告费"] / df_month_single["广告花费"])
 
-# 当月数值提取
+# -------------------------- 当月数值提取（新增广告销售额）
 curr_ad_spend = df_month_single["广告花费"].iloc[0]
 curr_sales = df_month_single["销售额"].iloc[0]
+curr_ad_sales = df_month_single["广告销售额"].iloc[0] # 新增当月广告销售额
 curr_ad_order = df_month_single["广告订单量"].iloc[0]
 curr_all_order = df_month_single["订单量"].iloc[0]
 curr_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
@@ -180,44 +184,47 @@ curr_cpc = df_month_single["CPC"].iloc[0]
 curr_ctr = df_month_single["CTR"].iloc[0]
 curr_cvr = df_month_single["CVR广告转化率"].iloc[0]
 
-# -------------------------- 计算上月环比数据 --------------------------
+# -------------------------- 计算上月环比数据（补充广告销售额环比）
 curr_period = pd.Period(select_month, freq="M")
 last_period = curr_period - 1
 last_month_str = str(last_period)
 df_last_raw = df_raw[(df_raw["店铺"] == select_shop) & (df_raw["年月"] == last_month_str)]
 has_last_month = not df_last_raw.empty
 
-# 上月默认0
-last_ad_spend = last_sales = last_ad_order = last_all_order = 0
+# 上月默认0 新增广告销售额变量
+last_ad_spend = last_sales = last_ad_sales = last_ad_order = last_all_order = 0
 last_tacos = last_acos = last_roas = last_asoas = last_cpc = last_ctr = last_cvr = 0
-delta_ad_spend = delta_sales = delta_ad_order = delta_all_order = 0
+delta_ad_spend = delta_sales = delta_ad_sales = delta_ad_order = delta_all_order = 0
 delta_tacos = delta_acos = delta_roas = delta_asoas = delta_cpc = delta_ctr = delta_cvr = 0
-pct_ad_spend = pct_sales = pct_ad_order = pct_all_order = 0
+pct_ad_spend = pct_sales = pct_ad_sales = pct_ad_order = pct_all_order = 0
 pct_tacos = pct_acos = pct_roas = pct_asoas = pct_cpc = pct_ctr = pct_cvr = 0
 
 if has_last_month:
     df_last_agg = df_last_raw.groupby("年月").agg({
-        "广告花费": "sum", "销售额": "sum", "广告订单量": "sum", "订单量": "sum",
-        "展示": "sum", "点击": "sum", "广告销售额": "sum"
+        "广告花费":"sum","销售额":"sum","广告订单量":"sum","订单量":"sum",
+        "展示":"sum","点击":"sum","广告销售额":"sum"
     }).reset_index()
     last_ad_spend = df_last_agg["广告花费"].iloc[0]
     last_sales = df_last_agg["销售额"].iloc[0]
+    last_ad_sales = df_last_agg["广告销售额"].iloc[0] # 上月广告销售额
     last_ad_order = df_last_agg["广告订单量"].iloc[0]
     last_all_order = df_last_agg["订单量"].iloc[0]
     last_imp = df_last_agg["展示"].iloc[0]
     last_click = df_last_agg["点击"].iloc[0]
-    last_ad_sales = df_last_agg["广告销售额"].iloc[0]
+    last_ad_sales_base = df_last_agg["广告销售额"].iloc[0]
 
-    last_ctr = last_click / last_imp if last_imp != 0 else 0
-    last_cpc = last_ad_spend / last_click if last_click != 0 else 0
-    last_cvr = last_ad_order / last_click if last_click != 0 else 0
-    last_acos = last_ad_spend / last_ad_sales if last_ad_sales != 0 else 0
-    last_roas = last_ad_sales / last_ad_spend if last_ad_spend != 0 else 0
-    last_tacos = last_ad_spend / last_sales if last_sales != 0 else 0
-    last_asoas = last_ad_sales / last_sales if last_sales != 0 else 0
+    last_ctr = last_click / last_imp if last_imp !=0 else 0
+    last_cpc = last_ad_spend / last_click if last_click !=0 else 0
+    last_cvr = last_ad_order / last_click if last_click !=0 else 0
+    last_acos = last_ad_spend / last_ad_sales_base if last_ad_sales_base !=0 else 0
+    last_roas = last_ad_sales_base / last_ad_spend if last_ad_spend !=0 else 0
+    last_tacos = last_ad_spend / last_sales if last_sales !=0 else 0
+    last_asoas = last_ad_sales_base / last_sales if last_sales !=0 else 0
 
+    # 广告销售额差值&环比
     delta_ad_spend = curr_ad_spend - last_ad_spend
     delta_sales = curr_sales - last_sales
+    delta_ad_sales = curr_ad_sales - last_ad_sales
     delta_ad_order = curr_ad_order - last_ad_order
     delta_all_order = curr_all_order - last_all_order
     delta_tacos = curr_tacos - last_tacos
@@ -228,25 +235,26 @@ if has_last_month:
     delta_ctr = curr_ctr - last_ctr
     delta_cvr = curr_cvr - last_cvr
 
-    pct_ad_spend = delta_ad_spend / last_ad_spend if last_ad_spend != 0 else 0
-    pct_sales = delta_sales / last_sales if last_sales != 0 else 0
-    pct_ad_order = delta_ad_order / last_ad_order if last_ad_order != 0 else 0
-    pct_all_order = delta_all_order / last_all_order if last_all_order != 0 else 0
-    pct_tacos = delta_tacos / last_tacos if last_tacos != 0 else 0
-    pct_acos = delta_acos / last_acos if last_acos != 0 else 0
-    pct_roas = delta_roas / last_roas if last_roas != 0 else 0
-    pct_asoas = delta_asoas / last_asoas if last_asoas != 0 else 0
-    pct_cpc = delta_cpc / last_cpc if last_cpc != 0 else 0
-    pct_ctr = delta_ctr / last_ctr if last_ctr != 0 else 0
-    pct_cvr = delta_cvr / last_cvr if last_cvr != 0 else 0
+    pct_ad_spend = delta_ad_spend / last_ad_spend if last_ad_spend !=0 else 0
+    pct_sales = delta_sales / last_sales if last_sales !=0 else 0
+    pct_ad_sales = delta_ad_sales / last_ad_sales if last_ad_sales !=0 else 0
+    pct_ad_order = delta_ad_order / last_ad_order if last_ad_order !=0 else 0
+    pct_all_order = delta_all_order / last_all_order if last_all_order !=0 else 0
+    pct_tacos = delta_tacos / last_tacos if last_tacos !=0 else 0
+    pct_acos = delta_acos / last_acos if last_acos !=0 else 0
+    pct_roas = delta_roas / last_roas if last_roas !=0 else 0
+    pct_asoas = delta_asoas / last_asoas if last_asoas !=0 else 0
+    pct_cpc = delta_cpc / last_cpc if last_cpc !=0 else 0
+    pct_ctr = delta_ctr / last_ctr if last_ctr !=0 else 0
+    pct_cvr = delta_cvr / last_cvr if last_cvr !=0 else 0
 
-# ===================== 一、当月核心指标卡片（带环比delta与下方小字上月对比） =====================
+# ===================== 一、当月指标卡片（第一行新增广告销售额，5列布局） =====================
 st.markdown(f"## 🎯 一、{select_month} 当月店铺整体概况（单月快照）")
 if not has_last_month:
     st.info("当前为最早统计月份，无上月对比数据")
 
-# 第一行4卡：广告花费、总销售额、广告订单、总订单
-row1_col1, row1_col2, row1_col3, row1_col4 = st.columns(4)
+# 第一行：5列 广告花费、总销售额、广告销售额、广告订单、总订单
+row1_col1, row1_col2, row1_col3, row1_col4, row1_col5 = st.columns(5)
 with row1_col1:
     st.metric(label="当月总广告花费", value=f"${curr_ad_spend:,.2f}", delta=f"{delta_ad_spend:,.2f}")
     if has_last_month:
@@ -256,15 +264,19 @@ with row1_col2:
     if has_last_month:
         st.caption(f"上月：${last_sales:,.2f} | 环比：{pct_sales:.1%}")
 with row1_col3:
+    st.metric(label="当月广告销售额", value=f"${curr_ad_sales:,.2f}", delta=f"{delta_ad_sales:,.2f}")
+    if has_last_month:
+        st.caption(f"上月：${last_ad_sales:,.2f} | 环比：{pct_ad_sales:.1%}")
+with row1_col4:
     st.metric(label="当月广告订单总数", value=f"{curr_ad_order:,.0f}", delta=f"{delta_ad_order:,.0f}")
     if has_last_month:
         st.caption(f"上月：{last_ad_order:,.0f} | 环比：{pct_ad_order:.1%}")
-with row1_col4:
+with row1_col5:
     st.metric(label="当月全店总订单", value=f"{curr_all_order:,.0f}", delta=f"{delta_all_order:,.0f}")
     if has_last_month:
         st.caption(f"上月：{last_all_order:,.0f} | 环比：{pct_all_order:.1%}")
 
-# 第二行4卡：TACOS、ACOS、ROAS、ASoAS
+# 第二行4卡：TACOS、ACOS、ROAS、ASoAS（不变）
 row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
 with row2_col1:
     st.metric(label="当月TACOS广告花费占比", value=f"{curr_tacos:.2%}", delta=f"{delta_tacos:.2%}")
@@ -283,7 +295,7 @@ with row2_col4:
     if has_last_month:
         st.caption(f"上月：{last_asoas:.2%} | 环比：{pct_asoas:.1%}")
 
-# 第三行3卡：CPC、CTR、CVR
+# 第三行3卡：CPC、CTR、CVR（不变）
 row3_col1, row3_col2, row3_col3 = st.columns(3)
 with row3_col1:
     st.metric(label="当月平均单次点击CPC", value=f"${curr_cpc:.2f}", delta=f"{delta_cpc:.2f}")
@@ -298,11 +310,11 @@ with row3_col3:
     if has_last_month:
         st.caption(f"上月：{last_cvr:.2%} | 环比：{pct_cvr:.1%}")
 
-# 当月概况说明文字
+# 当月文字说明同步补充广告销售额
 st.info(f"""
 【{select_month}单月概况说明】
 分析店铺：{select_shop} | 分析月份：{select_month}
-1. 当月广告投放总额 ${curr_ad_spend:,.2f}，店铺全部总销售额 ${curr_sales:,.2f}，广告花费占营收比重TACOS {curr_tacos:.2%}
+1. 当月广告投放总额 ${curr_ad_spend:,.2f}，广告成交销售额 ${curr_ad_sales:,.2f}，店铺全部总销售额 ${curr_sales:,.2f}，广告花费占营收比重TACOS {curr_tacos:.2%}
 2. 当月广告自身转化成本ACOS {curr_acos:.2%}，每投入1美金广告带来 {curr_roas:.2f} 美金广告营收
 3. 当月店铺 {curr_asoas:.2%} 的营收来自付费广告，剩余为自然免费流量订单
 4. 当月单次点击成本CPC ${curr_cpc:.2f}，广告曝光点击率CTR {curr_ctr:.2%}，点击下单转化率 {curr_cvr:.2%}

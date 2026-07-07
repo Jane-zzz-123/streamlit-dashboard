@@ -400,13 +400,16 @@ with tab_flow_trend:
     fig_flow_line.update_layout(title=f"{select_shop}店铺全周期流量效率指标变化", height=460)
     st.plotly_chart(fig_flow_line, use_container_width=True)
 
-# ===================== 三、TACOS上升自动归因分析 =====================
+# ===================== 三、TACOS上升自动归因分析（新增配套图表，增强数据支撑） =====================
 st.markdown("## 🔎 三、广告花费占比(TACOS)上升自动归因分析")
 st.subheader("拆分全周期前半段/后半段，自动识别五大上涨根源")
+
+# 拆分前后周期数据
 split_index = len(df_all_month_agg) // 2
 df_early_period = df_all_month_agg.iloc[:split_index].copy()
 df_late_period = df_all_month_agg.iloc[split_index:].copy()
 
+# 分段均值计算
 early_mean_tacos = df_early_period["TACOS广告花费占比"].mean()
 late_mean_tacos = df_late_period["TACOS广告花费占比"].mean()
 early_mean_acos = df_early_period["ACOS"].mean()
@@ -426,10 +429,92 @@ late_ad_sum = df_late_period["广告花费"].sum()
 delta_tacos_total = late_mean_tacos - early_mean_tacos
 st.write(f"""
 基准期（前{split_index}个月）平均TACOS：{early_mean_tacos:.2%}
-近期期（后{len(df_all_month_agg) - split_index}个月）平均TACOS：{late_mean_tacos:.2%}
+近期期（后{len(df_all_month_agg)-split_index}个月）平均TACOS：{late_mean_tacos:.2%}
 整体广告花费占比涨幅：{delta_tacos_total:+.2%}
 """)
 
+# ========== 新增：4张支撑图表，分两栏展示 ==========
+col_attrib1, col_attrib2 = st.columns(2)
+with col_attrib1:
+    # 图表1：月度TACOS & ASoAS 双折线，验证广告依赖同步上涨
+    fig_tacos_asoas = go.Figure()
+    fig_tacos_asoas.add_trace(go.Line(
+        x=df_all_month_agg["年月"],
+        y=df_all_month_agg["TACOS广告花费占比"],
+        name="月度TACOS",
+        line_color="#ff4b4b",
+        line_width=3
+    ))
+    fig_tacos_asoas.add_trace(go.Line(
+        x=df_all_month_agg["年月"],
+        y=df_all_month_agg["ASoAS广告销售依赖度"],
+        name="月度ASoAS广告依赖度",
+        line_color="#22c55e",
+        line_width=3
+    ))
+    fig_tacos_asoas.update_layout(
+        title="月度TACOS与广告依赖度ASoAS走势（同步上行）",
+        yaxis_tickformat=".1%",
+        height=360
+    )
+    st.plotly_chart(fig_tacos_asoas, use_container_width=True)
+
+    # 图表2：新品vs老品TACOS对比柱状
+    df_type_all = df_raw[df_raw["店铺"] == select_shop].groupby("产品类型").agg({"广告花费":"sum","销售额":"sum"})
+    df_type_all["TACOS"] = np.where(df_type_all["销售额"]==0,0, df_type_all["广告花费"]/df_type_all["销售额"])
+    df_type_all = df_type_all.reset_index()
+    fig_type_tacos = px.bar(
+        df_type_all,
+        x="产品类型",
+        y="TACOS",
+        title="新品/老品平均TACOS对比",
+        labels={"TACOS":"TACOS占比"},
+        text=df_type_all["TACOS"].apply(lambda x: f"{x:.2%}"),
+        height=360
+    )
+    fig_type_tacos.update_layout(yaxis_tickformat=".1%")
+    st.plotly_chart(fig_type_tacos, use_container_width=True)
+
+with col_attrib2:
+    # 图表3：基准/近期 核心指标对比柱状（TACOS/ACOS/ASoAS）
+    compare_df = pd.DataFrame({
+        "周期":["基准期","近期期"],
+        "TACOS":[early_mean_tacos, late_mean_tacos],
+        "ACOS":[early_mean_acos, late_mean_acos],
+        "ASoAS":[early_mean_asoas, late_mean_asoas]
+    })
+    fig_period_compare = px.bar(
+        compare_df,
+        x="周期",
+        y=["TACOS","ACOS","ASoAS"],
+        barmode="group",
+        title="基准期 vs 近期期 三大广告指标对比",
+        labels={"value":"占比"},
+        height=360
+    )
+    fig_period_compare.update_layout(yaxis_tickformat=".1%")
+    st.plotly_chart(fig_period_compare, use_container_width=True)
+
+    # 图表4：基准/近期 广告花费&总销售额金额对比
+    sales_ad_df = pd.DataFrame({
+        "周期":["基准期","近期期"],
+        "总销售额":[early_sales_sum, late_sales_sum],
+        "广告总花费":[early_ad_sum, late_ad_sum]
+    })
+    fig_sales_ad = px.bar(
+        sales_ad_df,
+        x="周期",
+        y=["总销售额","广告总花费"],
+        barmode="group",
+        title="基准期 vs 近期期 销售额&广告投入规模对比",
+        labels={"value":"金额($)"},
+        height=360
+    )
+    st.plotly_chart(fig_sales_ad, use_container_width=True)
+
+st.divider()
+
+# 原有文字归因提示（黄色高亮提示框）
 reason_list = []
 # 1 广告转化变差
 if late_mean_acos > early_mean_acos * 1.05:
@@ -439,24 +524,23 @@ if late_mean_acos > early_mean_acos * 1.05:
 if late_mean_asoas > early_mean_asoas * 1.05:
     r2 = f"2. 店铺高度依赖付费广告出单：广告营收占总销售比重ASoAS由{early_mean_asoas:.2%}上涨至{late_mean_asoas:.2%}，免费自然订单持续减少，增量销量全部依靠广告拉动，TACOS被动走高。"
     reason_list.append(r2)
-# 3 SB/SBV投放变多
+#3 SB/SBV投放变多
 if late_mean_sp < early_mean_sp * 0.95:
     r3 = f"3. 广告预算结构变化：高投产SP广告投放占比下降，ACOS更高的SB/SBV品牌广告预算增加，拉高店铺整体平均广告成本，推动TACOS上行。"
     reason_list.append(r3)
-# 4 广告增速大于销售额
-sales_growth = late_sales_sum / early_sales_sum if early_sales_sum != 0 else 0
-ad_growth = late_ad_sum / early_ad_sum if early_ad_sum != 0 else 0
+#4 广告增速大于销售额
+sales_growth = late_sales_sum / early_sales_sum if early_sales_sum !=0 else 0
+ad_growth = late_ad_sum / early_ad_sum if early_ad_sum !=0 else 0
 if sales_growth < ad_growth * 0.95:
     r4 = f"4. 全店营收增长跟不上广告扩张速度：基准总销售额${early_sales_sum:,.2f}，近期${late_sales_sum:,.2f}；广告投放大幅加码，总销售额（TACOS分母）增长乏力，被动推高广告占比。"
     reason_list.append(r4)
-# 5 新品拉高整体TACOS
-df_type_all = df_raw[df_raw["店铺"] == select_shop].groupby("产品类型").agg({"广告花费": "sum", "销售额": "sum"})
-df_type_all["TACOS"] = np.where(df_type_all["销售额"] == 0, 0, df_type_all["广告花费"] / df_type_all["销售额"])
+#5 新品拉高整体TACOS
+df_type_all = df_raw[df_raw["店铺"] == select_shop].groupby("产品类型").agg({"广告花费":"sum","销售额":"sum"})
+df_type_all["TACOS"] = np.where(df_type_all["销售额"]==0,0, df_type_all["广告花费"]/df_type_all["销售额"])
 if "新品(上架≤60天)" in df_type_all.index and "老品(上架>60天)" in df_type_all.index:
     new_tacos_val = df_type_all.loc["新品(上架≤60天)", "TACOS"]
     old_tacos_val = df_type_all.loc["老品(上架>60天)", "TACOS"]
-    new_ad_ratio_val = df_type_all.loc["新品(上架≤60天)", "广告花费"] / df_raw[df_raw["店铺"] == select_shop][
-        "广告花费"].sum()
+    new_ad_ratio_val = df_type_all.loc["新品(上架≤60天)", "广告花费"] / df_raw[df_raw["店铺"] == select_shop]["广告花费"].sum()
     if new_tacos_val > old_tacos_val * 1.2 and new_ad_ratio_val > 0.2:
         r5 = f"5. 大批量新品集中上新拉高全店成本：新品平均TACOS {new_tacos_val:.2%}，远高于老品{old_tacos_val:.2%}；新品广告投放占店铺总广告{new_ad_ratio_val:.1%}，新品天然高广告成本抬升整体TACOS。"
         reason_list.append(r5)

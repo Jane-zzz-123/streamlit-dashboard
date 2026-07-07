@@ -880,3 +880,64 @@ st.dataframe(styled_df, use_container_width=True, height=400)
 
 st.caption(f"本月店铺整体TACOS：{shop_total_tacos:.2%}；红色=单品TACOS高于店铺平均水平，低效投放SKU；金额保留两位小数，ACOS/TACOS以百分比展示")
 st.divider()
+
+# ===================== 新增：分层TACOS超标数量统计分析 =====================
+st.subheader("📊 三类商品单品TACOS超标数量对比分析")
+
+# 筛选有效TACOS数据（排除空值无销售额商品）
+df_valid = df_all_item.dropna(subset=["单品TACOS"])
+
+# 初始化统计字典
+stat_result = {}
+type_name_list = [
+    "新品 (开售天数小于等于60)",
+    "老品 (开售天数大于60天)",
+    "新品未出单"
+]
+
+for tag in type_name_list:
+    df_type = df_valid[df_valid["产品类型"] == tag]
+    total_cnt = len(df_type)
+    over_cnt = len(df_type[df_type["单品TACOS"] > shop_total_tacos])
+    over_rate = over_cnt / total_cnt if total_cnt > 0 else 0
+    stat_result[tag] = {
+        "总单品数": total_cnt,
+        "TACOS超标单品数": over_cnt,
+        "超标占比": over_rate
+    }
+
+# 三列展示统计数字
+col_a, col_b, col_c = st.columns(3)
+col_list = [col_a, col_b, col_c]
+for idx, tag in enumerate(type_name_list):
+    data = stat_result[tag]
+    with col_list[idx]:
+        st.markdown(f"**{tag}**")
+        st.metric("总SKU数量", value=data["总单品数"])
+        st.metric("TACOS超标SKU", value=data["TACOS超标单品数"])
+        st.caption(f"超标占比：{data['超标占比']:.2%}")
+
+# 自动生成综合分析文案
+st.markdown("### 分层投放成本综合解读")
+text_lines = []
+text_lines.append(f"本月店铺整体基准TACOS为：**{shop_total_tacos:.2%}**，各分层单品投放超标情况如下：")
+
+for tag in type_name_list:
+    d = stat_result[tag]
+    if d["总单品数"] == 0:
+        line = f"- {tag}：本月无投放SKU"
+    else:
+        line = f"- {tag}：共{d['总单品数']}个SKU，其中{d['TACOS超标单品数']}个单品TACOS高于店铺均值，超标占比{d['超标占比']:.2%}"
+    text_lines.append(line)
+
+# 风险总结
+max_over_tag = max(stat_result.items(), key=lambda x: x[1]["超标占比"])
+max_tag, max_data = max_over_tag
+text_lines.append(f"""
+#### 核心风险提示
+本月**{max_tag}**分层商品超标占比最高，达到{max_data["超标占比"]:.2%}，是拉高店铺整体TACOS的主要商品来源，建议优先针对该分层内高花费、高TACOS单品削减广告预算，优化关键词与Listing转化。
+""")
+
+st.markdown("\n".join(text_lines))
+st.divider()
+

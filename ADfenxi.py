@@ -44,17 +44,14 @@ def load_raw_data():
     # 上架时间转换
     df["开售时间"] = pd.to_datetime(df["开售时间"], errors="coerce")
 
-    # 全局计算上架间隔、生成新品老品标签（整张表统一生成，解决KeyError）
+    # 全局计算上架间隔、生成新品老品标签
     df["上架间隔天数"] = (df["年月日期"] - df["开售时间"]).dt.days
 
     def tag_product_type(days):
-        # 无开售时间/间隔负数 = 未知
         if pd.isna(days) or days <= 0:
             return "未知上架时间"
-        # 60天内新品
         elif days <= 60:
             return "新品(上架≤60天)"
-        # 超60天老品
         else:
             return "老品(上架>60天)"
 
@@ -79,6 +76,55 @@ with filter_month_col:
     latest_month = month_list[-1]
     select_month = st.selectbox("选择分析单月", month_list, index=month_list.index(latest_month))
 
+st.divider()
+
+# ===================== 新增：指标释义&计算公式折叠面板（放在筛选下方、当月卡片上方） =====================
+with st.expander("📖 全部指标释义 & 计算公式（点击展开查看）", expanded=False):
+    st.markdown("""
+### 一、基础金额/订单指标
+1. **当月总广告花费**
+    - 含义：当月SP+SB+SBV全部广告扣费总和
+    - 公式：广告花费 = SP广告费 + SB广告费 + SBV广告费
+2. **当月全店总销售额**
+    - 含义：店铺当月所有订单（广告单+自然单）总成交金额
+    - 公式：全店销售额 = 全部订单对应销售额总和
+3. **当月广告订单总数**
+    - 含义：当月通过广告点击成交的订单数量
+    - 公式：广告订单数 = 所有广告渠道订单数量求和
+4. **当月全店总订单**
+    - 含义：店铺当月全部成交订单（广告+自然流量）
+    - 公式：总订单 = 广告订单 + 自然流量订单
+
+### 二、广告成本核心指标
+5. **TACOS 广告花费占比**
+    - 含义：广告花费占全店总销售额的比例，衡量整体广告投入力度
+    - 公式：TACOS = 当月广告花费 ÷ 当月全店总销售额
+6. **ACOS 广告销售成本**
+    - 含义：广告花费占广告自身销售额的比例，广告投放内部转化成本
+    - 公式：ACOS = 当月广告花费 ÷ 当月广告销售额
+7. **ROAS 广告投产比**
+    - 含义：每1美金广告花费带来多少广告销售额，反向ACOS
+    - 公式：ROAS = 当月广告销售额 ÷ 当月广告花费
+8. **ASoAS 广告销售依赖度**
+    - 含义：广告成交销售额占店铺全店总销售额的比重，店铺流量依赖度
+    - 公式：ASoAS = 当月广告销售额 ÷ 当月全店总销售额
+
+### 三、流量效率指标
+9. **CPC 单次点击成本**
+    - 含义：广告平均单次点击扣费
+    - 公式：CPC = 当月广告总花费 ÷ 当月广告总点击量
+10. **CTR 点击率**
+    - 含义：广告曝光后产生点击的比例，主图/标题吸引力
+    - 公式：CTR = 当月广告点击量 ÷ 当月广告曝光（展示）量
+11. **CVR 广告转化率**
+    - 含义：广告点击后下单成交比例，落地页/价格/评价转化能力
+    - 公式：CVR = 当月广告订单数 ÷ 当月广告点击量
+
+### 补充说明
+- 环比差值：当月指标 − 上月同期指标
+- 环比百分比：(当月 − 上月) ÷ 上月绝对值，正数上涨（红色），负数下降（绿色）
+- 新品判定：MSKU上架≤60天=新品；无开售时间/上架超60天=老品
+""")
 st.divider()
 
 # -------------------------- 筛选当月数据集 --------------------------
@@ -199,12 +245,12 @@ if has_last_month:
     pct_ctr = delta_ctr / last_ctr if last_ctr != 0 else 0
     pct_cvr = delta_cvr / last_cvr if last_cvr != 0 else 0
 
-# ===================== 一、当月指标卡片（带环比差值+小字上月数据，升红降绿） =====================
+# ===================== 一、当月核心指标卡片（带环比delta与下方小字上月对比） =====================
 st.markdown(f"## 🎯 一、{select_month} 当月店铺整体概况（单月快照）")
 if not has_last_month:
     st.info("当前为最早统计月份，无上月对比数据")
 
-# 第一行：广告花费、总销售额、广告订单、总订单
+# 第一行4卡：广告花费、总销售额、广告订单、总订单
 row1_col1, row1_col2, row1_col3, row1_col4 = st.columns(4)
 with row1_col1:
     st.metric(label="当月总广告花费", value=f"${curr_ad_spend:,.2f}", delta=f"{delta_ad_spend:,.2f}")
@@ -223,7 +269,7 @@ with row1_col4:
     if has_last_month:
         st.caption(f"上月：{last_all_order:,.0f} | 环比：{pct_all_order:.1%}")
 
-# 第二行：TACOS、ACOS、ROAS、ASoAS
+# 第二行4卡：TACOS、ACOS、ROAS、ASoAS
 row2_col1, row2_col2, row2_col3, row2_col4 = st.columns(4)
 with row2_col1:
     st.metric(label="当月TACOS广告花费占比", value=f"{curr_tacos:.2%}", delta=f"{delta_tacos:.2%}")
@@ -242,7 +288,7 @@ with row2_col4:
     if has_last_month:
         st.caption(f"上月：{last_asoas:.2%} | 环比：{pct_asoas:.1%}")
 
-# 第三行：CPC、CTR、CVR
+# 第三行3卡：CPC、CTR、CVR
 row3_col1, row3_col2, row3_col3 = st.columns(3)
 with row3_col1:
     st.metric(label="当月平均单次点击CPC", value=f"${curr_cpc:.2f}", delta=f"{delta_cpc:.2f}")
@@ -257,7 +303,7 @@ with row3_col3:
     if has_last_month:
         st.caption(f"上月：{last_cvr:.2%} | 环比：{pct_cvr:.1%}")
 
-# 当月文字说明
+# 当月概况说明文字
 st.info(f"""
 【{select_month}单月概况说明】
 分析店铺：{select_shop} | 分析月份：{select_month}
@@ -267,7 +313,7 @@ st.info(f"""
 4. 当月单次点击成本CPC ${curr_cpc:.2f}，广告曝光点击率CTR {curr_ctr:.2%}，点击下单转化率 {curr_cvr:.2%}
 """)
 
-# 当月明细表
+# 当月完整明细表格
 st.subheader(f"📋 {select_month} 当月完整指标明细表")
 show_month_cols = [
     "年月", "展示", "点击", "广告花费", "销售额", "广告销售额",
@@ -276,7 +322,7 @@ show_month_cols = [
 ]
 st.dataframe(df_month_single[show_month_cols], use_container_width=True, height=220)
 
-# ===================== 二、全周期多月份趋势 =====================
+# ===================== 二、全周期多月份趋势对比 =====================
 st.markdown("## 📈 二、全周期月度趋势对比（查看历史TACOS涨跌变化）")
 df_shop_all_month = df_raw[df_raw["店铺"] == select_shop].copy()
 df_all_month_agg = df_shop_all_month.groupby("年月").agg({
@@ -292,7 +338,7 @@ df_all_month_agg = df_shop_all_month.groupby("年月").agg({
     "订单量": "sum"
 }).reset_index()
 
-# 全周期指标计算
+# 批量计算全周期各月衍生指标
 df_all_month_agg["CTR"] = np.where(df_all_month_agg["展示"] == 0, 0,
                                    df_all_month_agg["点击"] / df_all_month_agg["展示"])
 df_all_month_agg["CPC"] = np.where(df_all_month_agg["点击"] == 0, 0,
@@ -354,7 +400,7 @@ with tab_flow_trend:
     fig_flow_line.update_layout(title=f"{select_shop}店铺全周期流量效率指标变化", height=460)
     st.plotly_chart(fig_flow_line, use_container_width=True)
 
-# ===================== 三、TACOS自动归因 =====================
+# ===================== 三、TACOS上升自动归因分析 =====================
 st.markdown("## 🔎 三、广告花费占比(TACOS)上升自动归因分析")
 st.subheader("拆分全周期前半段/后半段，自动识别五大上涨根源")
 split_index = len(df_all_month_agg) // 2
@@ -403,7 +449,7 @@ ad_growth = late_ad_sum / early_ad_sum if early_ad_sum != 0 else 0
 if sales_growth < ad_growth * 0.95:
     r4 = f"4. 全店营收增长跟不上广告扩张速度：基准总销售额${early_sales_sum:,.2f}，近期${late_sales_sum:,.2f}；广告投放大幅加码，总销售额（TACOS分母）增长乏力，被动推高广告占比。"
     reason_list.append(r4)
-# 5 新品拉高整体TACOS（现在df_raw自带产品类型，不会报KeyError）
+# 5 新品拉高整体TACOS
 df_type_all = df_raw[df_raw["店铺"] == select_shop].groupby("产品类型").agg({"广告花费": "sum", "销售额": "sum"})
 df_type_all["TACOS"] = np.where(df_type_all["销售额"] == 0, 0, df_type_all["广告花费"] / df_type_all["销售额"])
 if "新品(上架≤60天)" in df_type_all.index and "老品(上架>60天)" in df_type_all.index:
@@ -441,7 +487,7 @@ summary_text += """
 """
 st.text_area("📝 一键复制至Word汇报完整总结", summary_text, height=350)
 
-# ===================== 四、分层拆解：品类 / MSKU / 新品老品对比 =====================
+# ===================== 四、分层数据拆解：品类 / MSKU单品 / 新品老品对比 =====================
 st.markdown("## 🧩 四、分层数据拆解：定位拉高TACOS的核心品类/单品/新品")
 tab_cat, tab_msku, tab_newold = st.tabs(["按品类汇总分析", "按MSKU单品明细", "新品VS老品投放对比"])
 
@@ -461,7 +507,7 @@ with tab_cat:
     st.dataframe(df_cat_all, use_container_width=True, height=360)
     st.caption("按TACOS从高到低排序，重点关注销售贡献高、广告成本异常偏高的品类")
 
-# 4.2 MSKU单品明细（带产品类型）
+# 4.2 MSKU单品明细
 df_msku_all = df_raw[df_raw["店铺"] == select_shop].groupby(["品类", "MSKU", "品名", "产品类型"]).agg({
     "广告花费": "sum",
     "销售额": "sum",
@@ -478,7 +524,7 @@ with tab_msku:
     st.dataframe(df_msku_all, use_container_width=True, height=420)
     st.caption("按单品销售额贡献从高到低排序，区分新品/老品查看爆款广告成本")
 
-# 4.3 新品老品对比面板
+# 4.3 新品老品对比
 with tab_newold:
     st.subheader("1、全周期新品/老品整体指标对比")
     df_type_compare = df_raw[df_raw["店铺"] == select_shop].groupby("产品类型").agg({

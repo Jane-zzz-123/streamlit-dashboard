@@ -728,12 +728,11 @@ else:
 
 st.divider()
 
-# ===================== 新增：五、新品/老品分层投放分析 + 高花费单品明细表（无当月快照卡片，仅全月趋势） =====================
+# ===================== 五、新品老品分层投放拆解（修复TACOS归零+hover明细） =====================
 st.markdown("## 🧩 五、新品老品分层投放拆解（定位拖垮TACOS的商品层级）")
 
 # 1、筛选当前店铺全量明细，按年月+产品类型聚合分层数据
 df_shop_raw = df_raw[df_raw["店铺"] == select_shop].copy()
-# 按月+产品类型聚合
 df_type_group = df_shop_raw.groupby(["年月", "产品类型"]).agg({
     "SP广告费":"sum",
     "SB广告费":"sum",
@@ -747,21 +746,25 @@ df_type_group = df_shop_raw.groupby(["年月", "产品类型"]).agg({
     "点击":"sum"
 }).reset_index()
 
-# 生成中文年月、衍生分层指标
+# 生成中文年月
 df_type_group["年月中文"] = df_type_group["年月"].apply(lambda x: f"{x.split('-')[0]}年{int(x.split('-')[1])}月")
-# 分层TACOS、分层ACOS
-df_type_group["分层TACOS"] = np.where(df_type_group["销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["销售额"])
-df_type_group["分层ACOS"] = np.where(df_type_group["广告销售额"]==0, 0, df_type_group["广告花费"] / df_type_group["广告销售额"])
 
-# ---------------------- 分层趋势图：一行双图（直接展示所有月份三类数据） ----------------------
-st.subheader("📈 各分层月度花费 & 分层TACOS全周期走势")
+# ========== 修复1：重写分层TACOS/ACOS计算，销售额为0不强制归零 ==========
+df_type_group["分层TACOS"] = df_type_group.apply(
+    lambda row: row["广告花费"] / row["销售额"] if row["销售额"] != 0 else None, axis=1
+)
+df_type_group["分层ACOS"] = df_type_group.apply(
+    lambda row: row["广告花费"] / row["广告销售额"] if row["广告销售额"] != 0 else None, axis=1
+)
+
+# 排序绘图数据
 df_type_sort = df_type_group.sort_values("年月", ascending=True)
+st.subheader("📈 各分层月度花费 & 分层TACOS全周期走势")
 t1, t2 = st.columns([1.2, 1])
 
 # 左图：三层商品广告花费堆叠柱状
 with t1:
     fig_type_spend = go.Figure()
-    # 自定义三色区分三类
     color_map = {
         "新品": "#ff7f0e",
         "老品": "#2ca02c",
@@ -775,7 +778,8 @@ with t1:
             y=sub["广告花费"],
             name=tp,
             marker_color=color_map[tp],
-            hovertemplate="%{x}<br>分层：%{name}<br>当月花费:$%{y:,.2f}<extra></extra>"
+            customdata=sub[["销售额","广告销售额","分层TACOS"]].values,
+            hovertemplate="%{x}<br>分层：%{name}<br>广告花费:$%{y:,.2f}<br>总销售额:$%{customdata[0]:,.2f}<br>广告销售额:$%{customdata[1]:,.2f}<br>分层TACOS:%{customdata[2]:.2%}<extra></extra>"
         ))
     fig_type_spend.update_layout(
         title="各商品分层月度广告花费堆叠",
@@ -799,7 +803,8 @@ with t2:
             mode="lines+markers",
             line=dict(color=color_map[tp], width=2),
             marker=dict(size=6),
-            hovertemplate="%{x}<br>分层：%{name}<br>TACOS:%{y:.2%}<extra></extra>"
+            customdata=sub[["广告花费","分层ACOS"]].values,
+            hovertemplate="%{x}<br>分层：%{name}<br>TACOS:%{y:.2%}<br>广告花费:$%{customdata[0]:,.2f}<br>分层ACOS:%{customdata[1]:.2%}<extra></extra>"
         ))
     fig_type_tacos.update_layout(
         title="各商品分层TACOS走势对比",
@@ -811,7 +816,7 @@ with t2:
     )
     st.plotly_chart(fig_type_tacos, use_container_width=True)
 
-# ---------------------- 分层归因分析文本（适配三类标签） ----------------------
+# ---------------------- 分层归因分析文本 ----------------------
 st.subheader("🔍 分层TACOS上涨定位逻辑 & 运营区分")
 st.markdown("""
 ### 三类商品业务定义
@@ -837,15 +842,12 @@ st.divider()
 
 # ---------------------- 单品维度：当月广告花费TOP20明细表 ----------------------
 st.subheader(f"📋 {select_month} 单品广告花费TOP20明细表（定位低效ASIN）")
-# 筛选当前月份单品明细
 df_single_item = df_shop_raw[df_shop_raw["年月"] == select_month].copy()
-# 计算单品ACOS、单品TACOS
-df_single_item["单品ACOS"] = np.where(df_single_item["广告销售额"]==0, 0, df_single_item["广告花费"] / df_single_item["广告销售额"])
-df_single_item["单品TACOS"] = np.where(df_single_item["销售额"]==0, 0, df_single_item["广告花费"] / df_single_item["销售额"])
-# 按广告花费倒序取前20
-df_top_item = df_single_item.sort_values("广告花费", ascending=False).head(20)
+# 单品指标计算
+df_single_item["单品ACOS"] = df_single_item.apply(lambda r: r["广告花费"]/r["广告销售额"] if r["广告销售额"] !=0 else None, axis=1)
+df_single_item["单品TACOS"] = df_single_item.apply(lambda r: r["广告花费"]/r["销售额"] if r["销售额"] !=0 else None, axis=1)
 
-# 展示字段
+df_top_item = df_single_item.sort_values("广告花费", ascending=False).head(20)
 item_show_cols = [
     "产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
     "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"

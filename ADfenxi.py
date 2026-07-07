@@ -870,6 +870,7 @@ with t2:
 st.divider()
 
 # ---------------------- 单品维度：当月全部单品明细表（TACOS高于店铺均值标红 + 金额2位小数+比率百分比格式化） ----------------------
+# ---------------------- 单品维度：当月全部单品明细表（TACOS高于店铺均值标红 + 新增CTR/CPC/CVR） ----------------------
 st.subheader(f"📋 {select_month} 全单品广告花费明细表（单品TACOS高于店铺整体TACOS标红）")
 # 筛选当前月份单品明细
 df_single_item = df_shop_raw[df_shop_raw["年月"] == select_month].copy()
@@ -881,21 +882,33 @@ df_month_total = df_shop_raw[df_shop_raw["年月"] == select_month].agg({
 })
 shop_total_tacos = df_month_total["广告花费"] / df_month_total["销售额"] if df_month_total["销售额"] != 0 else 0
 
-# 计算单品ACOS、单品TACOS
+# 计算单品核心指标
 df_single_item["单品ACOS"] = df_single_item.apply(
     lambda r: r["广告花费"]/r["广告销售额"] if r["广告销售额"] !=0 else None, axis=1
 )
 df_single_item["单品TACOS"] = df_single_item.apply(
     lambda r: r["广告花费"]/r["销售额"] if r["销售额"] !=0 else None, axis=1
 )
+# ========== 新增：CTR点击率、CPC单次点击成本、CVR广告转化率 ==========
+df_single_item["CTR"] = df_single_item.apply(
+    lambda r: r["点击"]/r["展示"] if r["展示"] !=0 else None, axis=1
+)
+df_single_item["CPC"] = df_single_item.apply(
+    lambda r: r["广告花费"]/r["点击"] if r["点击"] !=0 else None, axis=1
+)
+df_single_item["CVR"] = df_single_item.apply(
+    lambda r: r["广告订单量"]/r["点击"] if r["点击"] !=0 else None, axis=1
+)
 
-# 按广告花费倒序（全部数据，不再取前20）
+# 按广告花费倒序（全部数据）
 df_all_item = df_single_item.sort_values("广告花费", ascending=False)
 
-# 展示字段
+# 展示字段（新增CTR/CPC/CVR，按流量→成本→转化→投产逻辑排序）
 item_show_cols = [
-    "MSKU","品名","产品类型", "开售时间", "广告花费", "广告销售额", "销售额",
-    "单品ACOS", "单品TACOS", "展示", "点击", "广告订单量"
+    "MSKU","品名","产品类型", "开售时间",
+    "展示", "点击", "CTR", "CPC", "CVR",
+    "广告花费", "广告销售额", "销售额",
+    "单品ACOS", "单品TACOS", "广告订单量"
 ]
 df_table = df_all_item[item_show_cols].copy()
 
@@ -910,17 +923,22 @@ def highlight_high_tacos(val):
     return f"color: {color}"
 
 # 表格格式化：
-# 1. 金额：2位小数
-# 2. TACOS/ACOS：百分比2位小数
+# 1. 百分比列：CTR、CVR、ACOS、TACOS
+pct_cols = ["CTR", "CVR", "单品ACOS", "单品TACOS"]
+# 2. 金额列：CPC、广告花费、广告销售额、销售额（保留2位小数）
+money_cols = ["CPC", "广告花费", "广告销售额", "销售额"]
+# 3. 整数列：展示、点击、广告订单量
+int_cols = ["展示", "点击", "广告订单量"]
+
 styled_df = df_table.style\
     .applymap(highlight_high_tacos, subset=["单品TACOS"])\
-    .format(formatter="{:.2f}", subset=["广告花费", "广告销售额", "销售额"])\
-    .format(formatter="{:.2%}", subset=["单品ACOS", "单品TACOS"])
+    .format(formatter="{:.2%}", subset=pct_cols)\
+    .format(formatter="{:.2f}", subset=money_cols)\
+    .format(formatter="{:.0f}", subset=int_cols)
 
 st.dataframe(styled_df, use_container_width=True, height=400)
 
-st.caption(f"本月店铺整体TACOS：{shop_total_tacos:.2%}；红色=单品TACOS高于店铺平均水平，低效投放SKU；金额保留两位小数，ACOS/TACOS以百分比展示")
-st.divider()
+st.caption(f"本月店铺整体TACOS：{shop_total_tacos:.2%}；红色=单品TACOS高于店铺平均水平；CTR/CVR为百分比，CPC/花费/销售额保留两位小数")
 
 # ===================== 新增：分层TACOS超标数量统计分析 =====================
 st.subheader("📊 三类商品单品TACOS超标数量对比分析")

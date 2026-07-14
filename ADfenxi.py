@@ -1001,28 +1001,37 @@ st.markdown("\n".join(text_lines))
 st.divider()
 
 # ===================== 新增：二八价值分层浪费定位分析（销售额二八维度，兼顾投入产出） =====================
-st.subheader("📈 二八价值分层 · 投放浪费定位分析（按销售额贡献分层）")
+st.subheader("📈 二八价值分层 · 投放浪费定位分析（按累计销售额贡献分层）")
 
 df_sku_analyze = df_all_item.copy()
 # 过滤无销售额无花费纯测试款
 df_valid = df_sku_analyze[(df_sku_analyze["广告花费"] > 0) | (df_sku_analyze["销售额"] > 0)].copy()
 
-# 1、按销售额二八分层：前20%为核心贡献SKU
+# 1、按【累计销售额80%】分层：头部SKU合计贡献80%总营收为核心SKU
 if len(df_valid) > 0:
-    sales_q80 = df_valid["销售额"].quantile(0.8)
-    def get_value_tier(sales_val):
-        if sales_val >= sales_q80:
-            return "核心贡献SKU（销售额前20%，承载80%营收）"
+    # 按销售额从高到低排序
+    df_sorted = df_valid.sort_values("销售额", ascending=False).reset_index(drop=True)
+    # 计算累计销售额占比
+    total_sales_all = df_sorted["销售额"].sum()
+    df_sorted["累计销售额"] = df_sorted["销售额"].cumsum()
+    df_sorted["累计占比"] = df_sorted["累计销售额"] / total_sales_all
+
+    # 标记分层：累计占比≤0.8 属于核心贡献SKU（合计贡献80%营收）
+    def get_value_tier(row):
+        if row["累计占比"] <= 0.8:
+            return "核心贡献SKU（累计承载80%营收）"
         else:
-            return "长尾SKU（剩余80%，少量营收）"
-    df_valid["价值分层"] = df_valid["销售额"].apply(get_value_tier)
+            return "长尾SKU（剩余20%营收）"
+    df_sorted["价值分层"] = df_sorted.apply(get_value_tier, axis=1)
+    # 合并回原df_valid，保证字段对齐
+    df_valid = df_valid.merge(df_sorted[["MSKU","价值分层"]], on="MSKU", how="left")
 else:
     df_valid["价值分层"] = ""
 
 # 2、分层统计指标
 tier_list = [
-    "核心贡献SKU（销售额前20%，承载80%营收）",
-    "长尾SKU（剩余80%，少量营收）"
+    "核心贡献SKU（累计承载80%营收）",
+    "长尾SKU（剩余20%营收）"
 ]
 tier_result = []
 shop_total_tacos_val = shop_total_tacos
@@ -1093,12 +1102,12 @@ else:
     text_lines = []
     text_lines.append(f"店铺整体基准TACOS：**{shop_total_tacos_val:.2%}**")
     text_lines.append(f"""
-1. 核心贡献SKU（销售额前20%）：
+1. 核心贡献SKU（累计承载80%营收）：
     - SKU数量：{core_data["SKU总数"]}个，花费占全店{core_data["广告花费占店铺比例"]:.2%}，贡献全店{core_data["销售额占店铺比例"]:.2%}营收
     - TACOS超标占比：{core_data["超标SKU占比"]:.2%}
 """)
     text_lines.append(f"""
-2. 长尾SKU（剩余80%商品）：
+2. 长尾SKU（剩余20%营收）：
     - SKU数量：{long_data["SKU总数"]}个，花费占全店{long_data["广告花费占店铺比例"]:.2%}，仅贡献全店{long_data["销售额占店铺比例"]:.2%}营收
     - TACOS超标占比：{long_data["超标SKU占比"]:.2%}
 """)

@@ -931,7 +931,7 @@ money_cols = ["CPC", "广告花费", "广告销售额", "销售额"]
 int_cols = ["展示", "点击", "广告订单量"]
 
 styled_df = df_table.style\
-    .applymap(highlight_high_tacos, subset=["单品TACOS"])\
+    .map(highlight_high_tacos, subset=["单品TACOS"])\
     .format(formatter="{:.2%}", subset=pct_cols)\
     .format(formatter="{:.2f}", subset=money_cols)\
     .format(formatter="{:.0f}", subset=int_cols)
@@ -1000,28 +1000,30 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 新增：二八价值分层浪费定位分析（销售额二八维度，兼顾投入产出） =====================
-# ===================== 二八价值分层 · 投放浪费定位分析（累计营收80%分层，无merge低内存版） =====================
+# ===================== 二八价值分层 · 投放浪费定位分析（按累计销售额贡献分层） =====================
 st.subheader("📈 二八价值分层 · 投放浪费定位分析（按累计销售额贡献分层）")
+import plotly.express as px
 
 df_sku_analyze = df_all_item.copy()
 # 过滤无销售额无花费纯测试款
 df_valid = df_sku_analyze[(df_sku_analyze["广告花费"] > 0) | (df_sku_analyze["销售额"] > 0)].copy()
-# 提前全局导入plotly，不要写在列内部
-import plotly.express as px
+# 先默认全部标记为长尾
+df_valid["价值分层"] = "长尾SKU（剩余20%营收）"
 
 if len(df_valid) > 0:
-    # 1. 按销售额降序排序，生成临时排序副本，不改动原df_valid
-    df_sorted = df_valid.sort_values("销售额", ascending=False).reset_index(drop=True)
-    total_sales_all = df_sorted["销售额"].sum()
-    # 计算累计占比
-    df_sorted["累计占比"] = df_sorted["销售额"].cumsum() / total_sales_all
-    # 原地新增分层标签
-    df_sorted["价值分层"] = df_sorted["累计占比"].apply(lambda x: "核心贡献SKU（累计承载80%营收）" if x <= 0.8 else "长尾SKU（剩余20%营收）")
-    # 关键：直接赋值回df_valid，不用merge！用原始索引匹配
-    df_valid["价值分层"] = df_sorted["价值分层"].values
-else:
-    df_valid["价值分层"] = ""
+    total_sales_all = df_valid["销售额"].sum()
+    # 获取销售额从高到低的索引，不复制整张表
+    sorted_idx = df_valid.sort_values("销售额", ascending=False).index
+    cum_sum = 0
+    core_index = []
+    # 累加销售额，到80%停止
+    for idx in sorted_idx:
+        cum_sum += df_valid.loc[idx, "销售额"]
+        core_index.append(idx)
+        if cum_sum / total_sales_all >= 0.8:
+            break
+    # 批量标记核心SKU
+    df_valid.loc[core_index, "价值分层"] = "核心贡献SKU（累计承载80%营收）"
 
 # 2、分层统计指标
 tier_list = [
@@ -1030,6 +1032,8 @@ tier_list = [
 ]
 tier_result = []
 shop_total_tacos_val = shop_total_tacos
+total_all_spend = df_valid["广告花费"].sum()
+total_all_sales = df_valid["销售额"].sum()
 
 for tier in tier_list:
     df_t = df_valid[df_valid["价值分层"] == tier]
@@ -1040,10 +1044,8 @@ for tier in tier_list:
     over_tacos_cnt = len(df_t[(df_t["单品TACOS"].notna()) & (df_t["单品TACOS"] > shop_total_tacos_val)])
     over_ratio = over_tacos_cnt / total_sku if total_sku > 0 else 0
     # 分层花费占店铺总花费
-    total_all_spend = df_valid["广告花费"].sum()
     tier_spend_ratio = total_ad_spend / total_all_spend if total_all_spend > 0 else 0
     # 分层销售额占店铺总销售额
-    total_all_sales = df_valid["销售额"].sum()
     tier_sales_ratio = total_sales / total_all_sales if total_all_sales > 0 else 0
 
     tier_result.append({

@@ -1001,30 +1001,25 @@ st.markdown("\n".join(text_lines))
 st.divider()
 
 # ===================== 新增：二八价值分层浪费定位分析（销售额二八维度，兼顾投入产出） =====================
+# ===================== 二八价值分层 · 投放浪费定位分析（累计营收80%分层，无merge低内存版） =====================
 st.subheader("📈 二八价值分层 · 投放浪费定位分析（按累计销售额贡献分层）")
 
 df_sku_analyze = df_all_item.copy()
 # 过滤无销售额无花费纯测试款
 df_valid = df_sku_analyze[(df_sku_analyze["广告花费"] > 0) | (df_sku_analyze["销售额"] > 0)].copy()
+# 提前全局导入plotly，不要写在列内部
+import plotly.express as px
 
-# 1、按【累计销售额80%】分层：头部SKU合计贡献80%总营收为核心SKU
 if len(df_valid) > 0:
-    # 按销售额从高到低排序
+    # 1. 按销售额降序排序，生成临时排序副本，不改动原df_valid
     df_sorted = df_valid.sort_values("销售额", ascending=False).reset_index(drop=True)
-    # 计算累计销售额占比
     total_sales_all = df_sorted["销售额"].sum()
-    df_sorted["累计销售额"] = df_sorted["销售额"].cumsum()
-    df_sorted["累计占比"] = df_sorted["累计销售额"] / total_sales_all
-
-    # 标记分层：累计占比≤0.8 属于核心贡献SKU（合计贡献80%营收）
-    def get_value_tier(row):
-        if row["累计占比"] <= 0.8:
-            return "核心贡献SKU（累计承载80%营收）"
-        else:
-            return "长尾SKU（剩余20%营收）"
-    df_sorted["价值分层"] = df_sorted.apply(get_value_tier, axis=1)
-    # 合并回原df_valid，保证字段对齐
-    df_valid = df_valid.merge(df_sorted[["MSKU","价值分层"]], on="MSKU", how="left")
+    # 计算累计占比
+    df_sorted["累计占比"] = df_sorted["销售额"].cumsum() / total_sales_all
+    # 原地新增分层标签
+    df_sorted["价值分层"] = df_sorted["累计占比"].apply(lambda x: "核心贡献SKU（累计承载80%营收）" if x <= 0.8 else "长尾SKU（剩余20%营收）")
+    # 关键：直接赋值回df_valid，不用merge！用原始索引匹配
+    df_valid["价值分层"] = df_sorted["价值分层"].values
 else:
     df_valid["价值分层"] = ""
 
@@ -1045,9 +1040,11 @@ for tier in tier_list:
     over_tacos_cnt = len(df_t[(df_t["单品TACOS"].notna()) & (df_t["单品TACOS"] > shop_total_tacos_val)])
     over_ratio = over_tacos_cnt / total_sku if total_sku > 0 else 0
     # 分层花费占店铺总花费
-    tier_spend_ratio = total_ad_spend / df_valid["广告花费"].sum() if df_valid["广告花费"].sum() > 0 else 0
+    total_all_spend = df_valid["广告花费"].sum()
+    tier_spend_ratio = total_ad_spend / total_all_spend if total_all_spend > 0 else 0
     # 分层销售额占店铺总销售额
-    tier_sales_ratio = total_sales / df_valid["销售额"].sum() if df_valid["销售额"].sum() > 0 else 0
+    total_all_sales = df_valid["销售额"].sum()
+    tier_sales_ratio = total_sales / total_all_sales if total_all_sales > 0 else 0
 
     tier_result.append({
         "价值分层": tier,
@@ -1072,7 +1069,6 @@ with col_table:
     st.dataframe(styled_tier, use_container_width=True, height=200)
 
 with col_chart:
-    import plotly.express as px
     df_plot = df_tier_res[df_tier_res["SKU总数"]>0].copy()
     if len(df_plot) > 0:
         fig_tier = px.bar(

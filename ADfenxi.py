@@ -931,7 +931,7 @@ money_cols = ["CPC", "广告花费", "广告销售额", "销售额"]
 int_cols = ["展示", "点击", "广告订单量"]
 
 styled_df = df_table.style\
-    .applymap(highlight_high_tacos, subset=["单品TACOS"])\
+    .map(highlight_high_tacos, subset=["单品TACOS"])\
     .format(formatter="{:.2%}", subset=pct_cols)\
     .format(formatter="{:.2f}", subset=money_cols)\
     .format(formatter="{:.0f}", subset=int_cols)

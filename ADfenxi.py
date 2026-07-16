@@ -1000,13 +1000,14 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 新增：八、二八销售额结构分析（全SKU分层+TACOS标红 修复pandas版本报错） =====================
-st.markdown("## 📈 二八销售额结构分析（全SKU营收分层诊断）")
+# ===================== 八、二八销售额结构分析（目标TACOS15%压降测算+分层标签+TACOS标红） =====================
+st.markdown("## 📈 八、二八销售额结构分析（全SKU营收分层+目标TACOS15%压降测算）")
 # 1、基于当月单品明细，过滤无销售额SKU
 df_8020_raw = df_all_item.dropna(subset=["销售额"]).copy()
 df_8020_raw = df_8020_raw[df_8020_raw["销售额"] > 0]
-# 当月店铺整体TACOS（前面代码已计算好的全局指标）
+# 店铺基准TACOS & 运营目标TACOS 15%
 shop_total_tacos = df_month_single["TACOS广告花费占比"].iloc[0]
+target_tacos = 0.15
 
 if df_8020_raw.empty:
     st.warning("本月所有SKU均无销售额，无法进行二八结构分析")
@@ -1018,15 +1019,57 @@ else:
     total_month_sales = df_8020_sort["销售额"].sum()
     df_8020_sort["累计销售额占比"] = df_8020_sort["累计销售额"] / total_month_sales
 
-    # 拆分头部/长尾标记
+    # 1）标记SKU层级：核心/长尾
     def mark_sku_level(row):
-        if row["累计销售额占比"] <= 0.8:
-            return "核心SKU(贡献前80%营收)"
-        else:
-            return "长尾SKU(剩余20%营收)"
+        return "核心SKU(贡献前80%营收)" if row["累计销售额占比"] <= 0.8 else "长尾SKU(剩余20%营收)"
     df_8020_sort["SKU层级"] = df_8020_sort.apply(mark_sku_level, axis=1)
 
-    # 拆分头部SKU（累计销售额≤80%）、尾部SKU（剩余）用于统计图表
+    # 2）自动打商品流量&属性标签
+    def get_flow_tag(row):
+        sales = row["销售额"]
+        ad_sales = row["广告销售额"]
+        ad_spend = row["广告花费"]
+        product_type = row["产品类型"]
+        # 新品优先判定
+        if "新品" in product_type:
+            return "新品推广款（容忍高TACOS，不压降）"
+        # 广告销售额大于总销售额 数据异常
+        if ad_sales > sales and sales > 0:
+            return "数据异常：广告营收>总销售额（退单/统计错位）"
+        # 有广告花费但广告销售额=0，纯自然出单
+        if ad_spend > 0 and ad_sales == 0:
+            return "纯自然出单：广告无转化，预算浪费"
+        # 广告销售额占总销售额95%以上，重度广告依赖
+        if sales > 0 and (ad_sales / sales) >= 0.95:
+            return "重度广告依赖：砍广告销量大幅下滑"
+        return "正常老品，可压降至15%TACOS"
+    df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
+
+    # 3）计算三种场景下需要削减的广告花费（仅老品计算，新品填None）
+    def calc_reduce_spend(row):
+        S = row["销售额"]
+        AdSpend = row["广告花费"]
+        prod_tag = row["商品流量标签"]
+        # 新品不计算压降
+        if "新品" in prod_tag:
+            return None, None, None
+        # 目标允许广告费
+        target_spend_same = S * target_tacos
+        target_spend_s95 = S * 0.95 * target_tacos
+        target_spend_s90 = S * 0.90 * target_tacos
+
+        reduce1 = AdSpend - target_spend_same if AdSpend > target_spend_same else 0
+        reduce2 = AdSpend - target_spend_s95 if AdSpend > target_spend_s95 else 0
+        reduce3 = AdSpend - target_spend_s90 if AdSpend > target_spend_s90 else 0
+        return round(reduce1,2), round(reduce2,2), round(reduce3,2)
+
+    # 批量计算三场景压降值
+    reduce_res = df_8020_sort.apply(lambda x: calc_reduce_spend(x), axis=1, result_type="expand")
+    df_8020_sort["压降_销售额不变"] = reduce_res[0]
+    df_8020_sort["压降_销售额跌5%"] = reduce_res[1]
+    df_8020_sort["压降_销售额跌10%"] = reduce_res[2]
+
+    # 拆分头部/长尾用于图表统计
     df_head_80 = df_8020_sort[df_8020_sort["累计销售额占比"] <= 0.8]
     df_tail_20 = df_8020_sort[df_8020_sort["累计销售额占比"] > 0.8]
 
@@ -1039,35 +1082,38 @@ else:
     head_total_sales = df_head_80["销售额"].sum()
     head_total_ad_spend = df_head_80["广告花费"].sum()
     head_total_ad_sales = df_head_80["广告销售额"].sum()
-
     tail_total_sales = df_tail_20["销售额"].sum()
     tail_total_ad_spend = df_tail_20["广告花费"].sum()
 
-    # 计算头部整体TACOS、ACOS
     head_tacos = head_total_ad_spend / head_total_sales if head_total_sales > 0 else 0
     head_acos = head_total_ad_spend / head_total_ad_sales if head_total_ad_sales > 0 else 0
-    # 尾部TACOS
     tail_tacos = tail_total_ad_spend / tail_total_sales if tail_total_sales > 0 else 0
 
+    # 全店老品可释放预算汇总（销售额不变场景）
+    valid_reduce_df = df_8020_sort[df_8020_sort["压降_销售额不变"].notna()]
+    total_can_cut = valid_reduce_df["压降_销售额不变"].sum()
+
     # ---------------------- 1、指标卡片展示二八结构概况 ----------------------
-    st.subheader("📊 二八结构核心数据快照")
-    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    st.subheader("📊 二八结构核心数据快照（目标TACOS=15%）")
+    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
     with kpi1:
         st.metric("有效出单SKU总数", f"{total_sku_count}")
-        st.caption(f"贡献80%销售额核心SKU：{head_sku_count}个，占比{head_sku_pct:.1%}")
+        st.caption(f"核心SKU：{head_sku_count}个，占比{head_sku_pct:.1%}")
     with kpi2:
         st.metric("核心SKU总销售额", f"${head_total_sales:,.2f}")
-        st.caption(f"占全店营收80%")
+        st.caption(f"分层TACOS：{head_tacos:.2%}")
     with kpi3:
-        st.metric("核心SKU广告总花费", f"${head_total_ad_spend:,.2f}")
-        st.caption(f"核心分层TACOS：{head_tacos:.2%}")
-    with kpi4:
         st.metric("长尾SKU广告总花费", f"${tail_total_ad_spend:,.2f}")
-        st.caption(f"长尾分层TACOS：{tail_tacos:.2%} | 店铺基准TACOS：{shop_total_tacos:.2%}")
+        st.caption(f"分层TACOS：{tail_tacos:.2%}")
+    with kpi4:
+        st.metric("店铺当前TACOS", f"{shop_total_tacos:.2%}")
+        st.caption(f"运营目标TACOS：{target_tacos:.0%}")
+    with kpi5:
+        st.metric("老品理论可削减广告预算", f"${total_can_cut:,.2f}")
+        st.caption("假设销售额不变，全部老品压至15%TACOS可释放预算")
 
     # ---------------------- 2、双图布局：累计销售额曲线 + 头尾广告花费对比 ----------------------
     chart_80_left, chart_80_right = st.columns([1.2, 1])
-    # 左图：销售额累计占比曲线（二八分界线0.8虚线）
     with chart_80_left:
         fig_cum_sales = go.Figure()
         fig_cum_sales.add_trace(go.Scatter(
@@ -1076,14 +1122,10 @@ else:
             mode="lines+markers",
             line=dict(color="#1f77b4", width=3),
             name="销售额累计占比",
-            hovertemplate="SKU排名：%{x}<br>累计销售额占比：%{y:.2%}<br>SKU层级：%{customdata[0]}<extra></extra>",
-            customdata=df_8020_sort[["SKU层级"]].values
+            hovertemplate="SKU排名：%{x}<br>累计销售额占比：%{y:.2%}<br>SKU层级：%{customdata[0]}<br>标签：%{customdata[1]}<extra></extra>",
+            customdata=df_8020_sort[["SKU层级","商品流量标签"]].values
         ))
-        # 80%分界线
-        fig_cum_sales.add_hline(
-            y=0.8, line_dash="dash", line_color="red", line_width=2,
-            annotation_text="80%营收分界线", annotation_position="top right"
-        )
+        fig_cum_sales.add_hline(y=0.8, line_dash="dash", line_color="red", line_width=2, annotation_text="80%营收分界线", annotation_position="top right")
         fig_cum_sales.update_layout(
             title="SKU销售额累计占比曲线（按销售额降序，全SKU展示）",
             xaxis_title="SKU排名（销售额从高到低）",
@@ -1094,7 +1136,6 @@ else:
         )
         st.plotly_chart(fig_cum_sales, use_container_width=True)
 
-    # 右图：核心VS长尾广告花费柱状对比
     with chart_80_right:
         fig_head_tail_spend = go.Figure()
         fig_head_tail_spend.add_trace(go.Bar(
@@ -1103,22 +1144,20 @@ else:
             marker_color=["#2ca02c", "#d62728"],
             hovertemplate="广告花费：$%{y:,.2f}<extra></extra>"
         ))
-        fig_head_tail_spend.update_layout(
-            title="核心/长尾SKU广告花费对比",
-            yaxis_title="广告花费 ($)",
-            height=400
-        )
+        fig_head_tail_spend.update_layout(title="核心/长尾SKU广告花费对比", yaxis_title="广告花费 ($)", height=400)
         st.plotly_chart(fig_head_tail_spend, use_container_width=True)
 
-    # ---------------------- 3、全SKU明细表（新增SKU层级列，TACOS超标标红 修复applymap报错） ----------------------
-    st.subheader(f"🏆 全量出单SKU明细（共{total_sku_count}个，新增【SKU层级】标签；单品TACOS高于店铺基准自动标红）")
+    # ---------------------- 3、全SKU明细表（新增流量标签+3档压降测算，TACOS超标标红） ----------------------
+    st.subheader(f"🏆 全量出单SKU明细（共{total_sku_count}个；单品TACOS高于店铺基准自动标红）")
     full_show_cols = [
-        "MSKU","品名","产品类型","SKU层级","展示","点击","CTR","CPC","CVR",
-        "广告花费","广告销售额","销售额","单品ACOS","单品TACOS"
+        "MSKU","品名","产品类型","SKU层级","商品流量标签",
+        "展示","点击","CTR","CPC","CVR",
+        "广告花费","广告销售额","销售额","单品ACOS","单品TACOS",
+        "压降_销售额不变","压降_销售额跌5%","压降_销售额跌10%"
     ]
     full_table = df_8020_sort[full_show_cols].copy()
 
-    # 单列标红函数（适配新版pandas，替换废弃applymap）
+    # 单列TACOS标红函数
     def color_tacos_series(s):
         return [
             "background-color: #ffcccc; color: #c41e3a; font-weight:bold"
@@ -1126,41 +1165,51 @@ else:
             for val in s
         ]
 
-    # 表格格式化+高亮逻辑 修复点：使用apply替代applymap
+    # 表格格式化配置
+    pct_cols = ["CTR","CVR","单品ACOS","单品TACOS"]
+    money_cols = ["CPC","广告花费","广告销售额","销售额","压降_销售额不变","压降_销售额跌5%","压降_销售额跌10%"]
+    int_cols = ["展示","点击"]
+
     full_styled = full_table.style\
-        .format(formatter="{:.2%}", subset=["CTR","CVR","单品ACOS","单品TACOS"])\
-        .format(formatter="{:.2f}", subset=["CPC","广告花费","广告销售额","销售额"])\
-        .format(formatter="{:.0f}", subset=["展示","点击"])\
+        .format(formatter="{:.2%}", subset=pct_cols, na_rep="-")\
+        .format(formatter="{:.2f}", subset=money_cols, na_rep="-")\
+        .format(formatter="{:.0f}", subset=int_cols, na_rep="-")\
         .apply(color_tacos_series, subset=["单品TACOS"])
 
-    st.dataframe(full_styled, use_container_width=True, height=400)
+    st.dataframe(full_styled, use_container_width=True, height=450)
+    st.caption(f"目标TACOS 15%；压降列仅老品计算，新品显示'-'；红色单品TACOS＞店铺当前TACOS({shop_total_tacos:.2%})")
 
-    # ---------------------- 4、自动二八结构诊断分析文案 ----------------------
-    st.subheader("🔍 二八结构投放诊断解读")
+    # ---------------------- 4、二八+压降综合诊断解读 ----------------------
+    st.subheader("🔍 二八结构 & TACOS压降投放综合诊断")
     analysis_8020 = []
-    # 判断是否标准二八
+    # 二八判定
     if head_sku_pct <= 0.2:
         rule_desc = f"✅ 符合标准二八法则：仅{head_sku_pct:.1%}的SKU贡献80%营收，店铺营收高度集中核心爆款"
     else:
         rule_desc = f"⚠️ 偏离标准二八法则：需要{head_sku_pct:.1%}的SKU才能覆盖80%营收，营收分散、缺少超级爆款"
     analysis_8020.append(rule_desc)
-    analysis_8020.append(f"- 核心SKU共{head_sku_count}个，总营收${head_total_sales:,.2f}，广告投入${head_total_ad_spend:,.2f}，分层TACOS {head_tacos:.2%}")
-    analysis_8020.append(f"- 长尾剩余{tail_sku_count}个SKU仅贡献20%营收，广告花费${tail_total_ad_spend:,.2f}，分层TACOS {tail_tacos:.2%}")
-    analysis_8020.append(f"- 店铺基准TACOS：{shop_total_tacos:.2%}，表格中红色TACOS代表该单品投放成本高于店铺平均水平")
+    analysis_8020.append(f"- 当前店铺整体TACOS：{shop_total_tacos:.2%}，运营控制目标TACOS：{target_tacos:.0%}")
+    analysis_8020.append(f"- 全店老品若全部调整至15%TACOS、销售额不变，理论可释放广告预算：${total_can_cut:,.2f}")
 
-    # 投放风险判断
+    analysis_8020.append("### 各类商品调整策略说明")
+    analysis_8020.append("1. **新品推广款**：不参与压降测算，前期需要广告冲量，允许TACOS高于15%，上架满60天后再逐步优化预算；")
+    analysis_8020.append("2. **纯自然出单（广告无转化）**：广告预算完全无广告成交，优先大幅削减或关停广告，预算转移至有转化SKU；")
+    analysis_8020.append("3. **重度广告依赖SKU**：广告贡献95%以上营收，压降广告会同步下滑销售额，建议小幅降预算、同步优化自然流量；")
+    analysis_8020.append("4. **数据异常（广告销售额>总销售额）**：存在退单/统计时间错位，压降数值仅作参考，优先核对订单报表；")
+    analysis_8020.append("5. **正常老品**：参考三档压降金额调整广告预算，根据可承受销量下滑幅度选择削减力度：")
+    analysis_8020.append("   - 能接受销量跌10%：可按【压降_销售额跌10%】大幅削减广告；")
+    analysis_8020.append("   - 希望销量尽量平稳：按【压降_销售额不变】小幅削减广告。")
+
+    # 风险判断
     if tail_tacos > head_tacos:
         analysis_8020.append("""
-#### 风险提示
-长尾低效SKU广告成本显著高于核心爆款，大量预算消耗在低产出商品上，建议：
-1. 削减长尾高TACOS标红SKU广告预算；
-2. 将释放预算倾斜至核心SKU里TACOS低于店铺均值的优质单品；
+#### 核心风险提示
+长尾SKU分层TACOS高于核心爆款，大量预算消耗在低营收长尾商品，优化优先级：
+1. 优先清理长尾内「纯自然出单、TACOS标红」SKU广告预算；
+2. 释放预算倾斜给核心SKU中TACOS低于15%的优质老品；
 """)
     else:
-        analysis_8020.append("""
-#### 结构健康提示
-长尾SKU广告成本低于核心爆款，长尾投放未严重拖累整体TACOS，可适度维持长尾流量布局。
-""")
+        analysis_8020.append("#### 结构健康提示：长尾分层投放成本低于核心爆款，可适度保留长尾广告流量布局。")
     st.markdown("\n".join(analysis_8020))
 
 st.divider()

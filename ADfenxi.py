@@ -1000,7 +1000,7 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 八、二八销售额结构分析（全局TACOS15%管控+新品刚性预算分摊压降） =====================
+# ===================== 八、二八销售额结构分析（全局TACOS15%管控+修复apply长度报错） =====================
 st.markdown("## 📈 八、二八销售额结构分析（全SKU分层+店铺全局目标TACOS15%预算测算）")
 # 基础参数
 target_tacos = 0.15
@@ -1057,36 +1057,39 @@ else:
     # 老品销售额总和（用于按销售额权重分摊预算）
     sum_old_sales = df_old["销售额"].sum() if len(df_old) > 0 else 0
 
-    # 3、双层压降测算函数
-    def calc_all_reduce(row):
+    # 3、初始化4个压降空列
+    df_8020_sort["单品压降_销量不变"] = None
+    df_8020_sort["单品压降_销量跌5%"] = None
+    df_8020_sort["单品压降_销量跌10%"] = None
+    df_8020_sort["全局分摊压降额"] = None
+
+    # 循环逐行计算，彻底规避expand长度报错
+    for idx, row in df_8020_sort.iterrows():
         S = row["销售额"]
         AdSpend = row["广告花费"]
         tag = row["商品流量标签"]
-        # 新品全部返回空，不参与压降
+        # 新品全部置空，不参与压降
         if "新品" in tag:
-            return None, None, None, None, None
-        # 场景1：单品独立达标15%（旧逻辑）
+            continue
+        # 场景1：单品独立达标15%
         target_single = S * target_tacos
         reduce_single_same = AdSpend - target_single if AdSpend > target_single else 0
         reduce_single_s95 = AdSpend - (S * 0.95 * target_tacos) if AdSpend > (S * 0.95 * target_tacos) else 0
         reduce_single_s90 = AdSpend - (S * 0.90 * target_tacos) if AdSpend > (S * 0.90 * target_tacos) else 0
 
-        # 场景2：店铺全局达标分摊预算（仅当老品有总额度时计算）
+        # 场景2：全局分摊压降
         if sum_old_sales <= 0 or old_max_total_allow <= 0:
             reduce_global = None
         else:
-            # 按单品销售额占老品总销售额权重分配预算
             weight = S / sum_old_sales
             single_global_max = old_max_total_allow * weight
             reduce_global = AdSpend - single_global_max if AdSpend > single_global_max else 0
-        return round(reduce_single_same,2), round(reduce_single_s95,2), round(reduce_single_s90,2), round(reduce_global,2)
 
-    # 批量计算压降四列
-    reduce_res = df_8020_sort.apply(lambda x: calc_all_reduce(x), axis=1, result_type="expand")
-    df_8020_sort["单品压降_销量不变"] = reduce_res[0]
-    df_8020_sort["单品压降_销量跌5%"] = reduce_res[1]
-    df_8020_sort["单品压降_销量跌10%"] = reduce_res[2]
-    df_8020_sort["全局分摊压降额"] = reduce_res[3]
+        # 赋值回df
+        df_8020_sort.at[idx, "单品压降_销量不变"] = round(reduce_single_same, 2)
+        df_8020_sort.at[idx, "单品压降_销量跌5%"] = round(reduce_single_s95, 2)
+        df_8020_sort.at[idx, "单品压降_销量跌10%"] = round(reduce_single_s90, 2)
+        df_8020_sort.at[idx, "全局分摊压降额"] = round(reduce_global, 2)
 
     # 统计二八图表数据
     df_head_80 = df_8020_sort[df_8020_sort["累计销售额占比"] <= 0.8]
@@ -1103,7 +1106,7 @@ else:
     # 老品整体可削减总额（全局分摊口径）
     total_old_cut_global = df_8020_sort["全局分摊压降额"].dropna().sum()
 
-    # ---------------------- 1、全局预算指标卡片（重点新增全局管控数据） ----------------------
+    # ---------------------- 1、全局预算指标卡片 ----------------------
     st.subheader("📊 店铺全局TACOS管控核心数据（目标15%）")
     kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
     with kpi1:
@@ -1162,7 +1165,7 @@ else:
         fig_head_tail_spend.update_layout(title="核心/长尾广告花费对比", yaxis_title="广告花费($)", height=400)
         st.plotly_chart(fig_head_tail_spend, use_container_width=True)
 
-    # ---------------------- 3、全SKU明细表格（新增全局分摊压降列） ----------------------
+    # ---------------------- 3、全SKU明细表格 ----------------------
     st.subheader(f"🏆 全量出单SKU明细（单品TACOS高于店铺基准标红）")
     full_show_cols = [
         "MSKU","品名","产品类型","SKU层级","商品流量标签",

@@ -999,3 +999,146 @@ text_lines.append(f"""
 
 st.markdown("\n".join(text_lines))
 st.divider()
+
+# ===================== 新增：八、二八销售额结构分析（头部贡献80%销售额SKU拆解） =====================
+st.markdown("📈 八、二八销售额结构分析（贡献80%营收核心SKU诊断")
+# 1、基于当月单品明细，过滤有销售额的SKU（无销售额不参与二八统计）
+df_8020_raw = df_all_item.dropna(subset=["销售额"]).copy()
+df_8020_raw = df_8020_raw[df_8020_raw["销售额"] > 0]
+if df_8020_raw.empty:
+    st.warning("本月所有SKU均无销售额，无法进行二八结构分析")
+else:
+    # 按单品总销售额降序排列
+    df_8020_sort = df_8020_raw.sort_values("销售额", ascending=False).reset_index(drop=True)
+    # 计算累计销售额、累计占比
+    df_8020_sort["累计销售额"] = df_8020_sort["销售额"].cumsum()
+    total_month_sales = df_8020_sort["销售额"].sum()
+    df_8020_sort["累计销售额占比"] = df_8020_sort["累计销售额"] / total_month_sales
+
+    # 拆分头部SKU（累计销售额≤80%）、尾部SKU（剩余）
+    df_head_80 = df_8020_sort[df_8020_sort["累计销售额占比"] <= 0.8]
+    df_tail_20 = df_8020_sort[df_8020_sort["累计销售额占比"] > 0.8]
+
+    # 基础统计指标
+    total_sku_count = len(df_8020_sort)
+    head_sku_count = len(df_head_80)
+    tail_sku_count = len(df_tail_20)
+    head_sku_pct = head_sku_count / total_sku_count if total_sku_count > 0 else 0
+
+    head_total_sales = df_head_80["销售额"].sum()
+    head_total_ad_spend = df_head_80["广告花费"].sum()
+    head_total_ad_sales = df_head_80["广告销售额"].sum()
+    head_total_ad_order = df_head_80["广告订单量"].sum()
+
+    tail_total_sales = df_tail_20["销售额"].sum()
+    tail_total_ad_spend = df_tail_20["广告花费"].sum()
+
+    # 计算头部整体TACOS、ACOS
+    head_tacos = head_total_ad_spend / head_total_sales if head_total_sales > 0 else 0
+    head_acos = head_total_ad_spend / head_total_ad_sales if head_total_ad_sales > 0 else 0
+    # 尾部TACOS
+    tail_tacos = tail_total_ad_spend / tail_total_sales if tail_total_sales > 0 else 0
+
+    # ---------------------- 1、指标卡片展示二八结构概况 ----------------------
+    st.subheader("📊 二八结构核心数据快照")
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+    with kpi1:
+        st.metric("有效出单SKU总数", f"{total_sku_count}")
+        st.caption(f"贡献80%销售额SKU：{head_sku_count}个，占比{head_sku_pct:.1%}")
+    with kpi2:
+        st.metric("头部SKU总销售额", f"${head_total_sales:,.2f}")
+        st.caption(f"占全店营收80%")
+    with kpi3:
+        st.metric("头部SKU广告总花费", f"${head_total_ad_spend:,.2f}")
+        st.caption(f"头部TACOS：{head_tacos:.2%}")
+    with kpi4:
+        st.metric("尾部SKU广告总花费", f"${tail_total_ad_spend:,.2f}")
+        st.caption(f"尾部TACOS：{tail_tacos:.2%}")
+
+    # ---------------------- 2、双图布局：累计销售额曲线 + 头尾广告花费对比 ----------------------
+    chart_80_left, chart_80_right = st.columns([1.2, 1])
+    # 左图：销售额累计占比曲线（二八分界线0.8虚线）
+    with chart_80_left:
+        fig_cum_sales = go.Figure()
+        fig_cum_sales.add_trace(go.Scatter(
+            x=list(range(1, len(df_8020_sort)+1)),
+            y=df_8020_sort["累计销售额占比"],
+            mode="lines+markers",
+            line=dict(color="#1f77b4", width=3),
+            name="销售额累计占比",
+            hovertemplate="SKU排名：%{x}<br>累计销售额占比：%{y:.2%}<extra></extra>"
+        ))
+        # 80%分界线
+        fig_cum_sales.add_hline(
+            y=0.8, line_dash="dash", line_color="red", line_width=2,
+            annotation_text="80%营收分界线", annotation_position="top right"
+        )
+        fig_cum_sales.update_layout(
+            title="SKU销售额累计占比曲线（按销售额降序）",
+            xaxis_title="SKU排名（销售额从高到低）",
+            yaxis_title="累计销售额占比",
+            yaxis_tickformat=".1%",
+            height=400,
+            hovermode="x unified"
+        )
+        st.plotly_chart(fig_cum_sales, use_container_width=True)
+
+    # 右图：头部VS尾部广告花费柱状对比
+    with chart_80_right:
+        fig_head_tail_spend = go.Figure()
+        fig_head_tail_spend.add_trace(go.Bar(
+            x=["头部SKU(贡献80%营收)", "尾部SKU(剩余20%营收)"],
+            y=[head_total_ad_spend, tail_total_ad_spend],
+            marker_color=["#2ca02c", "#d62728"],
+            hovertemplate="广告花费：$%{y:,.2f}<extra></extra>"
+        ))
+        fig_head_tail_spend.update_layout(
+            title="头部/尾部SKU广告花费对比",
+            yaxis_title="广告花费 ($)",
+            height=400
+        )
+        st.plotly_chart(fig_head_tail_spend, use_container_width=True)
+
+    # ---------------------- 3、头部核心SKU明细表（可查看每个贡献80%营收的单品） ----------------------
+    st.subheader(f"🏆 贡献80%销售额头部{head_sku_count}个核心SKU明细")
+    head_show_cols = [
+        "MSKU","品名","产品类型","展示","点击","CTR","CPC","CVR",
+        "广告花费","广告销售额","销售额","单品ACOS","单品TACOS"
+    ]
+    head_table = df_head_80[head_show_cols].copy()
+    # 格式化表格
+    head_styled = head_table.style\
+        .format(formatter="{:.2%}", subset=["CTR","CVR","单品ACOS","单品TACOS"])\
+        .format(formatter="{:.2f}", subset=["CPC","广告花费","广告销售额","销售额"])\
+        .format(formatter="{:.0f}", subset=["展示","点击"])
+    st.dataframe(head_styled, use_container_width=True, height=300)
+
+    # ---------------------- 4、自动二八结构诊断分析文案 ----------------------
+    st.subheader("🔍 二八结构投放诊断解读")
+    analysis_8020 = []
+    # 判断是否标准二八
+    if head_sku_pct <= 0.2:
+        rule_desc = f"✅ 符合标准二八法则：仅{head_sku_pct:.1%}的SKU贡献80%营收，店铺营收高度集中核心单品"
+    else:
+        rule_desc = f"⚠️ 偏离标准二八法则：需要{head_sku_pct:.1%}的SKU才能覆盖80%营收，营收分散、缺少超级爆款"
+    analysis_8020.append(rule_desc)
+    analysis_8020.append(f"- 头部核心SKU共{head_sku_count}个，总营收${head_total_sales:,.2f}，广告投入${head_total_ad_spend:,.2f}，头部TACOS {head_tacos:.2%}")
+    analysis_8020.append(f"- 尾部剩余{tail_sku_count}个SKU仅贡献20%营收，但广告花费${tail_total_ad_spend:,.2f}，尾部TACOS {tail_tacos:.2%}")
+
+    # 投放风险判断
+    if tail_tacos > head_tacos:
+        analysis_8020.append("""
+#### 风险提示
+尾部低效SKU广告成本显著高于头部爆款，大量预算消耗在低产出商品上，建议：
+1. 削减尾部高TACOS无潜力SKU广告预算；
+2. 将释放预算倾斜至头部核心SKU，放大爆款规模；
+""")
+    else:
+        analysis_8020.append("""
+#### 结构健康提示
+尾部SKU广告成本低于头部，尾部投放未严重拖累整体TACOS，可适度维持长尾流量布局。
+""")
+    st.markdown("\n".join(analysis_8020))
+
+st.divider()
+

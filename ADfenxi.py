@@ -1000,8 +1000,8 @@ text_lines.append(f"""
 st.markdown("\n".join(text_lines))
 st.divider()
 
-# ===================== 新增：八、二八销售额结构分析（全SKU分层+TACOS标红） =====================
-st.markdown(" 📈 八、二八销售额结构分析（全SKU营收分层诊断")
+# ===================== 新增：八、二八销售额结构分析（全SKU分层+TACOS标红 修复pandas版本报错） =====================
+st.markdown("## 📈 二八销售额结构分析（全SKU营收分层诊断）")
 # 1、基于当月单品明细，过滤无销售额SKU
 df_8020_raw = df_all_item.dropna(subset=["销售额"]).copy()
 df_8020_raw = df_8020_raw[df_8020_raw["销售额"] > 0]
@@ -1110,7 +1110,7 @@ else:
         )
         st.plotly_chart(fig_head_tail_spend, use_container_width=True)
 
-    # ---------------------- 3、全SKU明细表（新增SKU层级列，TACOS超标标红） ----------------------
+    # ---------------------- 3、全SKU明细表（新增SKU层级列，TACOS超标标红 修复applymap报错） ----------------------
     st.subheader(f"🏆 全量出单SKU明细（共{total_sku_count}个，新增【SKU层级】标签；单品TACOS高于店铺基准自动标红）")
     full_show_cols = [
         "MSKU","品名","产品类型","SKU层级","展示","点击","CTR","CPC","CVR",
@@ -1118,19 +1118,20 @@ else:
     ]
     full_table = df_8020_sort[full_show_cols].copy()
 
-    # 定义样式函数：单品TACOS > 店铺整体TACOS时，TACOS单元格标红底色
-    def highlight_high_tacos(val):
-        # val是当前单元格单品TACOS数值
-        if val > shop_total_tacos:
-            return "background-color: #ffcccc; color: #c41e3a; font-weight:bold"
-        return ""
+    # 单列标红函数（适配新版pandas，替换废弃applymap）
+    def color_tacos_series(s):
+        return [
+            "background-color: #ffcccc; color: #c41e3a; font-weight:bold"
+            if val > shop_total_tacos else ""
+            for val in s
+        ]
 
-    # 表格格式化+高亮逻辑
+    # 表格格式化+高亮逻辑 修复点：使用apply替代applymap
     full_styled = full_table.style\
         .format(formatter="{:.2%}", subset=["CTR","CVR","单品ACOS","单品TACOS"])\
         .format(formatter="{:.2f}", subset=["CPC","广告花费","广告销售额","销售额"])\
         .format(formatter="{:.0f}", subset=["展示","点击"])\
-        .applymap(highlight_high_tacos, subset=["单品TACOS"]) # 仅TACOS列超标标红
+        .apply(color_tacos_series, subset=["单品TACOS"])
 
     st.dataframe(full_styled, use_container_width=True, height=400)
 

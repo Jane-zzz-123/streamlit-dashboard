@@ -1150,7 +1150,7 @@ with cols[5]:
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
-st.subheader("📊 滞销拆解（含环比+占比 | 按口径/年份拆分）")
+st.subheader("📊 滞销拆解（含环比+占比 | 按口径/年份拆分")
 
 RISK_LIST = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 
@@ -1170,8 +1170,8 @@ def get_segment_metrics(df_curr, df_prev, risk_col, stock_col, amt_col, unsold_s
     res["diff_total_amt"] = res["curr_total_amt"] - res["prev_total_amt"]
 
     for r in RISK_LIST:
-        dc = df_curr[df_curr[risk_col] == r]
-        dp = df_prev[df_prev[risk_col] == r]
+        dc = df_curr[df_curr[risk_col] == r].copy().fillna(0)
+        dp = df_prev[df_prev[risk_col] == r].copy().fillna(0)
 
         res[f"{r}_sku_curr"] = dc["MSKU"].nunique()
         res[f"{r}_sku_prev"] = dp["MSKU"].nunique()
@@ -1275,13 +1275,20 @@ met_nonyear_fba = get_segment_metrics(
 
 # 格式化单元格并存储差值，方便后续上色
 def format_cell(val, diff, pct=None, unit=""):
+    import pandas as pd
+    # 空值兜底
+    if pd.isna(val):
+        val = 0
+    if pd.isna(diff):
+        diff = 0
     arrow = "↑" if diff >= 0 else "↓"
     diff_str = f"{arrow}{diff:+d}".replace("+", "")
-    if pct is not None:
+    # 百分比兜底
+    if pct is not None and not pd.isna(pct):
         text = f"{val:,}{unit} ({pct:.1%}) {diff_str}"
     else:
         text = f"{val:,}{unit} {diff_str}"
-    return text, diff  # 同时返回文本和差值
+    return text, diff
 
 row_list = [
     "全部",
@@ -1369,27 +1376,35 @@ df_sku_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 个")
 df_stock_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 件")
 df_amt_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 元")
 
-# 自定义颜色函数（优化版：差值为0不上色）
-def color_text(val):
-    if "↑0" in val or "↓0" in val:
-        return ""  # 差值为0，保持默认黑色
-    elif "↑" in val:
-        return "color: red"
-    elif "↓" in val:
-        return "color: green"
-    else:
-        return ""
-
-# 渲染带颜色的表格
+# 重写渲染函数：纯HTML表格，彻底移除pandas.style相关报错代码
 def render_colored_df(df, title):
     st.markdown(title)
-    display_df = df[["分类", "年份品", "非年份品"]].copy()
-    st.dataframe(
-        display_df.style.applymap(color_text, subset=["年份品", "非年份品"]),
-        use_container_width=True,
-        hide_index=True,
-        height=320
-    )
+    html = """
+    <style>
+        table {width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;}
+        th, td {border:1px solid #ddd;padding:7px 10px;text-align:left;}
+        th {background:#f2f2f2;font-weight:bold;}
+    </style>
+    <table>
+        <thead>
+            <tr>
+                <th>分类</th>
+                <th>年份品</th>
+                <th>非年份品</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    for _, row in df.iterrows():
+        html += f"""
+        <tr>
+            <td>{row["分类"]}</td>
+            <td>{row["年份品"]}</td>
+            <td>{row["非年份品"]}</td>
+        </tr>
+        """
+    html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
 
 # 渲染页面：先总库存口径，再FBA口径，每块里一行三列
 st.markdown("### 📦 总库存口径")

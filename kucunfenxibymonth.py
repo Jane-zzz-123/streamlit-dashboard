@@ -1382,8 +1382,10 @@ def render_colored_df(df, title):
     html = """
     <style>
         table {width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;}
-        th, td {border:1px solid #ddd;padding:7px 10px;text-align:left;}
+        th, td {border:1px solid #ddd;padding:7px 10px;text-align:left;white-space:nowrap;}
         th {background:#f2f2f2;font-weight:bold;}
+        .up {color:#ff3333;}
+        .down {color:#009933;}
     </style>
     <table>
         <thead>
@@ -1396,11 +1398,31 @@ def render_colored_df(df, title):
         <tbody>
     """
     for _, row in df.iterrows():
+        # 给年份品文本上色
+        y_text = row["年份品"]
+        y_diff = row["年份品_diff"]
+        if y_diff > 0:
+            y_html = f'<span class="up">{y_text}</span>'
+        elif y_diff < 0:
+            y_html = f'<span class="down">{y_text}</span>'
+        else:
+            y_html = y_text
+
+        # 给非年份品文本上色
+        ny_text = row["非年份品"]
+        ny_diff = row["非年份品_diff"]
+        if ny_diff > 0:
+            ny_html = f'<span class="up">{ny_text}</span>'
+        elif ny_diff < 0:
+            ny_html = f'<span class="down">{ny_text}</span>'
+        else:
+            ny_html = ny_text
+
         html += f"""
         <tr>
             <td>{row["分类"]}</td>
-            <td>{row["年份品"]}</td>
-            <td>{row["非年份品"]}</td>
+            <td>{y_html}</td>
+            <td>{ny_html}</td>
         </tr>
         """
     html += "</tbody></table>"

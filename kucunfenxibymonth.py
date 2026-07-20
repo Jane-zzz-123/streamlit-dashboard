@@ -788,11 +788,11 @@ c1, c2 = st.columns(2)
 with c1:
     st.caption("总库存口径")
     fig_amt_t = create_double_pie(df_total, "总金额", "滞销金额")
-    st.plotly_chart(fig_amt_t, use_container_width=True)
+    st.plotly_chart(fig_amt_t, use_container_width=True, key="pie_amt_total")
 with c2:
     st.caption("FBA+AWD+在途口径")
     fig_amt_f = create_double_pie(df_fba, "总金额", "滞销金额")
-    st.plotly_chart(fig_amt_f, use_container_width=True)
+    st.plotly_chart(fig_amt_f, use_container_width=True, key="pie_amt_f")
 
 st.divider()
 
@@ -858,11 +858,11 @@ c3, c4 = st.columns(2)
 with c3:
     st.caption("总库存口径")
     fig_stk_t = create_double_pie(df_total, "总库存", "滞销库存")
-    st.plotly_chart(fig_stk_t, use_container_width=True)
+    st.plotly_chart(fig_stk_t, use_container_width=True, key="pie_stock_total")
 with c4:
     st.caption("FBA+AWD+在途口径")
     fig_stk_f = create_double_pie(df_fba, "总库存", "滞销库存")
-    st.plotly_chart(fig_stk_f, use_container_width=True)
+    st.plotly_chart(fig_stk_f, use_container_width=True, key="pie_stock_f")
 
 st.divider()
 
@@ -928,11 +928,11 @@ c5, c6 = st.columns(2)
 with c5:
     st.caption("总库存口径")
     fig_sku_t = create_double_pie(df_total, "SKU数", "SKU数")
-    st.plotly_chart(fig_sku_t, use_container_width=True)
+    st.plotly_chart(fig_sku_t, use_container_width=True, key="pie_sku_total")
 with c6:
     st.caption("FBA+AWD+在途口径")
     fig_sku_f = create_double_pie(df_fba, "SKU数", "SKU数")
-    st.plotly_chart(fig_sku_f, use_container_width=True)
+    st.plotly_chart(fig_sku_f, use_container_width=True, key="pie_sku_fba")
 
 
 

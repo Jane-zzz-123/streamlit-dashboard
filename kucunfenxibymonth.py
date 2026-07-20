@@ -2133,14 +2133,14 @@ for pur in pur_config_list:
     c_pie1, c_pie2, c_pie3, c_pie4 = st.columns(4)
     with c_pie1:
         fig1 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="total", color_year=pur["color"])
-        st.plotly_chart(fig1, use_container_width=True)
+        st.plotly_chart(fig1, use_container_width=True, key=f"{pur['name_cn']}_qty_total")
     with c_pie2:
         fig2 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="total", color_year=pur["color"])
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True, key=f"{pur['name_cn']}_amt_total")
     with c_pie3:
         fig3 = draw_single_pie(agg_df, pur["name_cn"], chart_type="qty", stock_type="fba", color_year=pur["color"])
-        st.plotly_chart(fig3, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True, key=f"{pur['name_cn']}_qty_fba")
     with c_pie4:
         fig4 = draw_single_pie(agg_df, pur["name_cn"], chart_type="amt", stock_type="fba", color_year=pur["color"])
-        st.plotly_chart(fig4, use_container_width=True)
+        st.plotly_chart(fig4, use_container_width=True, key=f"{pur['name_cn']}_amt_fba")
     st.divider()

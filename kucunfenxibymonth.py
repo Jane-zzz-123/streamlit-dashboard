@@ -1150,7 +1150,7 @@ with cols[5]:
     st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
-st.subheader("📊 滞销拆解（含环比+占比 | 按口径/年份拆分")
+st.subheader("📊 滞销拆解（含环比+占比 | 按口径/年份拆分）")
 
 RISK_LIST = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 
@@ -1273,21 +1273,24 @@ met_nonyear_fba = get_segment_metrics(
     unsold_amt_col="FBA滞销金额_仅FBA"
 )
 
-# 格式化单元格并存储差值，方便后续上色
+# 【核心修改】格式化单元格，直接给差值套颜色span，不再后端正则处理
 def format_cell(val, diff, pct=None, unit=""):
     import pandas as pd
-    # 空值兜底
     if pd.isna(val):
         val = 0
     if pd.isna(diff):
         diff = 0
-    arrow = "↑" if diff >= 0 else "↓"
-    diff_str = f"{arrow}{diff:+d}".replace("+", "")
-    # 百分比兜底
-    if pct is not None and not pd.isna(pct):
-        text = f"{val:,}{unit} ({pct:.1%}) {diff_str}"
+    # 拼接带颜色的差值html
+    if diff > 0:
+        diff_html = f'<span style="color:#d32f2f">↑{diff:+d}</span>'.replace("+", "")
+    elif diff < 0:
+        diff_html = f'<span style="color:#388e3c">↓{diff:+d}</span>'.replace("+", "")
     else:
-        text = f"{val:,}{unit} {diff_str}"
+        diff_html = "持平"
+    if pct is not None and not pd.isna(pct):
+        text = f"{val:,}{unit} ({pct:.1%}) {diff_html}"
+    else:
+        text = f"{val:,}{unit} {diff_html}"
     return text, diff
 
 row_list = [
@@ -1355,11 +1358,7 @@ def build_table(m_year, m_nonyear, unit=""):
         rows.append({
             "分类": lab,
             "年份品": y_text,
-            "年份品_diff": y_diff,
-            "年份品_color": "red" if y_diff > 0 else "green" if y_diff < 0 else None,
             "非年份品": ny_text,
-            "非年份品_diff": ny_diff,
-            "非年份品_color": "red" if ny_diff > 0 else "green" if ny_diff < 0 else None
         })
 
     df = pd.DataFrame(rows)
@@ -1376,17 +1375,14 @@ df_sku_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 个")
 df_stock_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 件")
 df_amt_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 元")
 
-# 重写渲染函数：纯HTML表格，彻底移除pandas.style相关报错代码
+# 极简渲染函数：直接输出单元格原生html，不再做任何替换
 def render_colored_df(df, title):
-    import re
     st.markdown(title)
     html = """
     <style>
         table {width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;}
         th, td {border:1px solid #ddd;padding:7px 10px;text-align:left;white-space:nowrap;}
         th {background:#f2f2f2;font-weight:bold;}
-        .rise {color:#d32f2f; font-weight:bold;}
-        .fall {color:#388e3c; font-weight:bold;}
     </style>
     <table>
         <thead>
@@ -1398,29 +1394,12 @@ def render_colored_df(df, title):
         </thead>
         <tbody>
     """
-    # 正则匹配 ↑xxx 或 ↓xxx 片段
-    def color_text_segment(raw_text):
-        # 匹配 ↓数字 / ↑数字
-        pattern = r"(↑[+-]?\d+|↓[+-]?\d+)"
-        def replacer(match):
-            seg = match.group(1)
-            if seg.startswith("↑"):
-                return f'<span class="rise">{seg}</span>'
-            else:
-                return f'<span class="fall">{seg}</span>'
-        return re.sub(pattern, replacer, raw_text)
-
     for _, row in df.iterrows():
-        y_raw = row["年份品"]
-        ny_raw = row["非年份品"]
-        y_html = color_text_segment(y_raw)
-        ny_html = color_text_segment(ny_raw)
-
         html += f"""
         <tr>
             <td>{row["分类"]}</td>
-            <td>{y_html}</td>
-            <td>{ny_html}</td>
+            <td>{row["年份品"]}</td>
+            <td>{row["非年份品"]}</td>
         </tr>
         """
     html += "</tbody></table>"

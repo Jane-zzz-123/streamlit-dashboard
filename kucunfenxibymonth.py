@@ -1378,14 +1378,15 @@ df_amt_fba = build_table(met_year_fba, met_nonyear_fba, unit=" 元")
 
 # 重写渲染函数：纯HTML表格，彻底移除pandas.style相关报错代码
 def render_colored_df(df, title):
+    import re
     st.markdown(title)
     html = """
     <style>
         table {width:100%;border-collapse:collapse;margin:8px 0;font-size:14px;}
         th, td {border:1px solid #ddd;padding:7px 10px;text-align:left;white-space:nowrap;}
         th {background:#f2f2f2;font-weight:bold;}
-        .up {color:#ff3333;}
-        .down {color:#009933;}
+        .rise {color:#d32f2f; font-weight:bold;}
+        .fall {color:#388e3c; font-weight:bold;}
     </style>
     <table>
         <thead>
@@ -1397,26 +1398,23 @@ def render_colored_df(df, title):
         </thead>
         <tbody>
     """
-    for _, row in df.iterrows():
-        # 给年份品文本上色
-        y_text = row["年份品"]
-        y_diff = row["年份品_diff"]
-        if y_diff > 0:
-            y_html = f'<span class="up">{y_text}</span>'
-        elif y_diff < 0:
-            y_html = f'<span class="down">{y_text}</span>'
-        else:
-            y_html = y_text
+    # 正则匹配 ↑xxx 或 ↓xxx 片段
+    def color_text_segment(raw_text):
+        # 匹配 ↓数字 / ↑数字
+        pattern = r"(↑[+-]?\d+|↓[+-]?\d+)"
+        def replacer(match):
+            seg = match.group(1)
+            if seg.startswith("↑"):
+                return f'<span class="rise">{seg}</span>'
+            else:
+                return f'<span class="fall">{seg}</span>'
+        return re.sub(pattern, replacer, raw_text)
 
-        # 给非年份品文本上色
-        ny_text = row["非年份品"]
-        ny_diff = row["非年份品_diff"]
-        if ny_diff > 0:
-            ny_html = f'<span class="up">{ny_text}</span>'
-        elif ny_diff < 0:
-            ny_html = f'<span class="down">{ny_text}</span>'
-        else:
-            ny_html = ny_text
+    for _, row in df.iterrows():
+        y_raw = row["年份品"]
+        ny_raw = row["非年份品"]
+        y_html = color_text_segment(y_raw)
+        ny_html = color_text_segment(ny_raw)
 
         html += f"""
         <tr>

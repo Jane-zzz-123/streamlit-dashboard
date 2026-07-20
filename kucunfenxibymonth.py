@@ -2054,8 +2054,20 @@ st.header("📦 分采购类型滞销细分（双口径 × 年份品/非年份�
 for pur in pur_config_list:
     st.subheader(f"===== {pur['name_cn']} 滞销拆解 =====")
     agg_df = agg_single_pur(df_merge_curr, df_merge_prev, pur)
-    row_year = agg_df[agg_df["商品类型"] == "年份品"].iloc[0]
-    row_non = agg_df[agg_df["商品类型"] == "非年份品"].iloc[0]
+    # 拆分筛选
+    df_year_data = agg_df[agg_df["商品类型"] == "年份品"]
+    df_nonyear_data = agg_df[agg_df["商品类型"] == "非年份品"]
+
+    # 安全取值，空数据则生成全0行
+    if len(df_year_data) > 0:
+        row_year = df_year_data.iloc[0]
+    else:
+        row_year = pd.Series(0, index=agg_df.columns)
+
+    if len(df_nonyear_data) > 0:
+        row_non = df_nonyear_data.iloc[0]
+    else:
+        row_non = pd.Series(0, index=agg_df.columns)
 
     # 合计值
     total_qty_t = row_non["qty_total"] + row_year["qty_total"]

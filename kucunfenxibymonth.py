@@ -1152,7 +1152,7 @@ with cols[5]:
 st.divider()
 st.subheader("📊 滞销拆解（含环比+占比 | 按口径/年份拆分）")
 
-RISK_LIST = ["健康", "低滞销风险", "中滞销风险"]
+RISK_LIST = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 
 # 计算函数
 def get_segment_metrics(df_curr, df_prev, risk_col, stock_col, amt_col, unsold_stock_col, unsold_amt_col):
@@ -1169,7 +1169,7 @@ def get_segment_metrics(df_curr, df_prev, risk_col, stock_col, amt_col, unsold_s
     res["prev_total_amt"] = round(df_prev[amt_col].sum())
     res["diff_total_amt"] = res["curr_total_amt"] - res["prev_total_amt"]
 
-    for r in ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]:
+    for r in RISK_LIST:
         dc = df_curr[df_curr[risk_col] == r].copy().fillna(0)
         dp = df_prev[df_prev[risk_col] == r].copy().fillna(0)
 
@@ -1226,12 +1226,16 @@ def get_segment_metrics(df_curr, df_prev, risk_col, stock_col, amt_col, unsold_s
     return res
 
 # 筛选数据
+# 年份品
 df_curr_year = df_curr[df_curr["是否年份"] == "是"].copy()
 df_prev_year = df_prev[df_prev["是否年份"] == "是"].copy()
+
+# 非年份品
 df_curr_nonyear = df_curr[df_curr["是否年份"] == "否"].copy()
 df_prev_nonyear = df_prev[df_prev["是否年份"] == "否"].copy()
 
 # 计算指标
+# 1. 总库存口径 - 年份品/非年份品
 met_year_total = get_segment_metrics(
     df_curr_year, df_prev_year,
     risk_col="滞销风险等级",
@@ -1240,6 +1244,7 @@ met_year_total = get_segment_metrics(
     unsold_stock_col="总滞销库存",
     unsold_amt_col="总滞销金额"
 )
+
 met_nonyear_total = get_segment_metrics(
     df_curr_nonyear, df_prev_nonyear,
     risk_col="滞销风险等级",
@@ -1248,6 +1253,8 @@ met_nonyear_total = get_segment_metrics(
     unsold_stock_col="总滞销库存",
     unsold_amt_col="总滞销金额"
 )
+
+# 2. FBA口径 - 年份品/非年份品
 met_year_fba = get_segment_metrics(
     df_curr_year, df_prev_year,
     risk_col="滞销风险等级_FBA",
@@ -1256,6 +1263,7 @@ met_year_fba = get_segment_metrics(
     unsold_stock_col="FBA滞销数量_仅FBA",
     unsold_amt_col="FBA滞销金额_仅FBA"
 )
+
 met_nonyear_fba = get_segment_metrics(
     df_curr_nonyear, df_prev_nonyear,
     risk_col="滞销风险等级_FBA",
@@ -1303,7 +1311,7 @@ def build_table_raw(m_year, m_nonyear, unit=""):
             else:
                 y_text_raw, y_diff = format_cell_plain(m_year["curr_total_amt"], m_year["diff_total_amt"], unit=unit)
                 ny_text_raw, ny_diff = format_cell_plain(m_nonyear["curr_total_amt"], m_nonyear["diff_total_amt"], unit=unit)
-        elif lab == "滞销合计(低+中+high)":
+        elif lab == "滞销合计(低+中+高)":
             if unit == " 个":
                 y_text_raw, y_diff = format_cell_plain(m_year["unsold_sku_curr"], m_year["unsold_sku_diff"], m_year["pct_sku"], unit=unit)
                 ny_text_raw, ny_diff = format_cell_plain(m_nonyear["unsold_sku_curr"], m_nonyear["unsold_sku_diff"], m_nonyear["pct_sku"], unit=unit)
@@ -1325,7 +1333,7 @@ def build_table_raw(m_year, m_nonyear, unit=""):
                 diff_ny = m_nonyear[f"{lab}_unsold_stock_diff"] if lab!="健康" else m_nonyear[f"{lab}_stock_diff"]
                 pct_ny = m_nonyear[f"{lab}_pct_stock"] if lab!="健康" else None
                 y_text_raw, y_diff = format_cell_plain(val_y, diff_y, pct_y, unit=unit)
-                ny_text_raw, ny_diff = format_cell(val_ny, diff_ny, pct_ny, unit=unit)
+                ny_text_raw, ny_diff = format_cell_plain(val_ny, diff_ny, pct_ny, unit=unit)
             else:
                 val_y = m_year[f"{lab}_unsold_amt_curr"] if lab!="健康" else m_year[f"{lab}_amt_curr"]
                 diff_y = m_year[f"{lab}_unsold_amt_diff"] if lab!="健康" else m_year[f"{lab}_amt_diff"]
@@ -1349,11 +1357,12 @@ def build_table_raw(m_year, m_nonyear, unit=""):
 df_sku_total_raw = build_table_raw(met_year_total, met_nonyear_total, unit=" 个")
 df_stock_total_raw = build_table_raw(met_year_total, met_nonyear_total, unit=" 件")
 df_amt_total_raw = build_table_raw(met_year_total, met_nonyear_total, unit=" 元")
+
 df_sku_fba_raw = build_table_raw(met_year_fba, met_nonyear_fba, unit=" 个")
 df_stock_fba_raw = build_table_raw(met_year_fba, met_nonyear_fba, unit=" 件")
 df_amt_fba_raw = build_table_raw(met_year_fba, met_nonyear_fba, unit=" 元")
 
-# 渲染函数：循环时分割字符串、插入颜色span，df全程无特殊符号
+# 渲染函数：循环时分割字符串、插入颜色span
 def render_table(raw_df, title):
     st.markdown(title)
     html = """
@@ -1366,9 +1375,7 @@ def render_table(raw_df, title):
     </style>
     <table><thead><tr><th>分类</th><th>年份品</th><th>非年份品</th></tr></thead><tbody>
     """
-    import re
     def wrap_diff(txt, diff_num):
-        # 分割最后一段 箭头数字
         parts = txt.rsplit(" ", 1)
         if len(parts) < 2:
             return txt

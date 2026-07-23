@@ -1064,9 +1064,9 @@ else:
     sum_old_sales = df_old["销售额"].sum() if len(df_old) > 0 else 0
 
     # 3、初始化4个压降空列
-    df_8020_sort["单品压降_销量不变"] = None
-    df_8020_sort["单品压降_销量跌5%"] = None
-    df_8020_sort["单品压降_销量跌10%"] = None
+    df_8020_sort["单品压降_销售额不变"] = None
+    df_8020_sort["单品压降_销售额跌5%"] = None
+    df_8020_sort["单品压降_销售额跌10%"] = None
     df_8020_sort["全局分摊压降额"] = None
 
     # 循环逐行计算，彻底规避expand长度报错

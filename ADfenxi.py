@@ -1019,9 +1019,13 @@ else:
     total_month_sales = df_8020_sort["销售额"].sum()
     df_8020_sort["累计销售额占比"] = df_8020_sort["累计销售额"] / total_month_sales
 
+
     def mark_sku_level(row):
         return "核心SKU(贡献前80%营收)" if row["累计销售额占比"] <= 0.8 else "长尾SKU(剩余20%营收)"
+
+
     df_8020_sort["SKU层级"] = df_8020_sort.apply(mark_sku_level, axis=1)
+
 
     # 2、商品自动标签
     def get_flow_tag(row):
@@ -1038,6 +1042,8 @@ else:
         if sales > 0 and (ad_sales / sales) >= 0.95:
             return "重度广告依赖：砍广告销量大幅下滑"
         return "正常老品，参与全局预算压降分配"
+
+
     df_8020_sort["商品流量标签"] = df_8020_sort.apply(get_flow_tag, axis=1)
 
     # ========== 全局店铺预算测算核心逻辑 ==========
@@ -1097,9 +1103,16 @@ else:
     total_sku_count = len(df_8020_sort)
     head_sku_count = len(df_head_80)
     head_sku_pct = head_sku_count / total_sku_count if total_sku_count > 0 else 0
+
+    # 核心SKU聚合
     head_total_sales = df_head_80["销售额"].sum()
     head_total_ad_spend = df_head_80["广告花费"].sum()
+
+    # ========== 修复新增：补充长尾销售额求和 ==========
+    tail_total_sales = df_tail_20["销售额"].sum()
     tail_total_ad_spend = df_tail_20["广告花费"].sum()
+
+    # 分层TACOS计算
     head_tacos = head_total_ad_spend / head_total_sales if head_total_sales > 0 else 0
     tail_tacos = tail_total_ad_spend / tail_total_sales if tail_total_sales > 0 else 0
 

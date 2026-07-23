@@ -1092,9 +1092,9 @@ else:
             reduce_global = AdSpend - single_global_max if AdSpend > single_global_max else 0
 
         # 赋值回df
-        df_8020_sort.at[idx, "单品压降_销量不变"] = round(reduce_single_same, 2)
-        df_8020_sort.at[idx, "单品压降_销量跌5%"] = round(reduce_single_s95, 2)
-        df_8020_sort.at[idx, "单品压降_销量跌10%"] = round(reduce_single_s90, 2)
+        df_8020_sort.at[idx, "单品压降_销售额不变"] = round(reduce_single_same, 2)
+        df_8020_sort.at[idx, "单品压降_销售额跌5%"] = round(reduce_single_s95, 2)
+        df_8020_sort.at[idx, "单品压降_销售额跌10%"] = round(reduce_single_s90, 2)
         df_8020_sort.at[idx, "全局分摊压降额"] = round(reduce_global, 2)
 
     # 统计二八图表数据
@@ -1184,7 +1184,7 @@ else:
         "MSKU","品名","产品类型","SKU层级","商品流量标签",
         "展示","点击","CTR","CPC","CVR",
         "广告花费","广告销售额","销售额","单品ACOS","单品TACOS",
-        "单品压降_销量不变","单品压降_销量跌5%","单品压降_销量跌10%","全局分摊压降额"
+        "单品压降_销售额不变","单品压降_销售额跌5%","单品压降_销售额跌10%","全局分摊压降额"
     ]
     full_table = df_8020_sort[full_show_cols].copy()
 
@@ -1197,7 +1197,7 @@ else:
 
     # 格式化
     pct_cols = ["CTR","CVR","单品ACOS","单品TACOS"]
-    money_cols = ["CPC","广告花费","广告销售额","销售额","单品压降_销量不变","单品压降_销量跌5%","单品压降_销量跌10%","全局分摊压降额"]
+    money_cols = ["CPC","广告花费","广告销售额","销售额","单品压降_销售额不变","单品压降_销售额跌5%","单品压降_销售额跌10%","全局分摊压降额"]
     int_cols = ["展示","点击"]
     full_styled = full_table.style\
         .format(formatter="{:.2%}", subset=pct_cols, na_rep="-")\

@@ -496,7 +496,6 @@ def render_card_compact(title, m):
         f'<div style="font-size:14px">总金额：{m["amt_curr"]:,.0f} （上月：{m["amt_prev"]:,.0f}） <span style="color:{amt_c}">({amt_s})</span></div></div>')
     st.html("".join(parts))
 
-# ===================== 【新增】本地仓库滞销指标计算（仅总库存口径衍生） =====================
 def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, all_unsale_amt_local=0):
     risk_list = ["低滞销风险", "中滞销风险", "高滞销风险"]
     if risk_name == "整体":
@@ -507,7 +506,6 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         sku_p = df_prev["MSKU"].nunique()
         sku_diff = sku_c - sku_p
 
-        # 本地全部库存（健康+滞销）
         stk_c = float(df_curr["本地库存"].sum())
         stk_p = float(df_prev["本地库存"].sum())
         stk_diff = stk_c - stk_p
@@ -516,7 +514,6 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         amt_p = float(df_prev["本地金额"].sum())
         amt_diff = amt_c - amt_p
 
-        # 本地滞销
         u_stk_c = float(curr_unsale["本地滞销数量"].sum())
         u_stk_p = float(prev_unsale["本地滞销数量"].sum())
         u_stk_diff = u_stk_c - u_stk_p
@@ -526,6 +523,11 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         u_amt_p = float(prev_unsale["本地滞销金额"].sum())
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
+
+        # =========新增：当月年份品/非年份品本地滞销=========
+        curr_risk_df = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
+        year_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份品"]=="是", "本地滞销数量"].sum()
+        norm_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份品"]=="否", "本地滞销数量"].sum()
 
     else:
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
@@ -553,12 +555,30 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / all_unsale_amt_local if all_unsale_amt_local != 0 else 0
 
+        # =========新增：当月年份品/非年份品本地滞销=========
+        year_local_unsale = c.loc[c["是否年份品"]=="是", "本地滞销数量"].sum()
+        norm_local_unsale = c.loc[c["是否年份品"]=="否", "本地滞销数量"].sum()
+
+
+    # 计算占比
+    if u_stk_c > 0:
+        year_pct = year_local_unsale / u_stk_c
+        norm_pct = norm_local_unsale / u_stk_c
+    else:
+        year_pct = 0.0
+        norm_pct = 0.0
+
     return {
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
         "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
-        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt
+        "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt,
+        # 新增返回key
+        "year_local_unsale": year_local_unsale,
+        "norm_local_unsale": norm_local_unsale,
+        "year_pct": year_pct,
+        "norm_pct": norm_pct
     }
 
 
@@ -650,14 +670,28 @@ st.subheader("🏠 本地仓库滞销概览（国内仓库，复用总库存风�
 
 metrics_all_local = calc_metrics_local(df_curr, df_prev, "整体", 0, 0)
 all_unsale_stock_local = metrics_all_local["unsale_stock_curr"]
-all_unsale_amt_local = metrics_all_local["unsale_amt_curr"]
+all_unsale_amt_local = metrics_all_local["unsale_amt_local"]
 
 cols_local = st.columns(5)
 risk_item_list = ["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 for idx, risk_tag in enumerate(risk_item_list):
     m_local = calc_metrics_local(df_curr, df_prev, risk_tag, all_unsale_stock_local, all_unsale_amt_local)
+
+    # --------新增：组装年份品/非年份品备注suffix--------
+    if m_local["unsale_stock_curr"] > 0:
+        suffix_text = (
+            '<br><span style="font-size:0.85em;color:#444;">'
+            f'【年份品:{m_local["year_local_unsale"]:,.0f}({m_local["year_pct"]:.1%})，'
+            f'非年份品:{m_local["norm_local_unsale"]:,.0f}({m_local["norm_pct"]:.1%})】'
+            '</span>'
+        )
+    else:
+        suffix_text = ""
+    # ------------------------------------------------
+
     with cols_local[idx]:
-        render_card_compact(risk_tag, m_local)
+        # 多传第三个参数 suffix=suffix_text
+        render_card_compact(risk_tag, m_local, suffix=suffix_text)
 
 # ---------------------- 本地模块结束 ----------------------
 

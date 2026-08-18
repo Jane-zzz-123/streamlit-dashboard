@@ -677,16 +677,17 @@ risk_item_list = ["整体", "健康", "低滞销风险", "中滞销风险", "高
 for idx, risk_tag in enumerate(risk_item_list):
     m_local = calc_metrics_local(df_curr, df_prev, risk_tag, all_unsale_stock_local, all_unsale_amt_local)
 
-    # --------新增：组装年份品/非年份品备注suffix--------
+    suffix_text = ""
     if m_local["unsale_stock_curr"] > 0:
+        y_val = m_local["year_local_unsale"]
+        y_pct = m_local["year_pct"]
+        n_val = m_local["norm_local_unsale"]
+        n_pct = m_local["norm_pct"]
         suffix_text = (
-            '<br><span style="font-size:0.85em;color:#444;">'
-            f'【年份品:{m_local["year_local_unsale"]:,.0f}({m_local["year_pct"]:.1%})，'
-            f'非年份品:{m_local["norm_local_unsale"]:,.0f}({m_local["norm_pct"]:.1%})】'
-            '</span>'
+            f'<br><span style="font-size:0.85em;color:#444;">'
+            f'【年份品:{y_val:,.0f}({y_pct:.1%})，非年份品:{n_val:,.0f}({n_pct:.1%})】'
+            f'</span>'
         )
-    else:
-        suffix_text = ""
     # ------------------------------------------------
 
     with cols_local[idx]:

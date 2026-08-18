@@ -461,7 +461,7 @@ def calc_metrics(df_curr, df_prev, risk_name, all_unsale_stock=0, all_unsale_amt
 
 
 # ===================== 卡片渲染 =====================
-def render_card_compact(title, m, suffix=""):
+def render_card_compact(title, m, suffix="", suffix_amt=""):
     bg = RISK_COLORS.get(title, "#f5f5f5")
 
     # 数值格式化：正数红色，负数绿色
@@ -486,11 +486,12 @@ def render_card_compact(title, m, suffix=""):
     if title != "健康":
         usc, uss = fmt(m["unsale_stock_diff"])
         uac, uas = fmt(m["unsale_amt_diff"])
-        # ✅ 在这一行末尾加上 {suffix}
+        # 滞销库存行拼接数量备注 suffix
         parts.append(
             f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span>{suffix}</div>')
+        # 滞销金额行拼接金额备注 suffix_amt
         parts.append(
-            f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
+            f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span>{suffix_amt}</div>')
 
     # 总金额：当前值 + 上月值 + 环比
     parts.append(
@@ -525,10 +526,13 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / amt_c if amt_c != 0 else 0
 
-        # =========新增：当月年份品/非年份品本地滞销=========
+        # =========新增：当月年份品/非年份品本地滞销【数量+金额】=========
         curr_risk_df = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
         year_local_unsale = float(curr_risk_df.loc[curr_risk_df["是否年份"]=="是", "本地滞销数量"].sum())
         norm_local_unsale = float(curr_risk_df.loc[curr_risk_df["是否年份"]=="否", "本地滞销数量"].sum())
+
+        year_local_amt = float(curr_risk_df.loc[curr_risk_df["是否年份"]=="是", "本地滞销金额"].sum())
+        norm_local_amt = float(curr_risk_df.loc[curr_risk_df["是否年份"]=="否", "本地滞销金额"].sum())
 
     else:
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
@@ -556,12 +560,15 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         u_amt_diff = u_amt_c - u_amt_p
         pct_amt = u_amt_c / all_unsale_amt_local if all_unsale_amt_local != 0 else 0
 
-        # =========新增：当月年份品/非年份品本地滞销=========
+        # =========新增：当月年份品/非年份品本地滞销【数量+金额】=========
         year_local_unsale = float(c.loc[c["是否年份"]=="是", "本地滞销数量"].sum())
         norm_local_unsale = float(c.loc[c["是否年份"]=="否", "本地滞销数量"].sum())
 
+        year_local_amt = float(c.loc[c["是否年份"]=="是", "本地滞销金额"].sum())
+        norm_local_amt = float(c.loc[c["是否年份"]=="否", "本地滞销金额"].sum())
 
-    # 计算占比
+
+    # 计算数量占比
     if u_stk_c > 0:
         year_pct = year_local_unsale / u_stk_c
         norm_pct = norm_local_unsale / u_stk_c
@@ -569,17 +576,30 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         year_pct = 0.0
         norm_pct = 0.0
 
+    # 计算金额占比
+    if u_amt_c > 0:
+        year_amt_pct = year_local_amt / u_amt_c
+        norm_amt_pct = norm_local_amt / u_amt_c
+    else:
+        year_amt_pct = 0.0
+        norm_amt_pct = 0.0
+
     return {
         "sku_curr": sku_c, "sku_prev": sku_p, "sku_diff": sku_diff,
         "stock_curr": stk_c, "stock_prev": stk_p, "stock_diff": stk_diff,
         "amt_curr": amt_c, "amt_prev": amt_p, "amt_diff": amt_diff,
         "unsale_stock_curr": u_stk_c, "unsale_stock_prev": u_stk_p, "unsale_stock_diff": u_stk_diff, "unsale_stock_pct": pct_stk,
         "unsale_amt_curr": u_amt_c, "unsale_amt_prev": u_amt_p, "unsale_amt_diff": u_amt_diff, "unsale_amt_pct": pct_amt,
-        # 新增返回key
+        # 数量维度
         "year_local_unsale": year_local_unsale,
         "norm_local_unsale": norm_local_unsale,
         "year_pct": year_pct,
-        "norm_pct": norm_pct
+        "norm_pct": norm_pct,
+        # 金额维度新增
+        "year_local_amt": year_local_amt,
+        "norm_local_amt": norm_local_amt,
+        "year_amt_pct": year_amt_pct,
+        "norm_amt_pct": norm_amt_pct
     }
 
 
@@ -679,20 +699,32 @@ for idx, risk_tag in enumerate(risk_item_list):
     m_local = calc_metrics_local(df_curr, df_prev, risk_tag, all_unsale_stock_local, all_unsale_amt_local)
 
     suffix_text = ""
+    suffix_amt_text = ""
     if m_local["unsale_stock_curr"] > 0:
+        # 数量备注
         y_val = m_local["year_local_unsale"]
         y_pct = m_local["year_pct"]
         n_val = m_local["norm_local_unsale"]
         n_pct = m_local["norm_pct"]
-        # 去掉f""，使用format格式化，彻底规避引号/解析异常
         suffix_text = (
             '<br><span style="font-size:1em;color:#333;">'
             '【年份品:{:,.0f}({:.1%})，非年份品:{:,.0f}({:.1%})】'
             '</span>'
         ).format(y_val, y_pct, n_val, n_pct)
 
+        # 金额备注
+        y_amt_val = m_local["year_local_amt"]
+        y_amt_pct = m_local["year_amt_pct"]
+        n_amt_val = m_local["norm_local_amt"]
+        n_amt_pct = m_local["norm_amt_pct"]
+        suffix_amt_text = (
+            '<br><span style="font-size:1em;color:#333;">'
+            '【年份品:{:,.0f}({:.1%})，非年份品:{:,.0f}({:.1%})】'
+            '</span>'
+        ).format(y_amt_val, y_amt_pct, n_amt_val, n_amt_pct)
+
     with cols_local[idx]:
-        render_card_compact(risk_tag, m_local, suffix=suffix_text)
+        render_card_compact(risk_tag, m_local, suffix=suffix_text, suffix_amt=suffix_amt_text)
 
 # ---------------------- 本地模块结束 ----------------------
 

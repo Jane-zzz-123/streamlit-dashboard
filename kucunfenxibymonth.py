@@ -659,21 +659,6 @@ for idx, risk_tag in enumerate(risk_item_list):
     with cols_local[idx]:
         render_card_compact(risk_tag, m_local)
 
-
-# ========= 可选：本地仓库【健康库存 vs 滞销库存】环形饼图（可以删掉不需要就整段注释） =========
-import plotly.graph_objects as go
-
-local_healthy_stock = metrics_all_local["stock_curr"] - metrics_all_local["unsale_stock_curr"]
-local_unsale_stock = metrics_all_local["unsale_stock_curr"]
-
-fig_local_pie = go.Figure(data=[go.Pie(
-    labels=["本地健康库存", "本地滞销库存"],
-    values=[local_healthy_stock, local_unsale_stock],
-    hole=0.4,
-    marker_colors=["#81c784", "#ef9a9a"]
-)])
-fig_local_pie.update_layout(title_text="📊本地仓库库存结构", height=320)
-st.plotly_chart(fig_local_pie, use_container_width=True)
 # ---------------------- 本地模块结束 ----------------------
 
 

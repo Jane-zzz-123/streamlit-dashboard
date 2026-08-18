@@ -526,8 +526,8 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
 
         # =========新增：当月年份品/非年份品本地滞销=========
         curr_risk_df = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
-        year_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份品"]=="是", "本地滞销数量"].sum()
-        norm_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份品"]=="否", "本地滞销数量"].sum()
+        year_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份"]=="是", "本地滞销数量"].sum()
+        norm_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份"]=="否", "本地滞销数量"].sum()
 
     else:
         c = df_curr[df_curr["滞销风险等级"] == risk_name]

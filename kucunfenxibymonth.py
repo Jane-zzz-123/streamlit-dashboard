@@ -461,7 +461,7 @@ def calc_metrics(df_curr, df_prev, risk_name, all_unsale_stock=0, all_unsale_amt
 
 
 # ===================== 卡片渲染 =====================
-def render_card_compact(title, m):
+def render_card_compact(title, m, suffix=""):
     bg = RISK_COLORS.get(title, "#f5f5f5")
 
     # 数值格式化：正数红色，负数绿色
@@ -486,8 +486,9 @@ def render_card_compact(title, m):
     if title != "健康":
         usc, uss = fmt(m["unsale_stock_diff"])
         uac, uas = fmt(m["unsale_amt_diff"])
+        # ✅ 在这一行末尾加上 {suffix}
         parts.append(
-            f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span></div>')
+            f'<div style="font-size:14px">滞销库存：{m["unsale_stock_curr"]:,.0f} ({m["unsale_stock_pct"]:.1%}) （上月：{m["unsale_stock_prev"]:,.0f}） <span style="color:{usc}">({uss})</span>{suffix}</div>')
         parts.append(
             f'<div style="font-size:14px">滞销金额：{m["unsale_amt_curr"]:,.0f} ({m["unsale_amt_pct"]:.1%}) （上月：{m["unsale_amt_prev"]:,.0f}） <span style="color:{uac}">({uas})</span></div>')
 
@@ -526,8 +527,8 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
 
         # =========新增：当月年份品/非年份品本地滞销=========
         curr_risk_df = df_curr[df_curr["滞销风险等级"].isin(risk_list)]
-        year_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份"]=="是", "本地滞销数量"].sum()
-        norm_local_unsale = curr_risk_df.loc[curr_risk_df["是否年份"]=="否", "本地滞销数量"].sum()
+        year_local_unsale = float(curr_risk_df.loc[curr_risk_df["是否年份"]=="是", "本地滞销数量"].sum())
+        norm_local_unsale = float(curr_risk_df.loc[curr_risk_df["是否年份"]=="否", "本地滞销数量"].sum())
 
     else:
         c = df_curr[df_curr["滞销风险等级"] == risk_name]
@@ -556,8 +557,8 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         pct_amt = u_amt_c / all_unsale_amt_local if all_unsale_amt_local != 0 else 0
 
         # =========新增：当月年份品/非年份品本地滞销=========
-        year_local_unsale = c.loc[c["是否年份"]=="是", "本地滞销数量"].sum()
-        norm_local_unsale = c.loc[c["是否年份"]=="否", "本地滞销数量"].sum()
+        year_local_unsale = float(c.loc[c["是否年份"]=="是", "本地滞销数量"].sum())
+        norm_local_unsale = float(c.loc[c["是否年份"]=="否", "本地滞销数量"].sum())
 
 
     # 计算占比
@@ -683,15 +684,14 @@ for idx, risk_tag in enumerate(risk_item_list):
         y_pct = m_local["year_pct"]
         n_val = m_local["norm_local_unsale"]
         n_pct = m_local["norm_pct"]
+        # 去掉f""，使用format格式化，彻底规避引号/解析异常
         suffix_text = (
-            f'<br><span style="font-size:0.85em;color:#444;">'
-            f'【年份品:{y_val:,.0f}({y_pct:.1%})，非年份品:{n_val:,.0f}({n_pct:.1%})】'
-            f'</span>'
-        )
-    # ------------------------------------------------
+            '<br><span style="font-size:0.85em;color:#444;">'
+            '【年份品:{:,.0f}({:.1%})，非年份品:{:,.0f}({:.1%})】'
+            '</span>'
+        ).format(y_val, y_pct, n_val, n_pct)
 
     with cols_local[idx]:
-        # 多传第三个参数 suffix=suffix_text
         render_card_compact(risk_tag, m_local, suffix=suffix_text)
 
 # ---------------------- 本地模块结束 ----------------------

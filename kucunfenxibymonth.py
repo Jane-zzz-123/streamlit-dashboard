@@ -670,7 +670,7 @@ st.subheader("🏠 本地仓库滞销概览（国内仓库，复用总库存风�
 
 metrics_all_local = calc_metrics_local(df_curr, df_prev, "整体", 0, 0)
 all_unsale_stock_local = metrics_all_local["unsale_stock_curr"]
-all_unsale_amt_local = metrics_all_local["unsale_amt_local"]
+all_unsale_amt_local = metrics_all_local["unsale_amt_curr"]
 
 cols_local = st.columns(5)
 risk_item_list = ["整体", "健康", "低滞销风险", "中滞销风险", "高滞销风险"]

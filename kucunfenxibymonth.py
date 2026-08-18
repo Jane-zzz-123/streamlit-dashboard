@@ -686,7 +686,7 @@ for idx, risk_tag in enumerate(risk_item_list):
         n_pct = m_local["norm_pct"]
         # 去掉f""，使用format格式化，彻底规避引号/解析异常
         suffix_text = (
-            '<br><span style="font-size:0.85em;color:#444;">'
+            '<br><span style="font-size:1em;color:#333;">'
             '【年份品:{:,.0f}({:.1%})，非年份品:{:,.0f}({:.1%})】'
             '</span>'
         ).format(y_val, y_pct, n_val, n_pct)

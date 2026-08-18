@@ -556,8 +556,8 @@ def calc_metrics_local(df_curr, df_prev, risk_name, all_unsale_stock_local=0, al
         pct_amt = u_amt_c / all_unsale_amt_local if all_unsale_amt_local != 0 else 0
 
         # =========新增：当月年份品/非年份品本地滞销=========
-        year_local_unsale = c.loc[c["是否年份品"]=="是", "本地滞销数量"].sum()
-        norm_local_unsale = c.loc[c["是否年份品"]=="否", "本地滞销数量"].sum()
+        year_local_unsale = c.loc[c["是否年份"]=="是", "本地滞销数量"].sum()
+        norm_local_unsale = c.loc[c["是否年份"]=="否", "本地滞销数量"].sum()
 
 
     # 计算占比

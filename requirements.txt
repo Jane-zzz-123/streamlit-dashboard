@@ -1,6 +1,3 @@
-streamlit
-pandas
-openpyxl
-requests
+streamlit==1.40.1
 plotly
-numpy
+openpyxl

@@ -3500,18 +3500,106 @@ def main():
                 )
                 st.plotly_chart(fig_combined, use_container_width=True)
 
-            # ============ 新增：大于270天库龄>0，高仓储风险SKU 表格 ============
+            # ============【完全新增，原有代码不动】🔴 高长期仓储费风险SKU（大于270天库龄数量 > 0，建议立即清货/弃置） ============
             st.subheader("🔴 高长期仓储费风险SKU（大于270天库龄数量 > 0，建议立即清货/弃置）")
-            # 筛选条件：大于270天库龄数量 > 0
-            df_high_storage_risk = current_data_full[current_data_full["大于270天库龄数量"] > 0].copy()
 
-            if len(df_high_storage_risk) > 0:
-                # 复用你现有的产品明细渲染函数，列、样式、分页和主表完全一致
-                render_product_detail_table(df_high_storage_risk, key_prefix="high_risk_")
-                st.markdown("<br>", unsafe_allow_html=True)  # 空行，隔开两个表格
+            # 独立分页变量，不和老代码冲突
+            if "high_risk_table_page" not in st.session_state:
+                st.session_state["high_risk_table_page"] = 1
+
+            # 筛选数据，fillna(0) 防止NaN造成筛选失效
+            df_high_storage_risk = current_data_full[current_data_full["大于270天库龄数量"].fillna(0) > 0].copy()
+
+            # 和产品列表完全一样的显示列（复制原有display_cols）
+            display_cols_high = [
+                "店铺", "MSKU", "品名", "记录时间",
+                "日均", "7天日均", "14天日均", "28天日均",
+                "FBA+AWD+在途库存", "本地可用", "全部总库存", "预计FBA+AWD+在途用完时间",
+                "预计总库存用完", "库存周转状态判断", "总库存周转天数120天内达标日均", "周转天数超过120天的滞销数量",
+                "年份品清仓风险", "预计清完FBA+AWD+在途需要的日均", "清库存的目标日均", "FBA+AWD+在途滞销数量",
+                "本地滞销数量", "总滞销库存",
+                "预计总库存需要消耗天数", "预计用完时间比目标时间多出来的天数", "环比上周库年份品滞销风险变化",
+                "是否年份品", "90-180天库龄数量", "181-270天库龄数量", "大于270天库龄数量"
+            ]
+
+            available_cols_high = [col for col in display_cols_high if col in df_high_storage_risk.columns]
+            table_data_high = df_high_storage_risk[available_cols_high].copy()
+
+            page_size_high = 30
+            page_high = st.session_state["high_risk_table_page"]
+
+            if not table_data_high.empty:
+                total_rows_high = len(table_data_high)
+                total_pages_high = max(1, (total_rows_high + page_size_high - 1) // page_size_high)
+                start_idx_high = (page_high - 1) * page_size_high
+                end_idx_high = min(start_idx_high + page_size_high, total_rows_high)
+                paginated_high = table_data_high.iloc[start_idx_high:end_idx_high].copy()
+
+                # 日期格式化
+                date_cols_high = ["记录时间", "预计FBA+AWD+在途用完时间", "预计总库存用完"]
+                for c in date_cols_high:
+                    if c in paginated_high.columns:
+                        paginated_high[c] = pd.to_datetime(paginated_high[c]).dt.strftime("%Y-%m-%d")
+
+                # 年份品清仓风险着色
+                if "年份品清仓风险" in paginated_high.columns:
+                    def fmt_status(x):
+                        if x == "非年份品（无目标日期风险）":
+                            return f"<span style='color:#808080; font-weight:bold;'>{x}</span>"
+                        return f"<span style='color:{STATUS_COLORS.get(x, '#000')}; font-weight:bold;'>{x}</span>"
+
+                    paginated_high["年份品清仓风险"] = paginated_high["年份品清仓风险"].apply(fmt_status)
+
+                # 库存周转状态着色
+                if "库存周转状态判断" in paginated_high.columns:
+                    paginated_high["库存周转状态判断"] = paginated_high["库存周转状态判断"].apply(
+                        lambda
+                            x: f"<span style='color:{TURNOVER_STATUS_COLORS.get(x, '#000')}; font-weight:bold;'>{x}</span>"
+                    )
+
+                # 环比上周风险变化着色
+                if "环比上周库年份品滞销风险变化" in paginated_high.columns:
+                    def fmt_change(x):
+                        if x == "改善":
+                            return "<span style='color:#2E8B57;font-weight:bold;'>改善</span>"
+                        elif x == "恶化":
+                            return "<span style='color:#DC143C;font-weight:bold;'>恶化</span>"
+                        else:
+                            return f"<span style='font-weight:bold;'>{x}</span>"
+
+                    paginated_high["环比上周库年份品滞销风险变化"] = paginated_high[
+                        "环比上周库年份品滞销风险变化"].apply(fmt_change)
+
+                st.markdown(paginated_high.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+                # 分页按钮（完全独立，key加high_risk避免冲突）
+                colh1, colh2, colh3 = st.columns([1, 2, 1])
+                with colh1:
+                    if page_high > 1:
+                        if st.button("上一页", key="high_risk_prev"):
+                            st.session_state["high_risk_table_page"] -= 1
+                            st.rerun()
+                with colh2:
+                    st.write(f"第 {page_high} 页，共 {total_pages_high} 页，共 {total_rows_high} 条记录")
+                with colh3:
+                    if page_high < total_pages_high:
+                        if st.button("下一页", key="high_risk_next"):
+                            st.session_state["high_risk_table_page"] += 1
+                            st.rerun()
+
+                # 【可选】该风险表格单独下载按钮
+                csv_high = paginated_high.to_csv(index=False, encoding="utf-8-sig")
+                st.download_button(
+                    label="🔴下载高长期仓储风险SKU列表",
+                    data=csv_high,
+                    file_name="高长期仓储费风险SKU.csv",
+                    mime="text/csv",
+                    key="download_high_risk"
+                )
             else:
                 st.success("✅ 当前没有【大于270天库龄数量>0】的SKU，无高额长期仓储费风险")
-                st.markdown("<br>", unsafe_allow_html=True)
+
+            st.markdown("<br><br>", unsafe_allow_html=True)
             # ================================================================
             # ========== 产品列表（全量数据） ==========
             st.subheader(f"{selected_store} 产品列表（年份品+非年份品）")

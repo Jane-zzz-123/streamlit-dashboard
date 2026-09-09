@@ -3552,7 +3552,7 @@ def main():
                         def fmt_status(x):
                             if x == "非年份品（无目标日期风险）":
                                 return f"<span style='color:#808080; font-weight:bold;'>{x}</span>"
-                            return f"<span style='color:{STATUS_COLORS.get(x, '#000')}; font-weight:bold;'>{x}</span"
+                            return f"<span style='color:{STATUS_COLORS.get(x, '#000')}; font-weight:bold;'>{x}</span>"
 
                         paginated_high["年份品清仓风险"] = paginated_high["年份品清仓风险"].apply(fmt_status)
 
@@ -3576,7 +3576,16 @@ def main():
                         paginated_high["环比上周库年份品滞销风险变化"] = paginated_high[
                             "环比上周库年份品滞销风险变化"].apply(fmt_change)
 
-                    st.markdown(paginated_high.to_html(escape=False, index=False), unsafe_allow_html=True)
+                    # =========【改动重点：外层滚动容器 + 浅红背景区分表格】=========
+                    table_html_raw = paginated_high.to_html(escape=False, index=False)
+                    # 外层div：横向滚动、浅红背景、圆角、内边距，和下方普通表格区分
+                    scroll_wrapper = '''
+                    <div style="overflow-x:auto; padding:10px; background-color:#fff2f2; border-radius:8px; border:1px solid #ffcccc;">
+                        {table_content}
+                    </div>
+                    '''.format(table_content=table_html_raw)
+                    st.markdown(scroll_wrapper, unsafe_allow_html=True)
+                    # =============================================================
 
                     # 分页按钮（完全独立，key加high_risk避免冲突）
                     colh1, colh2, colh3 = st.columns([1, 2, 1])
@@ -3593,7 +3602,7 @@ def main():
                                 st.session_state["high_risk_table_page"] += 1
                                 st.rerun()
 
-                    # ✨修复：导出【全部高风险数据】而不是仅当前分页
+                    # ✨导出【全部高风险数据】而不是仅当前分页
                     csv_high_full = table_data_high.to_csv(index=False, encoding="utf-8-sig")
                     st.download_button(
                         label="🔴下载高长期仓储风险SKU列表（全部）",
@@ -3606,7 +3615,6 @@ def main():
                     st.success("✅ 当前没有【大于270天库龄数量>0】的SKU，无高额长期仓储费风险")
 
             st.markdown("<br><br>", unsafe_allow_html=True)
-            # ================================================================
             # ========== 产品列表（全量数据） ==========
             st.subheader(f"{selected_store} 产品列表（年份品+非年份品）")
             display_columns = [

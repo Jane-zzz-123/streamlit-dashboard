@@ -3500,6 +3500,19 @@ def main():
                 )
                 st.plotly_chart(fig_combined, use_container_width=True)
 
+            # ============ 新增：大于270天库龄>0，高仓储风险SKU 表格 ============
+            st.subheader("🔴 高长期仓储费风险SKU（大于270天库龄数量 > 0，建议立即清货/弃置）")
+            # 筛选条件：大于270天库龄数量 > 0
+            df_high_storage_risk = current_data_full[current_data_full["大于270天库龄数量"] > 0].copy()
+
+            if len(df_high_storage_risk) > 0:
+                # 复用你现有的产品明细渲染函数，列、样式、分页和主表完全一致
+                render_product_detail_table(df_high_storage_risk, key_prefix="high_risk_")
+                st.markdown("<br>", unsafe_allow_html=True)  # 空行，隔开两个表格
+            else:
+                st.success("✅ 当前没有【大于270天库龄数量>0】的SKU，无高额长期仓储费风险")
+                st.markdown("<br>", unsafe_allow_html=True)
+            # ================================================================
             # ========== 产品列表（全量数据） ==========
             st.subheader(f"{selected_store} 产品列表（年份品+非年份品）")
             display_columns = [

@@ -115,7 +115,7 @@ with col_logout:
 st.title("📊 整体滞销情况分析")
 
 # ===================== 常量配置 =====================
-TARGET_CLEAR_DATE = datetime(2026, 10, 31)
+TARGET_CLEAR_DATE = datetime(2026, 11, 15)#年份品清仓截至时间
 RISK_LEVELS = ["健康", "低滞销风险", "中滞销风险", "高滞销风险"]
 RISK_COLORS = {
     "整体": "#f5f5f5",
@@ -221,6 +221,21 @@ def build_master_df(df_snap, df_prod, df_sale, df_pur):
     # 总金额 = FBA金额 + 本地金额
     df["总库存金额"] = (df["FBA金额"] + df["本地金额"]).round(2)
 
+    # ========= 新增：仅年份品：FBA+AWD+在途库存卖到2026‑11‑30需要的日均 =========
+    TARGET_FBA_SELLOUT = datetime(2026, 11, 30)
+    # 计算距离11‑30剩余天数
+    delta_remain = TARGET_FBA_SELLOUT - df["时间"]
+    df["剩余天数_FBA卖到1130"] = delta_remain.dt.days
+
+    # 仅【是否年份 = "是"】才计算目标日均；非年份品赋值为NaN
+    is_year_item = df["是否年份"].astype(str).str.strip() == "是"
+    mask_calc = is_year_item & (df["剩余天数_FBA卖到1130"] > 0)
+
+    df["FBA目标日均_卖到1130"] = np.where(
+        mask_calc,
+        (df["FBA+AWD+在途库存"] / df["剩余天数_FBA卖到1130"]).round(2),
+        np.nan
+    )
     return df
 
 
@@ -778,7 +793,10 @@ with st.expander("📋 查看每个MSKU计算明细（总库存 + FBA双口径�
         "FBA滞销金额",  # 总库存风险下的FBA滞销金额
         "本地滞销数量",
         "本地金额",
-        "本地滞销金额"
+        "本地滞销金额",
+        # -------- 新增，放在表格最末尾 --------
+        "剩余天数_FBA卖到1130",
+        "FBA目标日均_卖到1130"
     ]
     st.dataframe(df_curr[show_cols], use_container_width=True)
 

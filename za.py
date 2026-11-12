@@ -83,7 +83,7 @@ STATUS_COLORS = {
     "高滞销风险": "#DC143C",                # 深红
     "非年份品（无目标日期风险）": "#808080"  # 灰色（区分非年份品）
 }
-TARGET_DATE = datetime(2026, 10, 31)  # 目标消耗完成日期
+TARGET_DATE = datetime(2026, 11, 30)  # 目标消耗完成日期
 END_DATE = datetime(2026, 12, 31)  # 预测截止日期
 # ========== 新增：库存周转状态的颜色映射（专门给新列用） ==========
 TURNOVER_STATUS_COLORS = {
@@ -337,7 +337,8 @@ def load_and_preprocess_data_from_df(df):
 
         # 生成新列
         df["周转天数超过120天的滞销数量"] = df.apply(calculate_turnover_overstock, axis=1).astype(int)
-        # 14. 清库存的目标日均
+
+        # 14. 清库存的目标日均【修改：区分年份品/非年份品】
         def calculate_target_sales(row):
             record_date = row["记录时间"]
             base_avg = row["日均"] if row["日均"] > 0 else 0.1
@@ -372,11 +373,21 @@ def load_and_preprocess_data_from_df(df):
         days_available = (TARGET_DATE - df["记录时间"]).dt.days
         days_available = np.maximum(days_available, 1)
         df["目标日期前分阶段可售总量"] = df.apply(calculate_target_sales, axis=1)
-        df["清库存的目标日均"] = np.where(
-            df["年份品清仓风险"] == "健康",
-            (df["目标日期前分阶段可售总量"] / days_available).round(2),
-            (df["全部总库存"] / days_available).round(2)
-        )
+
+        # ====== 核心改动在这里：增加是否年份品判断 ======
+        def calc_clear_target_daily(row):
+            if row["是否年份品"]:
+                # 年份品：原有逻辑不变
+                if row["年份品清仓风险"] == "健康":
+                    val = row["目标日期前分阶段可售总量"] / days_available[row.name]
+                else:
+                    val = row["全部总库存"] / days_available[row.name]
+            else:
+                # 非年份品：固定120天
+                val = row["全部总库存"] / 120
+            return round(val, 2)
+
+        df["清库存的目标日均"] = df.apply(calc_clear_target_daily, axis=1)
 
         # ========== 15. 预计清完FBA+AWD+在途需要的日均【修改后支持区分年份品/非年份品】 ==========
         def calculate_fba_awd_target_avg(row):
@@ -2323,7 +2334,7 @@ def main():
         st.subheader("📋 库存风险判断说明")
         st.markdown("""
         #### 一、滞销风险分类（按预计消耗时间）
-        - **健康**：预计总库存用完时间 ≤ 2026年10月31日；
+        - **健康**：预计总库存用完时间 ≤ 2026年11月30日；
         - **低滞销风险**：预计用完时间超目标时间 0-10 天；
         - **中滞销风险**：预计用完时间超目标时间 10-20 天；
         - **高滞销风险**：预计用完时间超目标时间 > 20 天；
@@ -2341,9 +2352,9 @@ def main():
 
         #### 四、预计清完FBA+AWD+在途需要的日均说明
         > 含义：清空【FBA+AWD+在途库存】所需达成的每日销量
-        - **年份品**：以目标消耗完成日期2026‑10‑31为截止日；
-          预计清完FBA+AWD+在途需要的日均 = FBA+AWD+在途库存 ÷ 更新时间与2026‑10‑31的天数差
-        - **非年份品**：不使用2026‑10‑31目标日期，统一按90天计算：
+        - **年份品**：以目标消耗完成日期2026‑11‑30为截止日；
+          预计清完FBA+AWD+在途需要的日均 = FBA+AWD+在途库存 ÷ 更新时间与2026‑11‑30的天数差
+        - **非年份品**：不使用2026‑11‑30目标日期，统一按90天计算：
           预计清完FBA+AWD+在途需要的日均 = FBA+AWD+在途库存 ÷ 90
         """, unsafe_allow_html=False)
         st.subheader("数据加载中...")
